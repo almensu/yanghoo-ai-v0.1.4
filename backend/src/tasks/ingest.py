@@ -2,9 +2,9 @@ import os
 import uuid
 import yt_dlp
 import asyncio
-import glob # Import glob for pattern matching
-import shutil # For potential cleanup
-# from pathlib import Path # Remove pathlib
+import glob
+import shutil
+from pathlib import Path # Import Path
 from ..schemas import Platform, TaskMetadata
 
 def detect_platform(url: str) -> Platform:
@@ -19,13 +19,14 @@ def detect_platform(url: str) -> Platform:
     else:
         raise ValueError(f"Unsupported platform for URL: {url}")
 
-async def create_ingest_task(url: str, base_dir: str) -> TaskMetadata: # base_dir is now str
+async def create_ingest_task(url: str, base_dir_str: str) -> TaskMetadata:
+    base_dir = Path(base_dir_str)
     task_uuid = uuid.uuid4()
     task_uuid_str = str(task_uuid)
-    # Use os.path.join for path construction
-    uuid_dir = os.path.join(base_dir, task_uuid_str)
-    # Use os.makedirs
-    os.makedirs(uuid_dir, exist_ok=True)
+    # Use pathlib for path construction
+    uuid_dir = base_dir / task_uuid_str
+    # Use pathlib.mkdir
+    uuid_dir.mkdir(parents=True, exist_ok=True)
     platform = detect_platform(url)
 
     # Options for metadata extraction
@@ -37,21 +38,22 @@ async def create_ingest_task(url: str, base_dir: str) -> TaskMetadata: # base_di
     }
 
     # Options for thumbnail download using yt-dlp
-    # Base name for thumbnail
-    thumbnail_base_name = os.path.join(uuid_dir, 'thumbnail') 
+    # Base name for thumbnail (Path object)
+    thumbnail_base_name = uuid_dir / 'thumbnail'
     ydl_thumb_opts = {
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
         'writethumbnail': True,
-        'outtmpl': thumbnail_base_name, 
+        # yt-dlp expects string path for outtmpl
+        'outtmpl': str(thumbnail_base_name),
     }
 
     title = None
-    actual_thumbnail_path_str = None # Store the final relative path
+    actual_thumbnail_rel_path = None # Store the final relative path as string
     loop = asyncio.get_event_loop()
-    # Get the parent dir (assumed BACKEND_DIR)
-    backend_dir = os.path.dirname(base_dir) 
+    # Get the parent dir (BACKEND_DIR) using pathlib
+    backend_dir = base_dir.parent
 
     try:
         print(f"[Ingest Task {task_uuid_str}] Fetching metadata for {url}...")
@@ -66,43 +68,41 @@ async def create_ingest_task(url: str, base_dir: str) -> TaskMetadata: # base_di
                 await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_thumb_opts).download([url]))
                 print(f"[Ingest Task {task_uuid_str}] yt-dlp thumbnail process finished. Searching for file...")
                 
-                # Find the downloaded thumbnail using glob
-                found_path_abs = None # Store absolute path found
+                # Find the downloaded thumbnail using pathlib.glob
+                found_path_abs: Path | None = None # Store absolute Path object found
                 preferred_extensions = ['.webp', '.jpg', '.jpeg', '.png']
-                # Construct glob pattern
-                search_pattern = f"{thumbnail_base_name}.*"
-                all_matches_abs = glob.glob(search_pattern)
-                print(f"[Ingest Task {task_uuid_str}] Found potential thumbnail files: {[os.path.basename(f) for f in all_matches_abs]}")
+                # Construct glob pattern using Path
+                search_pattern = f"thumbnail.*"
+                all_matches_abs = list(uuid_dir.glob(search_pattern))
+                print(f"[Ingest Task {task_uuid_str}] Found potential thumbnail files: {[p.name for p in all_matches_abs]}")
 
                 # Check preferred extensions first
-                for f_abs in all_matches_abs:
-                    # Get extension using os.path.splitext
-                    _, ext = os.path.splitext(f_abs)
-                    if os.path.isfile(f_abs) and ext.lower() in preferred_extensions:
-                        found_path_abs = f_abs
-                        print(f"[Ingest Task {task_uuid_str}] Found preferred thumbnail: {os.path.basename(f_abs)}")
+                for p_abs in all_matches_abs:
+                    if p_abs.is_file() and p_abs.suffix.lower() in preferred_extensions:
+                        found_path_abs = p_abs
+                        print(f"[Ingest Task {task_uuid_str}] Found preferred thumbnail: {p_abs.name}")
                         break
                 
                 # If no preferred image found, take the first file match (if any)
                 if not found_path_abs and all_matches_abs:
-                     if os.path.isfile(all_matches_abs[0]):
-                         found_path_abs = all_matches_abs[0]
-                         print(f"[Ingest Task {task_uuid_str}] No preferred extension found, using first match: {os.path.basename(found_path_abs)}")
+                    if all_matches_abs[0].is_file():
+                        found_path_abs = all_matches_abs[0]
+                        print(f"[Ingest Task {task_uuid_str}] No preferred extension found, using first match: {found_path_abs.name}")
 
                 # Store the relative path and clean up others if a file was found
                 if found_path_abs:
-                    # Calculate relative path from backend_dir
-                    actual_thumbnail_path_str = os.path.relpath(found_path_abs, backend_dir)
-                    print(f"[Ingest Task {task_uuid_str}] Selected thumbnail path: {actual_thumbnail_path_str}")
+                    # Calculate relative path from backend_dir using pathlib, store as string
+                    actual_thumbnail_rel_path = str(found_path_abs.relative_to(backend_dir))
+                    print(f"[Ingest Task {task_uuid_str}] Selected thumbnail path: {actual_thumbnail_rel_path}")
 
                     # Clean up other potential thumbnail files
-                    for f_abs in all_matches_abs:
-                        if os.path.isfile(f_abs) and f_abs != found_path_abs:
+                    for p_abs in all_matches_abs:
+                        if p_abs.is_file() and p_abs != found_path_abs:
                             try:
-                                os.remove(f_abs) 
-                                print(f"[Ingest Task {task_uuid_str}] Deleted extra thumbnail file: {os.path.basename(f_abs)}")
+                                p_abs.unlink() # Use pathlib.unlink
+                                print(f"[Ingest Task {task_uuid_str}] Deleted extra thumbnail file: {p_abs.name}")
                             except OSError as e:
-                                print(f"[Ingest Task {task_uuid_str}] Could not delete extra thumbnail file {os.path.basename(f_abs)}: {e}")
+                                print(f"[Ingest Task {task_uuid_str}] Could not delete extra thumbnail file {p_abs.name}: {e}")
                 else:
                      print(f"[Ingest Task {task_uuid_str}] Thumbnail download attempted, but no matching file found.")
 
@@ -123,5 +123,5 @@ async def create_ingest_task(url: str, base_dir: str) -> TaskMetadata: # base_di
         url=url,
         platform=platform,
         title=title,
-        thumbnail_path=actual_thumbnail_path_str # This is already the relative path
+        thumbnail_path=actual_thumbnail_rel_path # Pass the relative path string
     ) 

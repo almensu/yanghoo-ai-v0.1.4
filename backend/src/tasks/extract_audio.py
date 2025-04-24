@@ -2,6 +2,7 @@
 import asyncio
 import ffmpeg
 import os
+from pathlib import Path # Import Path
 from uuid import UUID
 from ..schemas import TaskMetadata
 import logging
@@ -14,13 +15,14 @@ AUDIO_CODEC = 'pcm_s16le' # Standard WAV codec
 SAMPLE_RATE = 16000       # Common sample rate for speech recognition
 AUDIO_CHANNELS = 1        # Mono audio
 
-async def run_extract_audio(task_metadata: TaskMetadata, base_dir: str) -> str:
+async def run_extract_audio(task_metadata: TaskMetadata, backend_dir_str: str, base_dir_str: str) -> str:
     """
     Extracts audio from a downloaded media file to WAV format using ffmpeg.
 
     Args:
         task_metadata: The metadata object for the task.
-        base_dir: The base directory where task data is stored (string path).
+        backend_dir_str: The path to the backend root directory.
+        base_dir_str: The base directory where task data is stored (e.g., backend/data).
 
     Returns:
         The relative path to the extracted WAV audio file (relative to backend dir).
@@ -31,11 +33,12 @@ async def run_extract_audio(task_metadata: TaskMetadata, base_dir: str) -> str:
         ffmpeg.Error: If the ffmpeg command fails.
         Exception: For other unexpected errors.
     """
+    base_dir = Path(base_dir_str)
+    backend_dir = Path(backend_dir_str)
     task_uuid_str = str(task_metadata.uuid)
-    uuid_dir = os.path.join(base_dir, task_uuid_str)
-    backend_dir = os.path.dirname(base_dir) 
+    uuid_dir = base_dir / task_uuid_str # Use pathlib
 
-    if not os.path.isdir(uuid_dir):
+    if not uuid_dir.is_dir(): # Use pathlib
         raise FileNotFoundError(f"Task directory not found: {uuid_dir}")
 
     if not task_metadata.media_files:
@@ -45,25 +48,28 @@ async def run_extract_audio(task_metadata: TaskMetadata, base_dir: str) -> str:
     # 1. Prefer 'best' quality if available.
     # 2. Otherwise, take the first available media file path.
     input_media_rel_path_str = None
-    if 'best' in task_metadata.media_files:
+    if 'best' in task_metadata.media_files and task_metadata.media_files['best']:
         input_media_rel_path_str = task_metadata.media_files['best']
     else:
-        # Get the first value from the media_files dictionary
-        input_media_rel_path_str = next(iter(task_metadata.media_files.values()), None)
+        # Find the first non-null path in the dict
+        for path in task_metadata.media_files.values():
+            if path:
+                input_media_rel_path_str = path
+                break
 
     if not input_media_rel_path_str:
          raise ValueError(f"Could not determine input media file path from metadata for task {task_uuid_str}")
 
-    # Construct absolute input path relative to the backend directory
-    input_media_path_abs = os.path.join(backend_dir, input_media_rel_path_str)
-    if not os.path.isfile(input_media_path_abs):
+    # Construct absolute input path using pathlib
+    input_media_path_abs = backend_dir / input_media_rel_path_str # Use pathlib
+    if not input_media_path_abs.is_file(): # Use pathlib
         raise FileNotFoundError(f"Input media file not found at expected path: {input_media_path_abs}")
 
-    # Define output WAV file path using os.path
-    output_wav_filename = "audio.wav" # Simple, fixed filename
-    output_wav_path_abs = os.path.join(uuid_dir, output_wav_filename)
-    # Calculate the relative path from the backend directory
-    relative_wav_path = os.path.relpath(output_wav_path_abs, backend_dir)
+    # Define output WAV file path using pathlib
+    output_wav_filename = "audio.wav"
+    output_wav_path_abs = uuid_dir / output_wav_filename # Use pathlib
+    # Calculate the relative path using pathlib, store as string
+    relative_wav_path = str(output_wav_path_abs.relative_to(backend_dir))
 
     logger.info(f"Attempting to extract audio from {input_media_path_abs} to {output_wav_path_abs}")
 
@@ -71,13 +77,13 @@ async def run_extract_audio(task_metadata: TaskMetadata, base_dir: str) -> str:
 
     try:
         # Ensure the output directory exists (should already, but safety check)
-        os.makedirs(uuid_dir, exist_ok=True)
+        uuid_dir.mkdir(parents=True, exist_ok=True) # Use pathlib
 
-        # Prepare ffmpeg command using string paths
-        stream = ffmpeg.input(input_media_path_abs)
+        # Prepare ffmpeg command using string paths (ffmpeg-python needs strings)
+        stream = ffmpeg.input(str(input_media_path_abs))
         stream = ffmpeg.output(
             stream,
-            output_wav_path_abs,
+            str(output_wav_path_abs),
             acodec=AUDIO_CODEC,
             ar=SAMPLE_RATE,
             ac=AUDIO_CHANNELS,
@@ -103,8 +109,8 @@ async def run_extract_audio(task_metadata: TaskMetadata, base_dir: str) -> str:
              logger.debug(f"ffmpeg stderr for {task_uuid_str}:\n{stderr_output}")
 
 
-        # Verify the output file was created using os.path
-        if not os.path.isfile(output_wav_path_abs) or os.path.getsize(output_wav_path_abs) == 0:
+        # Verify the output file was created using pathlib
+        if not output_wav_path_abs.is_file() or output_wav_path_abs.stat().st_size == 0:
             raise FileNotFoundError(f"Audio extraction failed for {task_uuid_str}, output WAV file not found or is empty at {output_wav_path_abs}")
 
         logger.info(f"Successfully extracted audio to {output_wav_path_abs}")

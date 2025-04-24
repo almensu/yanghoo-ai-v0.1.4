@@ -40,29 +40,66 @@ function App() {
     fetchTasks();
   }, [fetchTasks]); // Run fetchTasks when the component mounts (and when fetchTasks changes, though it's stable)
 
-  // --- Handle Ingest --- 
+  // --- Handle Ingest and Fetch Info ---
   const handleIngestSubmit = async (event) => {
     event.preventDefault();
     setIngestLoading(true);
     setIngestError(null);
     setIngestResponse(null);
+    let ingestedTaskUuid = null; // Variable to hold the UUID
+
     try {
-      const res = await fetch('/api/ingest', {
+      // --- Step 1: Ingest URL ---
+      const ingestRes = await fetch('/api/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || `HTTP error! status: ${res.status}`);
+      const ingestData = await ingestRes.json();
+      if (!ingestRes.ok) {
+        throw new Error(`Ingest failed: ${ingestData.detail || `HTTP error! status: ${ingestRes.status}`}`);
       }
-      setIngestResponse(data);
-      setUrl(''); // Clear input on success
-      // Refresh the task list after successful ingest
-      await fetchTasks(); 
+      
+      // Store the UUID from the successful ingest response
+      ingestedTaskUuid = ingestData.metadata?.uuid; 
+      if (!ingestedTaskUuid) {
+          throw new Error("Ingest successful, but no UUID received in metadata.");
+      }
+      
+      setIngestResponse(ingestData); // Keep original response if needed
+      setUrl(''); // Clear input on initial success
+
+      // --- Step 2: Fetch Info JSON ---
+      // Use the UUID obtained from the ingest step
+      console.log(`Ingest successful for ${ingestedTaskUuid}. Now fetching info.json...`);
+      try {
+         const fetchInfoRes = await fetch(`/api/tasks/${ingestedTaskUuid}/fetch_info_json`, {
+             method: 'POST',
+             // No body needed if the backend doesn't require it
+         });
+         const fetchInfoData = await fetchInfoRes.json();
+         if (!fetchInfoRes.ok) {
+             // Log this error, but don't necessarily stop the whole process
+             // The task list will still refresh, showing the ingested task
+             console.error(`Failed to fetch info.json for ${ingestedTaskUuid}: ${fetchInfoData.detail || `HTTP error! status: ${fetchInfoRes.status}`}`);
+             setIngestError(`Ingest successful, but failed to auto-fetch info.json: ${fetchInfoData.detail || fetchInfoRes.statusText}`);
+         } else {
+              console.log(`Successfully fetched info.json for ${ingestedTaskUuid}`, fetchInfoData);
+              // Optional: Show a more specific success message
+         }
+      } catch (fetchInfoError) {
+          console.error(`Error during fetch_info_json call for ${ingestedTaskUuid}:`, fetchInfoError);
+          setIngestError(`Ingest successful, but an error occurred during auto-fetch of info.json: ${fetchInfoError.message}`);
+      }
+
+      // --- Step 3: Refresh Task List ---
+      // Always refresh the task list regardless of info.json fetch outcome
+      await fetchTasks();
+
     } catch (e) {
-      console.error("Error ingesting URL:", e);
-      setIngestError(e.message || 'An unexpected error occurred.');
+      console.error("Error during ingest process:", e);
+      setIngestError(e.message || 'An unexpected error occurred during ingest.');
+      // Do not clear URL input on error
     } finally {
       setIngestLoading(false);
     }
@@ -236,6 +273,96 @@ function App() {
     }
   };
 
+  // Add the new VTT handlers
+  const handleDownloadVtt = async (taskUuid, langCode) => {
+    console.log(`Attempting to download available VTTs (triggered by ${langCode} button) for task: ${taskUuid}`);
+    alert(`Starting VTT download for ${taskUuid}... Backend will attempt to fetch available languages (EN/ZH).`); 
+    try {
+      // Call the new endpoint, no body needed
+      const res = await fetch(`/api/tasks/${taskUuid}/download_vtt`, { 
+        method: 'POST',
+        headers: { 
+           // No Content-Type needed if no body is sent
+        },
+        // No body: body: JSON.stringify({ lang_code: langCode }), 
+      });
+      
+      const data = await res.json(); // Get the response data (message and potentially vtt_files)
+      
+      if (!res.ok) {
+        throw new Error(data.detail || `HTTP error! status: ${res.status}`);
+      }
+      
+      console.log(`Successfully initiated VTT download for task: ${taskUuid}`, data);
+      // Provide more informative feedback based on response
+      const filesDownloaded = data.vtt_files ? Object.keys(data.vtt_files).join(', ') : 'None found or specified in response.';
+      alert(`VTT download request for ${taskUuid} finished. Message: ${data.message}. Files listed in metadata: ${filesDownloaded}`);
+      
+      await fetchTasks(); // Refresh tasks to update UI with new vtt_files status
+    } catch (e) {
+      console.error(`Error requesting VTT download for task ${taskUuid}:`, e);
+      alert(`Failed to request VTT download for task ${taskUuid}: ${e.message}`);
+    }
+  };
+
+  const handleDeleteVtt = async (taskUuid, langCode) => {
+    if (!window.confirm(`Are you sure you want to delete the ${langCode} VTT file for this task?`)) {
+      return;
+    }
+    console.log(`Attempting to delete VTT (${langCode}) for task: ${taskUuid}`);
+    try {
+      // Call the new, correct endpoint
+      const res = await fetch(`/api/tasks/${taskUuid}/vtt/${langCode}`, { 
+        method: 'DELETE',
+      });
+      
+      // Check response status for success (204 No Content means success for DELETE)
+      if (res.status === 204) {
+          console.log(`Successfully deleted VTT (${langCode}) for task: ${taskUuid}`);
+          alert(`VTT (${langCode}) file for task ${taskUuid} deleted successfully.`);
+          await fetchTasks(); // Refresh tasks to update UI
+      } else {
+          // Handle potential errors even if fetch didn't throw (e.g., 404, 500)
+          let errorDetail = `HTTP error! status: ${res.status}`;
+          try {
+              // Attempt to parse error detail from response body if it exists and is JSON
+              if (res.headers.get("content-length") !== "0" && res.headers.get("content-type")?.includes("application/json")) {
+                  const errorData = await res.json();
+                  errorDetail = errorData.detail || errorDetail;
+              }
+          } catch (jsonError) { 
+              console.warn("Could not parse error JSON from DELETE response:", jsonError);
+          }
+           throw new Error(errorDetail);
+      }
+      
+    } catch (e) {
+      console.error(`Error deleting VTT (${langCode}):`, e);
+      alert(`Failed to delete VTT (${langCode}) file: ${e.message}`);
+    }
+  };
+
+  // --- Handle Merge Transcripts --- 
+  const handleMergeTranscripts = async (taskUuid) => {
+    console.log(`Attempting to merge transcripts for task: ${taskUuid}`);
+    alert(`Starting transcript merge for ${taskUuid}...`);
+    try {
+      const res = await fetch(`/api/tasks/${taskUuid}/merge`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || `HTTP error! status: ${res.status}`);
+      }
+      console.log(`Successfully merged transcripts for task: ${taskUuid}`, data);
+      alert(`Transcript merge successful for ${taskUuid}! Output: ${data.merged_file_path}`);
+      await fetchTasks(); // Refresh tasks
+    } catch (e) {
+      console.error("Error merging transcripts:", e);
+      alert(`Failed to merge transcripts for task ${taskUuid}: ${e.message}`);
+    }
+  };
+
   // --- Render --- 
   return (
     // Using data-theme for daisyUI theming
@@ -248,23 +375,27 @@ function App() {
              <label htmlFor="url-input" className="label">
                 <span className="label-text">URL to Ingest:</span>
              </label>
-            <input
-              type="url"
-              id="url-input"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              required
-              placeholder="Enter URL (e.g., https://www.youtube.com/...)"
-              className="input input-bordered w-full"
-            />
+             <input
+                id="url-input"
+                type="text"
+                placeholder="Enter URL and press Enter"
+                className="input input-bordered w-full"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                disabled={ingestLoading}
+              />
           </div>
-          <button type="submit" className={`btn btn-primary ${ingestLoading ? 'loading' : ''}`} disabled={ingestLoading}>
-            {ingestLoading ? 'Ingesting...' : 'Ingest'}
-          </button>
+           <button type="submit" className={`btn btn-primary ${ingestLoading ? 'loading' : ''}`} disabled={ingestLoading || !url}>
+              Ingest
+            </button>
         </form>
-        {ingestLoading && <progress className="progress progress-primary w-full mt-2"></progress>}
-        {ingestError && <div className="alert alert-error shadow-lg mt-4"><div><span>Error: {ingestError}</span></div></div>}
-        {ingestResponse && <div className="alert alert-success shadow-lg mt-4"><div><span>Success! Task {ingestResponse.metadata?.uuid} created.</span></div></div>}
+        {ingestLoading && <p className="text-info mt-2">Ingesting...</p>}
+        {ingestError && <p className="text-error mt-2">Error: {ingestError}</p>}
+        {ingestResponse && !ingestError && ( // Show success only if no subsequent error occurred
+           <p className="text-success mt-2">
+             Ingest successful! Task created with UUID: {ingestResponse.metadata?.uuid}
+           </p>
+        )}
       </div>
 
       {/* Task List Section */}
@@ -294,6 +425,8 @@ function App() {
                 onExtractAudio={handleExtractAudio}
                 onDeleteVideo={handleDeleteVideo}
                 onDeleteAudio={handleDeleteAudio}
+                onDownloadVtt={handleDownloadVtt}
+                onDeleteVtt={handleDeleteVtt}
                />
             ) : (
               // Use TableView component

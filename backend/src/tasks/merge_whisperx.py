@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+from pathlib import Path
 from uuid import UUID
 from ..schemas import TaskMetadata, Platform
 import logging
@@ -11,13 +12,14 @@ import aiofiles
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def run_merge_whisperx(task_metadata: TaskMetadata, base_dir: str) -> Tuple[str, List[str]]:
+async def run_merge_whisperx(task_metadata: TaskMetadata, base_dir_str: str, backend_dir_str: str) -> Tuple[str, List[str]]:
     """
     Merges text segments from a WhisperX JSON file into a markdown file.
 
     Args:
         task_metadata: Metadata object containing WhisperX JSON file path.
-        base_dir: Base directory for task data (string path).
+        base_dir_str: Base directory for task data (string path, e.g., backend/data).
+        backend_dir_str: Backend root directory (string path, e.g., backend).
 
     Returns:
         A tuple containing:
@@ -29,30 +31,31 @@ async def run_merge_whisperx(task_metadata: TaskMetadata, base_dir: str) -> Tupl
         ValueError: If task is YouTube or no WhisperX JSON path is in metadata.
         Exception: For file I/O, JSON parsing, or other errors.
     """
+    base_dir = Path(base_dir_str)
+    backend_dir = Path(backend_dir_str)
     task_uuid_str = str(task_metadata.uuid)
-    uuid_dir = os.path.join(base_dir, task_uuid_str)
-    backend_dir = os.path.dirname(base_dir)
+    uuid_dir = base_dir / task_uuid_str
 
     if task_metadata.platform == Platform.YOUTUBE:
         raise ValueError(f"WhisperX merging is not applicable to YouTube tasks: {task_uuid_str}")
 
-    if not os.path.isdir(uuid_dir):
+    if not uuid_dir.is_dir():
         raise FileNotFoundError(f"Task directory not found: {uuid_dir}")
 
     if not task_metadata.whisperx_json_path:
         raise ValueError(f"No WhisperX JSON file path found in metadata for task {task_uuid_str}")
 
-    json_path_abs = os.path.join(backend_dir, task_metadata.whisperx_json_path)
-    if not os.path.isfile(json_path_abs):
+    json_path_abs = backend_dir / task_metadata.whisperx_json_path
+    if not json_path_abs.is_file():
          raise FileNotFoundError(f"WhisperX JSON file not found at expected path: {json_path_abs}")
 
     model_name_suffix = f"_{task_metadata.transcription_model}" if task_metadata.transcription_model else ""
     output_md_filename = f"{task_uuid_str}_merge_whisperx{model_name_suffix}.md"
-    output_md_path_abs = os.path.join(uuid_dir, output_md_filename)
-    relative_md_path = os.path.relpath(output_md_path_abs, backend_dir)
+    output_md_path_abs = uuid_dir / output_md_filename
+    relative_md_path = str(output_md_path_abs.relative_to(backend_dir))
 
     merged_lines = []
-    source_files_used = [json_path_abs]
+    source_files_used = [str(json_path_abs)]
 
     try:
         logger.info(f"Loading WhisperX JSON: {json_path_abs}")
@@ -80,7 +83,7 @@ async def run_merge_whisperx(task_metadata: TaskMetadata, base_dir: str) -> Tupl
         async with aiofiles.open(output_md_path_abs, mode='w', encoding='utf-8') as f:
             await f.write("\n".join(merged_lines))
 
-        if not os.path.isfile(output_md_path_abs):
+        if not output_md_path_abs.is_file():
              if segments:
                  raise FileNotFoundError(f"Merged WhisperX markdown file not found after saving: {output_md_path_abs}")
              else:

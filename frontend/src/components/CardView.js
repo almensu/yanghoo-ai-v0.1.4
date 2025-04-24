@@ -5,7 +5,7 @@ import { FaVideo, FaVideoSlash, FaHeadphones, FaVolumeMute, FaTrash } from 'reac
 import { 
   FaFileVideo, FaVideoSlash as FaVideoSlash6, 
   FaFileAudio, FaVolumeXmark, 
-  FaDownload, FaMusic
+  FaDownload, FaMusic, FaClosedCaptioning, FaLanguage
 } from 'react-icons/fa6';  // Use fa6 version for updated icons
 
 // Basic placeholder for image loading/error
@@ -49,7 +49,7 @@ const ImageWithFallback = ({ src, alt, className }) => {
 };
 
 
-function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDeleteVideo, onDeleteAudio }) {
+function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt }) {
   if (!tasks || tasks.length === 0) {
     // This case is handled in App.js, but good practice to check
     return null; 
@@ -67,11 +67,20 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
     return !!audioPath; // Simple truthiness check is fine if it's null or a string path
   };
 
+  // Helper function to check if VTT exists for a specific language
+  const hasVtt = (vttFiles, langCode) => {
+    return vttFiles && typeof vttFiles === 'object' && !!vttFiles[langCode];
+  };
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       {tasks.map((task) => {
         const videoExists = hasVideo(task.media_files);
         const audioExists = hasAudio(task.extracted_wav_path);
+        // Check for specific VTT files
+        const vttEnExists = hasVtt(task.vtt_files, 'en');
+        const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans'); // Assuming 'zh-Hans' for Simplified Chinese
+        const isYouTube = task.platform === 'youtube';
 
         return (
           <div key={task.uuid} className="card bg-base-100 shadow-xl border border-base-300">
@@ -165,6 +174,68 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
                 </div>
               </div>
               
+              {/* VTT 部分 - Conditionally render based on platform */}
+              {isYouTube && (
+                <div className="mt-2 mb-1 border-t pt-2">
+                  <div className="flex items-center gap-1 mb-2">
+                      <span className={`text-lg ${(vttEnExists || vttZhExists) ? 'text-info' : 'text-gray-400'}`}>
+                          <FaClosedCaptioning />
+                      </span>
+                      <span className="text-sm">字幕 (VTT)</span>
+                  </div>
+                  <div className="flex flex-col gap-2"> {/* Arrange VTT actions vertically */}
+                      {/* English VTT */}
+                      <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-1">
+                              <FaLanguage size="0.9em" /> 
+                              <span className={`text-xs ${vttEnExists ? 'font-semibold' : ''}`}>英文</span>
+                          </div>
+                          <div className="flex gap-1">
+                              <button 
+                                  className="btn btn-info btn-xs btn-outline flex items-center gap-1"
+                                  onClick={() => onDownloadVtt(task.uuid, 'en')}
+                                  title="下载英文 VTT"
+                              >
+                                  <FaDownload size="0.85em" /> 下载
+                              </button>
+                              <button 
+                                  className={`btn btn-warning btn-xs btn-outline flex items-center gap-1 ${!vttEnExists ? 'btn-disabled' : ''}`} 
+                                  onClick={() => onDeleteVtt(task.uuid, 'en')}
+                                  disabled={!vttEnExists}
+                                  title="删除英文 VTT"
+                              >
+                                  <FaTrash size="0.85em" /> 删除
+                              </button>
+                          </div>
+                      </div>
+                      {/* Chinese VTT */}
+                      <div className="flex justify-between items-center">
+                           <div className="flex items-center gap-1">
+                              <FaLanguage size="0.9em" /> 
+                              <span className={`text-xs ${vttZhExists ? 'font-semibold' : ''}`}>中文</span>
+                          </div>
+                          <div className="flex gap-1">
+                               <button 
+                                  className="btn btn-info btn-xs btn-outline flex items-center gap-1"
+                                  onClick={() => onDownloadVtt(task.uuid, 'zh-Hans')} // Use 'zh-Hans' for simplified Chinese
+                                  title="下载中文 VTT"
+                              >
+                                  <FaDownload size="0.85em" /> 下载
+                              </button>
+                              <button 
+                                  className={`btn btn-warning btn-xs btn-outline flex items-center gap-1 ${!vttZhExists ? 'btn-disabled' : ''}`} 
+                                  onClick={() => onDeleteVtt(task.uuid, 'zh-Hans')}
+                                  disabled={!vttZhExists}
+                                  title="删除中文 VTT"
+                              >
+                                  <FaTrash size="0.85em" /> 删除
+                              </button>
+                          </div>
+                      </div>
+                  </div>
+                </div>
+              )}
+
               {/* 删除整个任务的按钮 - 放在底部较明显的位置 */}
               <div className="card-actions justify-end mt-2 pt-1 border-t">
                 <button 
