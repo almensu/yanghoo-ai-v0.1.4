@@ -4,7 +4,7 @@ from pathlib import Path # Import Path
 import shutil
 import json
 from uuid import UUID
-from typing import Dict, List
+from typing import Dict, List, Optional
 import aiofiles
 import yt_dlp
 import ffmpeg
@@ -40,6 +40,8 @@ from .tasks.merge_whisperx import run_merge_whisperx
 from .tasks.download_youtueb_vtt import download_youtube_vtt
 # --- Data Management Import --- 
 from .data_management import delete_video_files_sync, delete_audio_file_sync
+# --- NEW: Add Archiving logic --- 
+from .tasks.archive import archive_task_sync, restore_archived_tasks_sync
 # ------------------------
 from fastapi.concurrency import run_in_threadpool
 
@@ -59,6 +61,8 @@ app.mount("/files", StaticFiles(directory=str(DATA_DIR)), name="static_files")
 # Define base directory and metadata file path using pathlib
 BASE_DIR = DATA_DIR # BASE_DIR is now a Path object
 METADATA_FILE = BASE_DIR / "metadata.json"
+# --- NEW: Define Archive File Path --- 
+METADATA_ARCHIVED_FILE = BASE_DIR / "metadata_archived.json"
 
 async def load_metadata() -> Dict[str, TaskMetadata]:
     if not METADATA_FILE.exists(): # Use pathlib
@@ -101,6 +105,41 @@ async def save_metadata(metadata: Dict[str, TaskMetadata]):
         logger.error(f"Error saving metadata to {METADATA_FILE}: {e}")
     except Exception as e:
         logger.error(f"Unexpected error during metadata save to {METADATA_FILE}: {e}", exc_info=True)
+
+# --- NEW: Load/Save for Archived Metadata --- 
+# Simple dictionary structure for archived data
+async def load_archived_metadata() -> Dict[str, Dict]: 
+    if not METADATA_ARCHIVED_FILE.exists():
+        return {}
+    try:
+        async with aiofiles.open(METADATA_ARCHIVED_FILE, mode='r') as f:
+            content = await f.read()
+            if not content.strip():
+                 logger.warning(f"Archived metadata file is empty: {METADATA_ARCHIVED_FILE}")
+                 return {}
+            # Basic JSON load, no Pydantic validation needed here
+            data = json.loads(content)
+            return data
+    except (json.JSONDecodeError, IOError) as e:
+        logger.error(f"Error reading or parsing archived metadata file {METADATA_ARCHIVED_FILE}: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"Unexpected error loading archived metadata: {e}", exc_info=True)
+        return {}
+
+async def save_archived_metadata(metadata: Dict[str, Dict]):
+    logger.info(f"Attempting to save archived metadata.")
+    try:
+        async with aiofiles.open(METADATA_ARCHIVED_FILE, mode='w') as f:
+            # Use default JSON encoder, archived data is simple dict
+            content_to_write = json.dumps(metadata, indent=4, ensure_ascii=False) 
+            await f.write(content_to_write)
+        logger.info(f"Successfully saved archived metadata to {METADATA_ARCHIVED_FILE}")
+    except IOError as e:
+        logger.error(f"Error saving archived metadata to {METADATA_ARCHIVED_FILE}: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error during archived metadata save: {e}", exc_info=True)
+# --- END: Load/Save for Archived Metadata --- 
 
 @app.post("/api/ingest", response_model=IngestResponse)
 async def ingest_url(request: IngestRequest):
@@ -543,6 +582,125 @@ async def delete_vtt_file(task_uuid: UUID, lang_code: str):
 
     # Return 204 No Content on success
     return
+
+# --- START: Archive/Restore Endpoints ---
+@app.post("/api/tasks/{task_uuid}/archive", response_model=TaskMetadata, status_code=200)
+async def archive_task_endpoint(task_uuid: UUID):
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to archive task: {task_uuid_str}")
+
+    try:
+        # Run the synchronous archiving logic in a thread pool
+        # It now returns the updated task data dictionary
+        updated_task_data = await run_in_threadpool(
+            archive_task_sync, 
+            task_uuid_str, 
+            str(METADATA_FILE),
+            str(METADATA_ARCHIVED_FILE)
+        )
+        logger.info(f"Successfully archived task {task_uuid_str}")
+        # Return the updated task data, automatically validated against TaskMetadata
+        return updated_task_data 
+    except FileNotFoundError as e:
+        logger.warning(f"Task {task_uuid_str} not found in metadata for archiving: {e}")
+        raise HTTPException(status_code=404, detail=f"Task not found: {e}")
+    except ValueError as e: # Catch the duplicate URL error
+        logger.warning(f"Archive conflict for task {task_uuid_str}: {e}")
+        raise HTTPException(status_code=409, detail=str(e)) # Return 409 Conflict
+    except Exception as e:
+        logger.error(f"Error archiving task {task_uuid_str}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during archiving: {str(e)}")
+
+@app.post("/api/tasks/restore_archived", status_code=200)
+async def restore_archived_tasks_endpoint():
+    logger.info("Received request to restore archived tasks.")
+    restored_uuids: Optional[List[str]] = None
+    try:
+        # Run the synchronous restore logic in a thread pool
+        # It now returns None if main not empty, [] if archive empty, or List[str] on success
+        restored_uuids = await run_in_threadpool(
+            restore_archived_tasks_sync,
+            str(METADATA_FILE),
+            str(METADATA_ARCHIVED_FILE)
+        )
+        
+        if restored_uuids is None:
+            logger.warning("Restore aborted: Main metadata file is not empty.")
+            raise HTTPException(status_code=400, detail="Cannot restore: Main task list is not empty.")
+        
+        if not restored_uuids:
+            logger.info("No archived tasks found or restored.")
+            return {"message": "No archived tasks found to restore.", "restored_count": 0}
+            
+        # If we got here, tasks were restored. Now try to fetch info.json for them.
+        logger.info(f"Successfully restored {len(restored_uuids)} tasks. Attempting to fetch info.json...")
+        
+        # Reload metadata to get the TaskMetadata objects for the restored tasks
+        all_metadata = await load_metadata()
+        fetch_errors = 0
+        metadata_needs_saving = False # Flag to track if save is needed
+        
+        for uuid_str in restored_uuids:
+            task_meta = all_metadata.get(uuid_str)
+            if not task_meta:
+                logger.error(f"Restored task {uuid_str} not found in reloaded metadata. Skipping info fetch.")
+                continue
+            
+            # Skip fetch if path already exists (shouldn't happen on fresh restore, but safe)
+            if task_meta.info_json_path and (BACKEND_DIR / task_meta.info_json_path).exists():
+                 logger.info(f"Skipping info.json fetch for {uuid_str}, path already exists: {task_meta.info_json_path}")
+                 continue
+            
+            logger.info(f"Attempting to fetch info.json for restored task {uuid_str}")
+            try:
+                # Call the existing task function used by the fetch endpoint
+                # Capture the returned relative path
+                info_json_rel_path = await run_fetch_info_json(task_meta, str(BASE_DIR))
+                
+                # Update the metadata dictionary
+                if info_json_rel_path:
+                    all_metadata[uuid_str].info_json_path = info_json_rel_path
+                    metadata_needs_saving = True # Mark that we need to save
+                    logger.info(f"Successfully fetched/updated info.json path for {uuid_str}: {info_json_rel_path}")
+                else:
+                    # This case might indicate an internal issue in run_fetch_info_json if no error was raised
+                     logger.warning(f"run_fetch_info_json completed for {uuid_str} but returned no path.")
+                     fetch_errors += 1 # Count as error if no path returned
+                     
+            except yt_dlp.utils.DownloadError as dl_error:
+                 logger.warning(f"Failed to fetch info.json for restored task {uuid_str}: {dl_error}")
+                 fetch_errors += 1
+            except FileNotFoundError as fnf_error:
+                 logger.warning(f"File not found during info.json fetch for restored task {uuid_str}: {fnf_error}")
+                 fetch_errors += 1
+            except Exception as fetch_err:
+                logger.error(f"Unexpected error fetching info.json for restored task {uuid_str}: {fetch_err}", exc_info=True)
+                fetch_errors += 1
+                
+        # Save the metadata file IF any paths were updated
+        if metadata_needs_saving:
+            logger.info("Saving updated metadata after fetching info.json for restored tasks.")
+            await save_metadata(all_metadata)
+            
+        # Prepare final message
+        final_message = f"Successfully restored {len(restored_uuids)} archived tasks." 
+        if fetch_errors > 0:
+             final_message += f" Failed to fetch info.json for {fetch_errors} task(s). Check logs."
+        elif metadata_needs_saving: # Only say success if we actually saved something
+             final_message += " Successfully fetched and updated info.json for all restorable tasks."
+        else: # No errors, but nothing needed saving (e.g., all paths existed)
+             final_message += " No info.json updates were needed for restored tasks."
+             
+        return {"message": final_message, "restored_count": len(restored_uuids)}
+
+    except FileNotFoundError as e:
+        # Should be less likely now with check inside sync func, but keep as fallback
+        logger.warning(f"Restore failed: Archived metadata file not found - {e}")
+        return {"message": "No archived tasks found to restore.", "restored_count": 0}
+    except Exception as e:
+        logger.error(f"Error during restore endpoint processing: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during restore: {str(e)}")
+# --- END: Archive/Restore Endpoints ---
 
 if __name__ == "__main__":
     import uvicorn

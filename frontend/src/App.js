@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
+import { FaArchive, FaUndo } from 'react-icons/fa'; // Import new icons
 // Uncomment the view components
 import CardView from './components/CardView';
 import TableView from './components/TableView';
@@ -38,7 +39,7 @@ function App() {
 
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]); // Run fetchTasks when the component mounts (and when fetchTasks changes, though it's stable)
+  }, [fetchTasks]);
 
   // --- Handle Ingest and Fetch Info ---
   const handleIngestSubmit = async (event) => {
@@ -142,6 +143,80 @@ function App() {
       alert(`Failed to delete task: ${e.message}`); // Simple alert for now
     }
   };
+
+  // --- START: Handle Archive --- 
+  const handleArchiveTask = async (taskUuid) => {
+    if (!window.confirm("Are you sure you want to archive this task? It will be removed from the active list.")) {
+      return;
+    }
+    console.log(`Attempting to archive task: ${taskUuid}`);
+    try {
+      const res = await fetch(`/api/tasks/${taskUuid}/archive`, {
+        method: 'POST',
+      });
+
+      // Expect 200 OK with updated task data
+      if (res.ok) { 
+        const updatedTaskData = await res.json(); // Get the updated task
+        console.log(`Successfully archived task: ${taskUuid}`, updatedTaskData);
+        alert(`Task ${taskUuid} archived successfully.`);
+        
+        // Update local state instead of filtering
+        setTasks(currentTasks => 
+          currentTasks.map(task => 
+            task.uuid === taskUuid ? { ...task, ...updatedTaskData } : task
+          )
+        );
+      } else {
+          let errorDetail = `HTTP error! status: ${res.status}`;
+          try {
+              // Attempt to parse error details (e.g., 409 Conflict message)
+              if (res.headers.get("content-length") !== "0" && res.headers.get("content-type")?.includes("application/json")) {
+                  const errorData = await res.json();
+                  errorDetail = errorData.detail || errorDetail;
+              }
+          } catch (jsonError) { 
+              console.warn("Could not parse error JSON from archive response:", jsonError);
+          }
+           throw new Error(errorDetail);
+      }
+
+    } catch (e) {
+      console.error("Error archiving task:", e);
+      alert(`Failed to archive task: ${e.message}`);
+    }
+  };
+  // --- END: Handle Archive --- 
+
+  // --- START: Handle Restore --- 
+  const handleRestoreArchived = async () => {
+     if (!window.confirm("Are you sure you want to restore all archived tasks? This is only possible if the current task list is empty.")) {
+      return;
+    }
+    console.log("Attempting to restore archived tasks...");
+    try {
+      const res = await fetch(`/api/tasks/restore_archived`, {
+        method: 'POST',
+      });
+      
+      const data = await res.json(); // Expect JSON response
+      
+      if (!res.ok) {
+         // Handle specific error like list not being empty
+         throw new Error(data.detail || `HTTP error! status: ${res.status}`);
+      }
+      
+      // Handle success (even if 0 restored)
+      console.log("Restore response:", data);
+      alert(data.message || "Restore request processed.");
+      await fetchTasks(); // Refresh the task list
+      
+    } catch (e) {
+      console.error("Error restoring archived tasks:", e);
+      alert(`Failed to restore archived tasks: ${e.message}`);
+    }
+  };
+  // --- END: Handle Restore ---
 
   // --- Handle Download Media (Video or Audio) --- 
   const handleDownloadRequest = async (taskUuid, quality) => {
@@ -402,6 +477,18 @@ function App() {
       <div className="p-6 bg-base-100 rounded-box shadow-lg">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Ingested Tasks ({tasks.length})</h2>
+          
+          {/* --- START: Conditional Restore Button --- */}
+          {!fetchLoading && !fetchError && tasks.length === 0 && (
+            <button 
+              className="btn btn-sm btn-outline btn-accent flex items-center gap-1"
+              onClick={handleRestoreArchived}
+            >
+              <FaUndo /> Restore Archived
+            </button>
+          )}
+           {/* --- END: Conditional Restore Button --- */}
+           
           {/* View Mode Toggle */}
           <div className="tabs tabs-boxed">
             <a className={`tab ${viewMode === 'card' ? 'tab-active' : ''}`} onClick={() => setViewMode('card')}>Card View</a> 
@@ -413,14 +500,14 @@ function App() {
         {fetchLoading && <progress className="progress progress-primary w-full"></progress>}
         {fetchError && <div className="alert alert-error shadow-lg"><div><span>Error loading tasks: {fetchError}</span></div></div>}
 
-        {/* Render based on view mode */} 
+        {/* Render based on view mode - Pass onArchive prop */} 
         {!fetchLoading && !fetchError && (
           <div>
             {viewMode === 'card' ? (
-              // Use CardView component
               <CardView 
                 tasks={tasks} 
                 onDelete={handleDeleteTask} 
+                onArchive={handleArchiveTask}
                 onDownloadRequest={handleDownloadRequest} 
                 onExtractAudio={handleExtractAudio}
                 onDeleteVideo={handleDeleteVideo}
@@ -429,15 +516,15 @@ function App() {
                 onDeleteVtt={handleDeleteVtt}
                />
             ) : (
-              // Use TableView component
               <TableView 
                 tasks={tasks} 
                 onDelete={handleDeleteTask} 
+                onArchive={handleArchiveTask}
                 onDownloadRequest={handleDownloadRequest} 
                 onExtractAudio={handleExtractAudio} 
                 onDeleteVideo={handleDeleteVideo}
                 onDeleteAudio={handleDeleteAudio}
-                onDownloadVtt={handleDownloadVtt} 
+                onDownloadVtt={handleDownloadVtt}
                 onDeleteVtt={handleDeleteVtt} 
               />
             )}

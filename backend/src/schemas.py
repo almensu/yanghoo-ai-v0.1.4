@@ -10,7 +10,7 @@ class Platform(str, Enum):
     XIAOYUZHOU = "xiaoyuzhou"
 
 class IngestRequest(BaseModel):
-    url: HttpUrl
+    url: str
     
 class TaskMetadata(BaseModel):
     uuid: UUID
@@ -26,6 +26,7 @@ class TaskMetadata(BaseModel):
     transcription_model: Optional[str] = None
     merged_vtt_md_path: Optional[str] = None
     merged_whisperx_md_path: Optional[str] = None
+    archived: bool = False
 
 class FetchInfoJsonResponse(BaseModel):
     task_uuid: UUID

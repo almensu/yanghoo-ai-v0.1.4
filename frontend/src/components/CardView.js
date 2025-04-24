@@ -5,8 +5,10 @@ import { FaVideo, FaVideoSlash, FaHeadphones, FaVolumeMute, FaTrash } from 'reac
 import { 
   FaFileVideo, FaVideoSlash as FaVideoSlash6, 
   FaFileAudio, FaVolumeXmark, 
-  FaDownload, FaMusic, FaClosedCaptioning, FaLanguage
+  FaDownload, FaMusic, FaClosedCaptioning, FaLanguage, FaTrash as FaTrash6 
 } from 'react-icons/fa6';  // Use fa6 version for updated icons
+// Add FaArchive
+import { FaArchive } from 'react-icons/fa';
 
 // Basic placeholder for image loading/error
 const ImageWithFallback = ({ src, alt, className }) => {
@@ -49,7 +51,7 @@ const ImageWithFallback = ({ src, alt, className }) => {
 };
 
 
-function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt }) {
+function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt }) {
   if (!tasks || tasks.length === 0) {
     // This case is handled in App.js, but good practice to check
     return null; 
@@ -83,7 +85,10 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
         const isYouTube = task.platform === 'youtube';
 
         return (
-          <div key={task.uuid} className="card bg-base-100 shadow-md border border-base-200/70 rounded-lg overflow-hidden">
+          <div key={task.uuid} className={`card bg-base-100 shadow-md border border-base-200/70 rounded-lg overflow-hidden relative ${task.archived ? 'opacity-60' : ''}`}>
+            {task.archived && (
+              <span className="badge badge-warning badge-sm absolute top-2 right-2 z-10">Archived</span>
+            )}
             <figure className="h-48 overflow-hidden">
                <ImageWithFallback 
                  src={task.thumbnail_path}
@@ -91,7 +96,7 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
                  className="object-cover w-full h-full"
                 />
             </figure>
-            <div className="card-body p-3">
+            <div className={`card-body p-3 ${task.archived ? 'pointer-events-none' : ''}`}>
               <h2 className="card-title text-sm font-medium line-clamp-2 mb-1" title={task.title}>
                 {task.title || 'No Title'}
               </h2>
@@ -170,6 +175,15 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
                           <FaClosedCaptioning />
                       </span>
                       <span className="text-xs font-medium">字幕 (VTT)</span>
+                       <button 
+                           className={`btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info hover:bg-base-content/10 flex items-center justify-center ml-auto ${!task.info_json_path ? 'btn-disabled text-base-content/30' : ''}`} 
+                           onClick={() => onDownloadVtt(task.uuid)}
+                           disabled={!task.info_json_path}
+                           title={!task.info_json_path ? "需要先获取 Info JSON" : "下载可用 VTT (EN/ZH)"}
+                           data-tip={!task.info_json_path ? "需要先获取 Info JSON" : "下载可用 VTT (EN/ZH)"}
+                       >
+                           <FaDownload size="0.9em" />
+                       </button>
                   </div>
                   <div className="flex flex-col gap-1">
                       <div className="flex justify-between items-center">
@@ -179,17 +193,11 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
                           </div>
                           <div className="flex gap-0.5">
                               <button 
-                                  className="btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info hover:bg-base-content/10 flex items-center justify-center"
-                                  onClick={() => onDownloadVtt(task.uuid)}
-                                  title="下载可用 VTT (EN/ZH)"
-                              >
-                                  <FaDownload size="0.9em" />
-                              </button>
-                              <button 
                                   className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttEnExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                                   onClick={() => onDeleteVtt(task.uuid, 'en')}
                                   disabled={!vttEnExists}
                                   title="删除英文 VTT"
+                                  data-tip="删除英文 VTT"
                               >
                                   <FaTrash size="0.9em" /> 
                               </button>
@@ -202,17 +210,11 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
                           </div>
                           <div className="flex gap-0.5">
                                <button 
-                                  className="btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info hover:bg-base-content/10 flex items-center justify-center"
-                                  onClick={() => onDownloadVtt(task.uuid)}
-                                  title="下载可用 VTT (EN/ZH)"
-                              >
-                                  <FaDownload size="0.9em" />
-                              </button>
-                               <button 
                                   className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttZhExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                                   onClick={() => onDeleteVtt(task.uuid, 'zh-Hans')}
                                   disabled={!vttZhExists}
                                   title="删除中文 VTT"
+                                  data-tip="删除中文 VTT"
                               >
                                   <FaTrash size="0.9em" />
                               </button>
@@ -222,15 +224,26 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
                 </div>
               )}
 
-              {/* Delete Task Button - Icon only, keep tooltip */}
-              <div className="card-actions justify-end mt-2 pt-2 border-t border-base-200/60"> 
-                <button 
-                  className="btn btn-ghost btn-xs btn-square text-error tooltip tooltip-error hover:bg-base-content/10 flex items-center justify-center"
-                  onClick={() => onDelete(task.uuid)}
-                  title="删除整个任务"
-                  data-tip="删除任务"
+              {/* Actions: Archive and Delete Task Button */}
+              <div className="card-actions justify-end items-center mt-2 pt-2 border-t border-base-200/60"> 
+                 {/* Archive Button - Disable if archived */}
+                 <button 
+                  className={`btn btn-ghost btn-xs btn-square text-primary tooltip tooltip-primary hover:bg-base-content/10 flex items-center justify-center ${task.archived ? 'btn-disabled text-base-content/30' : ''}`} 
+                  onClick={() => onArchive(task.uuid)}
+                  disabled={task.archived}
+                  title="归档任务"
+                  data-tip="归档任务"
                 >
-                  <FaTrash size="0.9em"/>
+                  <FaArchive size="0.9em"/>
+                </button>
+                {/* Delete Button - Keep enabled? Or disable archived? For now, keep enabled */}
+                <button 
+                  className={`btn btn-ghost btn-xs btn-square text-error tooltip tooltip-error hover:bg-base-content/10 flex items-center justify-center ${task.archived ? '' : ''}`}
+                  onClick={() => onDelete(task.uuid)}
+                  title="删除整个任务" 
+                  data-tip="删除任务" 
+                >
+                  <FaTrash6 size="0.9em"/> 
                 </button>
               </div>
             </div>
