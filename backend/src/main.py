@@ -1,3 +1,9 @@
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles # Ensure StaticFiles is imported
 import json
@@ -240,6 +246,61 @@ async def download_media_endpoint(task_uuid: UUID, request: DownloadMediaRequest
     except Exception as e:
         print(f"Error in download_media endpoint for {task_uuid} (Quality: {quality}): {e}") # Log error
         raise HTTPException(status_code=500, detail=f"Internal server error during media download: {str(e)}")
+
+@app.post("/api/tasks/{task_uuid}/extract_audio", response_model=ExtractAudioResponse)
+async def extract_audio_endpoint(task_uuid: UUID):
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(str(task_uuid))
+
+    if not task_meta:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Check if media has been downloaded
+    if not task_meta.media_files:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot extract audio: No media files found in metadata. Please download video/audio first."
+        )
+        
+    # Optional: Check if already extracted
+    if task_meta.extracted_wav_path and (DATA_DIR / task_meta.extracted_wav_path).exists():
+        logger.info(f"Audio already extracted for task {task_uuid}")
+        return ExtractAudioResponse(
+            task_uuid=task_uuid,
+            wav_path=task_meta.extracted_wav_path,
+            message="Audio already extracted."
+        )
+
+    try:
+        logger.info(f"Starting audio extraction for task {task_uuid}")
+        # Run the audio extraction task function
+        extracted_wav_rel_path = await run_extract_audio(task_meta, BASE_DIR) # BASE_DIR is calculated path to backend/data
+        
+        # Update metadata
+        task_meta.extracted_wav_path = extracted_wav_rel_path
+        all_metadata[str(task_uuid)] = task_meta
+        await save_metadata(all_metadata)
+        
+        logger.info(f"Successfully extracted audio for task {task_uuid} to {extracted_wav_rel_path}")
+        return ExtractAudioResponse(
+            task_uuid=task_uuid,
+            wav_path=extracted_wav_rel_path,
+            message="Audio extracted successfully."
+        )
+    except FileNotFoundError as e:
+        # This might be raised if the input media file (from metadata) doesn't exist on disk
+        logger.error(f"Audio extraction failed for {task_uuid}: Input file not found - {e}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        # This might be raised by run_extract_audio if no media files in metadata (already checked, but good practice)
+        logger.error(f"Audio extraction failed for {task_uuid}: Value error - {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except ffmpeg.Error as e:
+        logger.error(f"Audio extraction failed for {task_uuid} due to ffmpeg error: {e}")
+        raise HTTPException(status_code=500, detail=f"ffmpeg error during audio extraction: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error during audio extraction for {task_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during audio extraction: {str(e)}")
 
 @app.post("/api/tasks/{task_uuid}/merge", response_model=MergeResponse)
 async def merge_transcripts_endpoint(task_uuid: UUID):

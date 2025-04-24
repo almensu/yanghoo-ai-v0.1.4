@@ -60,10 +60,12 @@ async def run_extract_audio(task_metadata: TaskMetadata, base_dir: Path) -> str:
     if not input_media_path.is_file():
         raise FileNotFoundError(f"Input media file not found at expected path: {input_media_path}")
 
-    # Define output WAV file path
-    output_wav_filename = f"{task_uuid_str}_audio.wav"
+    # Define output WAV file path with simplified name
+    output_wav_filename = "audio.wav" # Simple, fixed filename
     output_wav_path = uuid_dir / output_wav_filename
-    relative_wav_path = Path(task_uuid_str) / output_wav_filename
+    # Construct the relative path from the project root (e.g., data/<uuid>/audio.wav)
+    # Use Path objects for joining, then convert to string
+    relative_wav_path = Path(base_dir.name) / task_uuid_str / output_wav_filename 
 
     logger.info(f"Attempting to extract audio from {input_media_path} to {output_wav_path}")
 
