@@ -26,7 +26,8 @@ from .schemas import (
     DownloadMediaRequest, DownloadMediaResponse,
     ExtractAudioResponse,
     TranscribeRequest, TranscribeResponse, Platform,
-    MergeResponse
+    MergeResponse,
+    DownloadAudioResponse
 )
 # --- Tasks Import --- 
 from .tasks.ingest import create_ingest_task
@@ -38,10 +39,11 @@ from .tasks.transcribe_whisperx import run_transcribe_whisperx
 from .tasks.merge_vtt import run_merge_vtt
 from .tasks.merge_whisperx import run_merge_whisperx
 from .tasks.download_youtueb_vtt import download_youtube_vtt
+from .tasks.download_audio import download_audio_sync, AUDIO_DOWNLOAD_PLATFORMS
 # --- Data Management Import --- 
 from .data_management import delete_video_files_sync, delete_audio_file_sync
-# --- NEW: Add Archiving logic --- 
-from .tasks.archive import archive_task_sync, restore_archived_tasks_sync
+# --- Restore Archived Task Import ---
+from .tasks.Restore_Archived import restore_archived_metadata
 # ------------------------
 from fastapi.concurrency import run_in_threadpool
 
@@ -144,24 +146,75 @@ async def save_archived_metadata(metadata: Dict[str, Dict]):
 @app.post("/api/ingest", response_model=IngestResponse)
 async def ingest_url(request: IngestRequest):
     try:
+        # Load existing metadata FIRST to check for duplicates
+        all_metadata = await load_metadata()
+        request_url_str = str(request.url) # Ensure URL is string for comparison
+
+        # Check for existing URL
+        for existing_uuid, existing_meta in all_metadata.items():
+            if existing_meta.url == request_url_str:
+                if existing_meta.archived:
+                    logger.warning(f"Ingest failed: URL {request_url_str} already exists but is archived (UUID: {existing_uuid}).")
+                    raise HTTPException(
+                        status_code=409, # Conflict
+                        detail=f"URL already exists but is archived (Task ID: {existing_uuid}). Consider restoring it instead."
+                    )
+                else:
+                    logger.warning(f"Ingest failed: URL {request_url_str} already exists and is active (UUID: {existing_uuid}).")
+                    raise HTTPException(
+                        status_code=409, # Conflict
+                        detail=f"URL already exists (Task ID: {existing_uuid})."
+                    )
+        
+        # If no duplicate found, proceed with creating the task
+        logger.info(f"URL {request_url_str} not found in existing metadata. Proceeding with ingest.")
         # Pass BASE_DIR (Path object) as string to the task function if it expects string
         # Or update the task function to accept Path
-        task_metadata = await create_ingest_task(str(request.url), str(BASE_DIR))
-        all_metadata = await load_metadata()
+        task_metadata = await create_ingest_task(request_url_str, str(BASE_DIR))
+        # Note: No need to reload metadata here, we already have it
         all_metadata[str(task_metadata.uuid)] = task_metadata
         await save_metadata(all_metadata)
+        logger.info(f"Successfully ingested URL {request_url_str} with new UUID {task_metadata.uuid}")
         return IngestResponse(metadata=task_metadata)
     except ValueError as e:
+        # Handle potential errors from create_ingest_task or platform detection
+        logger.error(f"ValueError during ingest for URL {request.url}: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
+    # Keep the existing HTTPException for duplicates (raised within the loop)
+    except HTTPException as http_exc: 
+        raise http_exc # Re-raise the 409 exception
     except Exception as e:
-        logger.error(f"Internal server error during ingest: {e}", exc_info=True)
+        logger.error(f"Internal server error during ingest for URL {request.url}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # Add endpoint to list all tasks
 @app.get("/api/tasks", response_model=List[TaskMetadata])
 async def list_tasks():
-    metadata = await load_metadata()
-    return list(metadata.values())
+    # Load both active and archived metadata
+    active_metadata = await load_metadata() # Dict[str, TaskMetadata]
+    archived_metadata = await load_archived_metadata() # Dict[str, Dict]
+    
+    # Create a set of archived UUIDs for efficient lookup
+    archived_uuids = set(archived_metadata.keys())
+    
+    tasks_to_return = []
+    
+    # Iterate through tasks currently in the active metadata file
+    for uuid_str, task_meta in active_metadata.items():
+        # Check if this task's UUID is in the set of archived UUIDs
+        is_archived = uuid_str in archived_uuids
+        
+        # Update the archived status on the TaskMetadata object
+        # Ensure this doesn't save back to the file unintentionally
+        # Create a copy or update in place if the model allows
+        # Since TaskMetadata might be reused, modifying it directly should be fine
+        # as long as we don't call save_metadata() here.
+        task_meta.archived = is_archived
+        
+        tasks_to_return.append(task_meta)
+
+    # Return the list of TaskMetadata objects, now with correct archived status
+    return tasks_to_return
 
 # Add endpoint to get a specific task's metadata
 @app.get("/api/tasks/{task_uuid}", response_model=TaskMetadata)
@@ -583,124 +636,190 @@ async def delete_vtt_file(task_uuid: UUID, lang_code: str):
     # Return 204 No Content on success
     return
 
-# --- START: Archive/Restore Endpoints ---
-@app.post("/api/tasks/{task_uuid}/archive", response_model=TaskMetadata, status_code=200)
-async def archive_task_endpoint(task_uuid: UUID):
-    task_uuid_str = str(task_uuid)
-    logger.info(f"Received request to archive task: {task_uuid_str}")
-
-    try:
-        # Run the synchronous archiving logic in a thread pool
-        # It now returns the updated task data dictionary
-        updated_task_data = await run_in_threadpool(
-            archive_task_sync, 
-            task_uuid_str, 
-            str(METADATA_FILE),
-            str(METADATA_ARCHIVED_FILE)
-        )
-        logger.info(f"Successfully archived task {task_uuid_str}")
-        # Return the updated task data, automatically validated against TaskMetadata
-        return updated_task_data 
-    except FileNotFoundError as e:
-        logger.warning(f"Task {task_uuid_str} not found in metadata for archiving: {e}")
-        raise HTTPException(status_code=404, detail=f"Task not found: {e}")
-    except ValueError as e: # Catch the duplicate URL error
-        logger.warning(f"Archive conflict for task {task_uuid_str}: {e}")
-        raise HTTPException(status_code=409, detail=str(e)) # Return 409 Conflict
-    except Exception as e:
-        logger.error(f"Error archiving task {task_uuid_str}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error during archiving: {str(e)}")
-
+# --- Restore Archived Endpoint --- 
 @app.post("/api/tasks/restore_archived", status_code=200)
 async def restore_archived_tasks_endpoint():
-    logger.info("Received request to restore archived tasks.")
-    restored_uuids: Optional[List[str]] = None
-    try:
-        # Run the synchronous restore logic in a thread pool
-        # It now returns None if main not empty, [] if archive empty, or List[str] on success
-        restored_uuids = await run_in_threadpool(
-            restore_archived_tasks_sync,
-            str(METADATA_FILE),
-            str(METADATA_ARCHIVED_FILE)
-        )
-        
-        if restored_uuids is None:
-            logger.warning("Restore aborted: Main metadata file is not empty.")
-            raise HTTPException(status_code=400, detail="Cannot restore: Main task list is not empty.")
-        
-        if not restored_uuids:
-            logger.info("No archived tasks found or restored.")
-            return {"message": "No archived tasks found to restore.", "restored_count": 0}
-            
-        # If we got here, tasks were restored. Now try to fetch info.json for them.
-        logger.info(f"Successfully restored {len(restored_uuids)} tasks. Attempting to fetch info.json...")
-        
-        # Reload metadata to get the TaskMetadata objects for the restored tasks
-        all_metadata = await load_metadata()
-        fetch_errors = 0
-        metadata_needs_saving = False # Flag to track if save is needed
-        
-        for uuid_str in restored_uuids:
-            task_meta = all_metadata.get(uuid_str)
-            if not task_meta:
-                logger.error(f"Restored task {uuid_str} not found in reloaded metadata. Skipping info fetch.")
-                continue
-            
-            # Skip fetch if path already exists (shouldn't happen on fresh restore, but safe)
-            if task_meta.info_json_path and (BACKEND_DIR / task_meta.info_json_path).exists():
-                 logger.info(f"Skipping info.json fetch for {uuid_str}, path already exists: {task_meta.info_json_path}")
-                 continue
-            
-            logger.info(f"Attempting to fetch info.json for restored task {uuid_str}")
-            try:
-                # Call the existing task function used by the fetch endpoint
-                # Capture the returned relative path
-                info_json_rel_path = await run_fetch_info_json(task_meta, str(BASE_DIR))
-                
-                # Update the metadata dictionary
-                if info_json_rel_path:
-                    all_metadata[uuid_str].info_json_path = info_json_rel_path
-                    metadata_needs_saving = True # Mark that we need to save
-                    logger.info(f"Successfully fetched/updated info.json path for {uuid_str}: {info_json_rel_path}")
-                else:
-                    # This case might indicate an internal issue in run_fetch_info_json if no error was raised
-                     logger.warning(f"run_fetch_info_json completed for {uuid_str} but returned no path.")
-                     fetch_errors += 1 # Count as error if no path returned
-                     
-            except yt_dlp.utils.DownloadError as dl_error:
-                 logger.warning(f"Failed to fetch info.json for restored task {uuid_str}: {dl_error}")
-                 fetch_errors += 1
-            except FileNotFoundError as fnf_error:
-                 logger.warning(f"File not found during info.json fetch for restored task {uuid_str}: {fnf_error}")
-                 fetch_errors += 1
-            except Exception as fetch_err:
-                logger.error(f"Unexpected error fetching info.json for restored task {uuid_str}: {fetch_err}", exc_info=True)
-                fetch_errors += 1
-                
-        # Save the metadata file IF any paths were updated
-        if metadata_needs_saving:
-            logger.info("Saving updated metadata after fetching info.json for restored tasks.")
-            await save_metadata(all_metadata)
-            
-        # Prepare final message
-        final_message = f"Successfully restored {len(restored_uuids)} archived tasks." 
-        if fetch_errors > 0:
-             final_message += f" Failed to fetch info.json for {fetch_errors} task(s). Check logs."
-        elif metadata_needs_saving: # Only say success if we actually saved something
-             final_message += " Successfully fetched and updated info.json for all restorable tasks."
-        else: # No errors, but nothing needed saving (e.g., all paths existed)
-             final_message += " No info.json updates were needed for restored tasks."
-             
-        return {"message": final_message, "restored_count": len(restored_uuids)}
+    logger.info("Received request to restore archived tasks by re-ingesting URLs.")
+    
+    restored_tasks = []
+    skipped_tasks = []
+    failed_tasks = []
+    metadata_changed = False
 
-    except FileNotFoundError as e:
-        # Should be less likely now with check inside sync func, but keep as fallback
-        logger.warning(f"Restore failed: Archived metadata file not found - {e}")
-        return {"message": "No archived tasks found to restore.", "restored_count": 0}
+    try:
+        # Load both sets of metadata
+        archived_data = await load_archived_metadata() # Dict[str, Dict]
+        active_metadata = await load_metadata()       # Dict[str, TaskMetadata]
+
+        if not archived_data:
+            logger.info("No archived metadata found to restore.")
+            return {"message": "No archived tasks found to restore.", "restored": [], "skipped": [], "failed": []}
+
+        # Create a set of active URLs for quick lookup
+        active_urls = {meta.url for meta in active_metadata.values()}
+        logger.debug(f"Found {len(active_urls)} active URLs.")
+
+        for archived_uuid, archived_item in archived_data.items():
+            archived_url = archived_item.get('url')
+            if not archived_url:
+                logger.warning(f"Archived item {archived_uuid} has no URL. Skipping.")
+                failed_tasks.append({"uuid": archived_uuid, "reason": "Missing URL"})
+                continue
+
+            # Check if URL is already active
+            if archived_url in active_urls:
+                logger.info(f"URL {archived_url} (from archived UUID {archived_uuid}) is already active. Skipping restore.")
+                skipped_tasks.append({"uuid": archived_uuid, "url": archived_url})
+                continue
+
+            # Attempt to re-ingest the URL (create task, download thumb)
+            logger.info(f"Attempting to re-ingest URL: {archived_url} (from archived UUID {archived_uuid})")
+            new_task_meta: Optional[TaskMetadata] = None
+            try:
+                # --- Step 1: Create basic task entry and download thumbnail --- 
+                new_task_meta = await create_ingest_task(archived_url, str(BASE_DIR))
+                logger.info(f"Successfully created task entry for URL {archived_url} with new UUID {new_task_meta.uuid}")
+
+            except (ValueError, HTTPException) as ingest_err:
+                logger.error(f"Failed initial ingest for URL {archived_url}: {ingest_err}")
+                failed_tasks.append({"uuid": archived_uuid, "url": archived_url, "reason": f"Initial ingest failed: {ingest_err}"})
+                continue # Skip to next URL if initial ingest fails
+            except Exception as e:
+                logger.error(f"Unexpected error during initial ingest for URL {archived_url}: {e}", exc_info=True)
+                failed_tasks.append({"uuid": archived_uuid, "url": archived_url, "reason": f"Unexpected initial ingest error: {e}"})
+                continue # Skip to next URL
+
+            # --- Step 2: Fetch info.json for the newly created task --- 
+            if new_task_meta: # Proceed only if initial ingest was successful
+                try:
+                    logger.info(f"Attempting to fetch info.json for new task {new_task_meta.uuid}...")
+                    # Call the function that handles info.json download
+                    info_json_rel_path = await run_fetch_info_json(new_task_meta, str(BASE_DIR))
+                    
+                    # Update the metadata object with the path
+                    if info_json_rel_path:
+                        new_task_meta.info_json_path = info_json_rel_path
+                        logger.info(f"Successfully fetched info.json for {new_task_meta.uuid}. Path: {info_json_rel_path}")
+                    else:
+                        # Should not happen if run_fetch_info_json succeeded without error, but log just in case
+                        logger.warning(f"run_fetch_info_json completed for {new_task_meta.uuid} but returned no path.")
+                        # Mark as failure? Or just proceed without the path?
+                        # Let's add to failed_tasks for clarity
+                        failed_tasks.append({"uuid": str(new_task_meta.uuid), "url": archived_url, "reason": "info.json fetch succeeded but returned no path"})
+
+                except yt_dlp.utils.DownloadError as dl_error:
+                    logger.warning(f"Failed to fetch info.json for {new_task_meta.uuid}: {dl_error}")
+                    # Add to failed list, but keep the task created in Step 1
+                    failed_tasks.append({"uuid": str(new_task_meta.uuid), "url": archived_url, "reason": f"info.json download failed: {dl_error}"})
+                except Exception as e:
+                    logger.error(f"Unexpected error fetching info.json for {new_task_meta.uuid}: {e}", exc_info=True)
+                    # Add to failed list, but keep the task created in Step 1
+                    failed_tasks.append({"uuid": str(new_task_meta.uuid), "url": archived_url, "reason": f"Unexpected info.json fetch error: {e}"})
+
+                # --- Step 3: Add/Update the task in active metadata --- 
+                # Always add the task to metadata, even if info.json failed
+                active_metadata[str(new_task_meta.uuid)] = new_task_meta
+                # Add the *new* UUID and URL to the list of restored tasks
+                # Note: We add to 'restored' even if info.json fails, as the base task exists
+                restored_tasks.append({"new_uuid": str(new_task_meta.uuid), "url": archived_url})
+                metadata_changed = True # Mark that we need to save
+
+        # Save metadata ONLY if changes were made
+        if metadata_changed:
+            logger.info(f"Saving updated metadata after restoring {len(restored_tasks)} tasks.")
+            await save_metadata(active_metadata)
+        else:
+            logger.info("No changes made to active metadata during restore process.")
+
+        # Construct summary message
+        message = f"Restore process completed. Restored: {len(restored_tasks)}, Skipped (already active): {len(skipped_tasks)}, Failed: {len(failed_tasks)}."
+        logger.info(message)
+        return {"message": message, "restored": restored_tasks, "skipped": skipped_tasks, "failed": failed_tasks}
+
+    except FileNotFoundError:
+        logger.error(f"Restore failed: Archived metadata file not found at {METADATA_ARCHIVED_FILE}")
+        raise HTTPException(status_code=404, detail=f"Archived metadata file not found: {METADATA_ARCHIVED_FILE}")
     except Exception as e:
-        logger.error(f"Error during restore endpoint processing: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error during restore: {str(e)}")
-# --- END: Archive/Restore Endpoints ---
+        logger.error(f"Internal server error during restore of archived tasks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during restore process: {str(e)}")
+
+# --- START: New Download Audio Endpoint ---
+@app.post("/api/tasks/{task_uuid}/download_audio", response_model=DownloadAudioResponse)
+async def download_audio_endpoint(task_uuid: UUID):
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to download audio for task: {task_uuid_str}")
+
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(task_uuid_str)
+
+    if not task_meta:
+        logger.warning(f"Task not found for audio download: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Check platform suitability
+    if task_meta.platform not in AUDIO_DOWNLOAD_PLATFORMS:
+        logger.warning(f"Direct audio download not supported for platform '{task_meta.platform}' on task {task_uuid_str}")
+        raise HTTPException(status_code=400, detail=f"Direct audio download not supported for platform: {task_meta.platform}")
+
+    # Check if audio already downloaded
+    if task_meta.downloaded_audio_path:
+         # Check if file actually exists using pathlib
+         audio_abs_path = BACKEND_DIR / task_meta.downloaded_audio_path
+         if audio_abs_path.exists():
+            logger.info(f"Audio already downloaded for task {task_uuid_str} at {task_meta.downloaded_audio_path}")
+            return DownloadAudioResponse(
+                task_uuid=task_uuid,
+                audio_path=task_meta.downloaded_audio_path,
+                message="Audio already downloaded."
+            )
+         else:
+             logger.warning(f"Metadata indicates audio downloaded for {task_uuid_str}, but file not found at {audio_abs_path}. Proceeding with download attempt.")
+             # Reset path in metadata before attempting download again?
+             # task_meta.downloaded_audio_path = None # Maybe? For now, just proceed.
+
+    # Check if info.json exists (needed to find audio URL)
+    if not task_meta.info_json_path:
+         logger.warning(f"Cannot download audio for {task_uuid_str}: info.json path is missing.")
+         raise HTTPException(status_code=400, detail="Info JSON has not been fetched yet. Please fetch info first.")
+    info_json_abs_path = BACKEND_DIR / task_meta.info_json_path
+    if not info_json_abs_path.exists():
+         logger.warning(f"Cannot download audio for {task_uuid_str}: info.json file not found at {info_json_abs_path}.")
+         raise HTTPException(status_code=404, detail="Info JSON file not found on disk.")
+
+    try:
+        # Run the download function in threadpool
+        audio_rel_path = await run_in_threadpool(
+            download_audio_sync, 
+            task_uuid_str,
+            str(METADATA_FILE)
+        )
+
+        if not audio_rel_path:
+            # This means download_audio_sync failed internally (e.g., no format found, request error)
+            logger.error(f"Direct audio download failed for task {task_uuid_str}. Check task logs.")
+            raise HTTPException(status_code=500, detail="Audio download failed. Could not find suitable format or download error.")
+
+        # Reload metadata to avoid race condition before saving
+        current_metadata = await load_metadata()
+        if task_uuid_str in current_metadata:
+             current_metadata[task_uuid_str].downloaded_audio_path = audio_rel_path
+             await save_metadata(current_metadata)
+             logger.info(f"Successfully downloaded audio for {task_uuid_str} and updated metadata.")
+             return DownloadAudioResponse(
+                task_uuid=task_uuid,
+                audio_path=audio_rel_path,
+                message="Audio downloaded successfully."
+            )
+        else:
+            # Should not happen if task existed before
+            logger.error(f"Task {task_uuid_str} disappeared from metadata during audio download.")
+            raise HTTPException(status_code=500, detail="Task metadata inconsistency during audio download.")
+
+    except Exception as e:
+        # Catch potential errors from download_audio_sync or other issues
+        logger.error(f"Error during audio download endpoint for {task_uuid_str}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during audio download: {str(e)}")
+# --- END: New Download Audio Endpoint ---
 
 if __name__ == "__main__":
     import uvicorn

@@ -438,6 +438,28 @@ function App() {
     }
   };
 
+  // --- START: Handle Download Audio --- 
+  const handleDownloadAudio = async (taskUuid) => {
+    console.log(`Attempting to download audio directly for task: ${taskUuid}`);
+    alert(`Starting direct audio download for ${taskUuid}...`);
+    try {
+      const res = await fetch(`/api/tasks/${taskUuid}/download_audio`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || `HTTP error! status: ${res.status}`);
+      }
+      console.log(`Successfully downloaded audio for task: ${taskUuid}`, data);
+      alert(`Audio download successful for ${taskUuid}! Path: ${data.audio_path}`);
+      await fetchTasks(); // Refresh tasks
+    } catch (e) {
+      console.error("Error downloading audio:", e);
+      alert(`Failed to download audio for task ${taskUuid}: ${e.message}`);
+    }
+  };
+  // --- END: Handle Download Audio ---
+
   // --- Render --- 
   return (
     // Using data-theme for daisyUI theming
@@ -509,6 +531,7 @@ function App() {
                 onDelete={handleDeleteTask} 
                 onArchive={handleArchiveTask}
                 onDownloadRequest={handleDownloadRequest} 
+                onDownloadAudio={handleDownloadAudio}
                 onExtractAudio={handleExtractAudio}
                 onDeleteVideo={handleDeleteVideo}
                 onDeleteAudio={handleDeleteAudio}
@@ -521,6 +544,7 @@ function App() {
                 onDelete={handleDeleteTask} 
                 onArchive={handleArchiveTask}
                 onDownloadRequest={handleDownloadRequest} 
+                onDownloadAudio={handleDownloadAudio}
                 onExtractAudio={handleExtractAudio} 
                 onDeleteVideo={handleDeleteVideo}
                 onDeleteAudio={handleDeleteAudio}

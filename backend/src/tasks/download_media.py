@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import UUID
 from ..schemas import TaskMetadata
 import logging
+import shutil
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -97,7 +98,49 @@ async def run_download_media(task_metadata: TaskMetadata, quality: str, base_dir
             # Calculate relative path from backend_dir using pathlib, store as string
             relative_path = str(downloaded_file_path_abs.relative_to(backend_dir))
             logger.info(f"Successfully downloaded media to {downloaded_file_path_abs}")
-            return relative_path
+
+            # logger.info(f"Download complete. File info: {info_dict}") # info_dict not available here
+
+            # --- Determine final filename and path --- 
+            # Use the path we found after download, not from info_dict
+            original_filename = downloaded_file_path_abs 
+            original_extension = original_filename.suffix # e.g., .mp4, .m4a
+
+            # --- REMOVED: Custom Naming Logic for Xiaoyuzhou --- 
+            # The final extension will now always be the original extension from yt-dlp
+            final_extension = original_extension 
+            
+            # Determine filename stem based on quality
+            final_filename_stem = f"video_{quality}"
+            if quality == 'bestaudio': # Keep this check if bestaudio is a possible quality
+                 final_filename_stem = f"audio_{quality}"
+            
+            final_filename = f"{final_filename_stem}{final_extension}"
+            final_absolute_path = uuid_dir / final_filename
+            final_relative_path = Path("data") / str(task_metadata.uuid) / final_filename
+
+            # --- Rename/Move downloaded file --- 
+            # Ensure we are comparing resolved absolute paths
+            if original_filename.resolve() != final_absolute_path.resolve():
+                try:
+                    # Ensure parent directory exists (should already, but safe)
+                    final_absolute_path.parent.mkdir(parents=True, exist_ok=True)
+                    # Move using string paths
+                    shutil.move(str(original_filename), str(final_absolute_path))
+                    logger.info(f"Renamed/Moved downloaded file to {final_absolute_path}")
+                except (OSError, shutil.Error) as move_err:
+                     logger.error(f"Error moving/renaming downloaded file from {original_filename} to {final_absolute_path}: {move_err}")
+                     # If move fails, delete the original temporary file if possible?
+                     if original_filename.exists():
+                          try: original_filename.unlink() 
+                          except OSError: pass
+                     raise IOError(f"Failed to finalize downloaded file: {move_err}") from move_err
+            else:
+                 logger.info(f"Downloaded file path {original_filename} already matches final path: {final_absolute_path}")
+
+            # Return the relative path with the potentially modified extension
+            return str(final_relative_path).replace("\\", "/")
+
         else:
             raise FileNotFoundError(f"Media download failed for {url}, file not found in {uuid_dir} after download attempt.")
 

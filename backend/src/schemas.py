@@ -27,6 +27,7 @@ class TaskMetadata(BaseModel):
     merged_vtt_md_path: Optional[str] = None
     merged_whisperx_md_path: Optional[str] = None
     archived: bool = False
+    downloaded_audio_path: Optional[str] = None
 
 class FetchInfoJsonResponse(BaseModel):
     task_uuid: UUID
@@ -65,6 +66,11 @@ class MergeResponse(BaseModel):
     task_uuid: UUID
     merged_file_path: str
     source_files: List[str]
+    message: str
+
+class DownloadAudioResponse(BaseModel):
+    task_uuid: UUID
+    audio_path: str
     message: str
 
 class IngestResponse(BaseModel):

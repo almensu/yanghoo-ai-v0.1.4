@@ -1,14 +1,13 @@
 import React from 'react';
-// Import icons
-import { FaVideo, FaVideoSlash, FaHeadphones, FaVolumeMute, FaTrash } from 'react-icons/fa';
-// Import more intuitive icons
+// Import icons from react-icons/fa6 and react-icons/fa
 import { 
   FaFileVideo, FaVideoSlash as FaVideoSlash6, 
   FaFileAudio, FaVolumeXmark, 
-  FaDownload, FaMusic, FaClosedCaptioning, FaLanguage, FaTrash as FaTrash6 
-} from 'react-icons/fa6';  // Use fa6 version for updated icons
-// Add FaArchive
-import { FaArchive } from 'react-icons/fa';
+  FaDownload, FaMusic, FaClosedCaptioning, FaLanguage, FaTrash as FaTrash6, 
+  FaHeadphones 
+} from 'react-icons/fa6';
+// FaArchive seems only available in fa, FaTrash is in both, use FaTrash6 from fa6 consistently
+import { FaArchive } from 'react-icons/fa'; 
 
 // Basic placeholder for image loading/error
 const ImageWithFallback = ({ src, alt, className }) => {
@@ -50,8 +49,7 @@ const ImageWithFallback = ({ src, alt, className }) => {
   return <img src={finalSrc} alt={alt} className={className} onError={onError} />;
 };
 
-
-function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt }) {
+function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt }) {
   if (!tasks || tasks.length === 0) {
     // This case is handled in App.js, but good practice to check
     return null; 
@@ -74,18 +72,25 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudi
     return vttFiles && typeof vttFiles === 'object' && !!vttFiles[langCode];
   };
 
+  // Add helper for audio download platforms
+  const isAudioPlatform = (platform) => {
+      return ['xiaoyuzhou', 'podcast'].includes(platform); // Use same list as backend
+  };
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       {tasks.map((task) => {
         const videoExists = hasVideo(task.media_files);
         const audioExists = hasAudio(task.extracted_wav_path);
+        const audioDownloaded = !!task.downloaded_audio_path;
+        const canDirectDownloadAudio = isAudioPlatform(task.platform);
         // Check for specific VTT files
         const vttEnExists = hasVtt(task.vtt_files, 'en');
         const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans'); // Assuming 'zh-Hans' for Simplified Chinese
         const isYouTube = task.platform === 'youtube';
 
         return (
-          <div key={task.uuid} className={`card bg-base-100 shadow-md border border-base-200/70 rounded-lg overflow-hidden relative ${task.archived ? 'opacity-60' : ''}`}>
+          <div key={task.uuid} className={`card bg-base-100 shadow-md border border-base-200/70 rounded-lg overflow-hidden relative`}>
             {task.archived && (
               <span className="badge badge-warning badge-sm absolute top-2 right-2 z-10">Archived</span>
             )}
@@ -96,7 +101,7 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudi
                  className="object-cover w-full h-full"
                 />
             </figure>
-            <div className={`card-body p-3 ${task.archived ? 'pointer-events-none' : ''}`}>
+            <div className={`card-body p-3`}>
               <h2 className="card-title text-sm font-medium line-clamp-2 mb-1" title={task.title}>
                 {task.title || 'No Title'}
               </h2>
@@ -116,8 +121,8 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudi
                 
                 <div className="flex gap-0.5">
                   <div className="dropdown dropdown-end">
-                    <button tabIndex={0} className="btn btn-ghost btn-xs btn-square tooltip tooltip-info hover:bg-base-content/10 flex items-center justify-center" data-tip="下载视频">
-                      <FaDownload size="0.9em" className="text-info"/>
+                    <button tabIndex={0} className={`btn btn-ghost btn-xs btn-square tooltip tooltip-info hover:bg-base-content/10 flex items-center justify-center`} data-tip="下载视频">
+                      <FaDownload size="0.9em" />
                     </button>
                     <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-32 z-[1]">
                       {videoQualities.map(quality => (
@@ -133,37 +138,52 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudi
                     onClick={() => onDeleteVideo(task.uuid)}
                     disabled={!videoExists}
                     title="删除视频文件"
+                    data-tip="删除视频"
                   >
-                    <FaTrash size="0.9em" /> 
+                    <FaTrash6 size="0.9em" /> 
                   </button>
                 </div>
               </div>
               
               <div className="flex justify-between items-center mt-1 pt-2 border-t border-base-200/60">
                 <div className="flex items-center gap-1.5">
-                  <span className={`text-lg ${audioExists ? 'text-accent' : 'text-base-content/40'}`}>
-                    {audioExists ? <FaFileAudio /> : <FaVolumeXmark />}
+                  <span className={`text-lg ${audioExists ? 'text-accent' : (audioDownloaded ? 'text-primary' : 'text-base-content/40')}`}>
+                    {audioExists ? <FaFileAudio /> : (audioDownloaded ? <FaHeadphones /> : <FaVolumeXmark />) }
                   </span>
-                  <span className="text-xs font-medium">{audioExists ? "音频" : "无音频"}</span>
+                  <span className="text-xs font-medium">
+                      {audioExists ? "已提取" : (audioDownloaded ? "已下载" : "无音频")}
+                  </span>
                 </div>
                 
                 <div className="flex gap-0.5">
+                  {canDirectDownloadAudio && (
+                      <button 
+                          className={`btn btn-ghost btn-xs btn-square tooltip tooltip-primary ${audioDownloaded ? 'btn-disabled text-base-content/30' : 'text-primary'} hover:bg-base-content/10 flex items-center justify-center`} 
+                          onClick={() => onDownloadAudio(task.uuid)}
+                          disabled={audioDownloaded || !task.info_json_path}
+                          title={audioDownloaded ? "音频已下载" : (!task.info_json_path ? "需要先获取 Info JSON" : "下载源音频")}
+                          data-tip={audioDownloaded ? "音频已下载" : (!task.info_json_path ? "需要先获取 Info JSON" : "下载源音频")}
+                      >
+                          <FaHeadphones size="0.9em" />
+                      </button>
+                  )}
                   <button 
-                    className={`btn btn-ghost btn-xs btn-square tooltip tooltip-accent hover:bg-base-content/10 flex items-center justify-center ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-accent'}`}
+                    className={`btn btn-ghost btn-xs btn-square tooltip tooltip-accent ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-accent'} hover:bg-base-content/10 flex items-center justify-center`} 
                     onClick={() => onExtractAudio(task.uuid)}
                     disabled={!videoExists}
-                    title={!videoExists ? "请先下载视频" : "从视频中提取音频"}
+                    title={!videoExists ? "请先下载视频" : "从视频中提取音频(.wav)"}
+                    data-tip={!videoExists ? "请先下载视频" : "从视频中提取音频(.wav)"}
                   >
                     <FaMusic size="0.9em" />
                   </button>
-                  
                   <button 
-                    className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!audioExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
+                    className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning ${!(audioExists || audioDownloaded) ? 'btn-disabled text-base-content/30' : 'text-warning'} hover:bg-base-content/10 flex items-center justify-center`} 
                     onClick={() => onDeleteAudio(task.uuid)}
-                    disabled={!audioExists}
-                    title="删除音频文件"
+                    disabled={!(audioExists || audioDownloaded)}
+                    title={!(audioExists || audioDownloaded) ? "无音频文件" : "删除提取的音频(.wav)"}
+                    data-tip={!(audioExists || audioDownloaded) ? "无音频文件" : "删除提取的音频(.wav)"}
                   >
-                    <FaTrash size="0.9em" />
+                    <FaTrash6 size="0.9em" />
                   </button>
                 </div>
               </div>
@@ -199,7 +219,7 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudi
                                   title="删除英文 VTT"
                                   data-tip="删除英文 VTT"
                               >
-                                  <FaTrash size="0.9em" /> 
+                                  <FaTrash6 size="0.9em" /> 
                               </button>
                           </div>
                       </div>
@@ -216,7 +236,7 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudi
                                   title="删除中文 VTT"
                                   data-tip="删除中文 VTT"
                               >
-                                  <FaTrash size="0.9em" />
+                                  <FaTrash6 size="0.9em" />
                               </button>
                           </div>
                       </div>
@@ -226,7 +246,7 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudi
 
               {/* Actions: Archive and Delete Task Button */}
               <div className="card-actions justify-end items-center mt-2 pt-2 border-t border-base-200/60"> 
-                 {/* Archive Button - Disable if archived */}
+                 {/* Archive Button */}
                  <button 
                   className={`btn btn-ghost btn-xs btn-square text-primary tooltip tooltip-primary hover:bg-base-content/10 flex items-center justify-center ${task.archived ? 'btn-disabled text-base-content/30' : ''}`} 
                   onClick={() => onArchive(task.uuid)}
@@ -236,9 +256,9 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudi
                 >
                   <FaArchive size="0.9em"/>
                 </button>
-                {/* Delete Button - Keep enabled? Or disable archived? For now, keep enabled */}
+                {/* Delete Button */}
                 <button 
-                  className={`btn btn-ghost btn-xs btn-square text-error tooltip tooltip-error hover:bg-base-content/10 flex items-center justify-center ${task.archived ? '' : ''}`}
+                  className={`btn btn-ghost btn-xs btn-square text-error tooltip tooltip-error hover:bg-base-content/10 flex items-center justify-center`}
                   onClick={() => onDelete(task.uuid)}
                   title="删除整个任务" 
                   data-tip="删除任务" 

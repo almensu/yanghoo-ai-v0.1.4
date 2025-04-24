@@ -47,8 +47,8 @@ const ImageWithFallback = ({ src, alt, className }) => {
   return <img src={finalSrc} alt={alt} className={className} onError={onError} />;
 };
 
-// Update props to include VTT handlers
-function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt }) {
+// Accept onDownloadAudio prop
+function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt }) {
   if (!tasks || tasks.length === 0) {
     return null; 
   }
@@ -66,6 +66,11 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAud
   // Add the hasVtt helper function (similar to CardView)
   const hasVtt = (vttFiles, langCode) => {
     return vttFiles && typeof vttFiles === 'object' && !!vttFiles[langCode];
+  };
+
+  // Add helper for audio download platforms
+  const isAudioPlatform = (platform) => {
+      return ['xiaoyuzhou', 'podcast'].includes(platform);
   };
 
   return (
@@ -92,11 +97,13 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAud
             const isYouTube = task.platform === 'youtube';
             const vttEnExists = isYouTube && hasVtt(task.vtt_files, 'en');
             const vttZhExists = isYouTube && hasVtt(task.vtt_files, 'zh-Hans');
+            const audioDownloaded = !!task.downloaded_audio_path;
+            const canDirectDownloadAudio = isAudioPlatform(task.platform);
 
             return (
-              <tr key={task.uuid} className={`hover ${task.archived ? 'opacity-60' : ''}`}>
-                <th className={`py-2 px-4 align-middle ${task.archived ? 'pointer-events-none' : ''}`}>{index + 1}</th>
-                <td className={`py-2 px-4 align-middle ${task.archived ? 'pointer-events-none' : ''}`}>
+              <tr key={task.uuid} className={`hover`}>
+                <th className={`py-2 px-4 align-middle`}>{index + 1}</th>
+                <td className={`py-2 px-4 align-middle`}>
                   <div className="avatar">
                     <div className="w-10 h-10 rounded">
                       <ImageWithFallback 
@@ -107,15 +114,15 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAud
                     </div>
                   </div>
                 </td>
-                <td className={`py-2 px-4 align-middle ${task.archived ? 'pointer-events-none' : ''}`}>
+                <td className={`py-2 px-4 align-middle`}>
                   <div className="font-medium line-clamp-2" title={task.title}>
                     {task.title || 'N/A'}
                     {task.archived && <span className="badge badge-warning badge-xs ml-2">Archived</span>}
                   </div>
                 </td>
-                <td className={`py-2 px-4 align-middle ${task.archived ? 'pointer-events-none' : ''}`}><span className="badge badge-ghost badge-sm font-normal">{task.platform}</span></td>
-                <td className={`py-2 px-4 align-middle ${task.archived ? 'pointer-events-none' : ''}`}><a href={task.url} target="_blank" rel="noopener noreferrer" className="link link-hover text-xs truncate block max-w-[200px]" title={task.url}>{task.url}</a></td>
-                <td className={`py-2 px-4 align-middle whitespace-nowrap ${task.archived ? 'pointer-events-none' : ''}`}>
+                <td className={`py-2 px-4 align-middle`}><span className="badge badge-ghost badge-sm font-normal">{task.platform}</span></td>
+                <td className={`py-2 px-4 align-middle`}><a href={task.url} target="_blank" rel="noopener noreferrer" className="link link-hover text-xs truncate block max-w-[200px]" title={task.url}>{task.url}</a></td>
+                <td className={`py-2 px-4 align-middle whitespace-nowrap`}>
                   <div className="flex items-center gap-2">
                     <span className={`${videoExists ? 'text-success' : 'text-gray-400'}`}>
                       {videoExists ? <FaFileVideo size="1.1em"/> : <FaVideoSlash size="1.1em" />}
@@ -126,7 +133,7 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAud
 
                     <div className="flex gap-1 ml-1">
                       <div className="dropdown dropdown-bottom">
-                        <button tabIndex={0} className="btn btn-ghost btn-xs btn-square tooltip tooltip-info hover:bg-base-content/10 flex items-center justify-center" data-tip="下载视频">
+                        <button tabIndex={0} className={`btn btn-ghost btn-xs btn-square tooltip tooltip-info hover:bg-base-content/10 flex items-center justify-center`} data-tip="下载视频" disabled={task.archived}>
                           <FaDownload size="0.9em" />
                         </button>
                         <ul tabIndex={0} className="dropdown-content menu p-1 shadow bg-base-200 rounded-box w-24 z-[1]">
@@ -144,42 +151,54 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAud
                         disabled={!videoExists}
                         data-tip="删除视频"
                       >
-                        <FaTrash size="0.9em" />
+                        <FaTrash6 size="0.9em" />
                       </button>
                     </div>
                   </div>
                 </td>
-                <td className={`py-2 px-4 align-middle whitespace-nowrap ${task.archived ? 'pointer-events-none' : ''}`}>
+                <td className={`py-2 px-4 align-middle whitespace-nowrap`}>
                   <div className="flex items-center gap-2">
-                    <span className={`${audioExists ? 'text-accent' : 'text-gray-400'}`}>
-                      {audioExists ? <FaFileAudio size="1.1em"/> : <FaVolumeXmark size="1.1em" />}
+                    <span className={`text-lg ${audioExists ? 'text-accent' : (audioDownloaded ? 'text-primary' : 'text-base-content/40')}`}>
+                       {audioExists ? <FaFileAudio size="1.1em"/> : (audioDownloaded ? <FaHeadphones size="1.1em"/> : <FaVolumeXmark size="1.1em" />) }
                     </span>
                     <span className="text-xs">
-                      {audioExists ? "已提取" : "无音频"}
+                       {audioExists ? "已提取" : (audioDownloaded ? "已下载" : "无音频")}
                     </span>
-
                     <div className="flex gap-1 ml-1">
+                        {/* Download Audio Button */}
+                        {canDirectDownloadAudio && (
+                           <button 
+                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-primary ${audioDownloaded ? 'btn-disabled text-base-content/30' : 'text-primary'} hover:bg-base-content/10 flex items-center justify-center`} 
+                            onClick={() => onDownloadAudio(task.uuid)}
+                            disabled={audioDownloaded || !task.info_json_path}
+                            data-tip={audioDownloaded ? "音频已下载" : (!task.info_json_path ? "需要先获取 Info JSON" : "下载源音频")}
+                           >
+                            <FaHeadphones size="0.9em" />
+                           </button>
+                        )}
+                       {/* Extract Audio Button */}
                       <button 
-                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-accent hover:bg-base-content/10 flex items-center justify-center ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-accent'}`}
+                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-accent ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-accent'} hover:bg-base-content/10 flex items-center justify-center`} 
                         onClick={() => onExtractAudio(task.uuid)}
                         disabled={!videoExists}
-                        data-tip={!videoExists ? "请先下载视频" : "提取音频"}
+                        data-tip={!videoExists ? "请先下载视频" : "提取音频(.wav)"}
                       >
                         <FaMusic size="0.9em" />
                       </button>
-
+                       {/* Delete Audio Button */}
+                       {/* TODO: Needs review - currently targets extracted path */} 
                       <button 
-                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!audioExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
+                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning ${!(audioExists || audioDownloaded) ? 'btn-disabled text-base-content/30' : 'text-warning'} hover:bg-base-content/10 flex items-center justify-center`} 
                         onClick={() => onDeleteAudio(task.uuid)}
-                        disabled={!audioExists}
-                        data-tip="删除音频"
+                        disabled={!(audioExists || audioDownloaded)}
+                        data-tip={!(audioExists || audioDownloaded) ? "无音频文件" : "删除提取的音频(.wav)"} 
                       >
-                        <FaTrash size="0.9em" />
+                        <FaTrash6 size="0.9em" />
                       </button>
                     </div>
                   </div>
                 </td>
-                <td className={`py-2 px-4 align-middle whitespace-nowrap ${task.archived ? 'pointer-events-none' : ''}`}>
+                <td className={`py-2 px-4 align-middle whitespace-nowrap`}>
                   {isYouTube ? (
                     <div className="flex flex-col gap-1 items-start">
                       <div className="flex items-center gap-1 text-xs mb-0.5">
@@ -237,7 +256,7 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onExtractAud
                       <FaArchive size="0.9em"/>
                     </button>
                     <button 
-                      className={`btn btn-ghost btn-xs btn-square tooltip tooltip-error text-error hover:bg-base-content/10 flex items-center justify-center ${task.archived ? '' : ''}`}
+                      className={`btn btn-ghost btn-xs btn-square tooltip tooltip-error text-error hover:bg-base-content/10 flex items-center justify-center`}
                       onClick={() => onDelete(task.uuid)}
                       data-tip="删除整个任务"
                     >
