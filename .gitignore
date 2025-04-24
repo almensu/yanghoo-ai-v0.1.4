@@ -1,0 +1,66 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+wheels/
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Databases (if local)
+*.sqlite3
+*.sqlite3-journal
+
+# Log files
+*.log
+
+# Unit test / coverage reports
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# IDE settings folders
+.idea/
+.vscode/
+
+# Node.js / React Frontend
+/frontend/node_modules/
+/frontend/build/
+/frontend/coverage/
+/frontend/.pnp
+/frontend/.pnp.js
+/frontend/.yarn/cache
+/frontend/.yarn/unplugged
+/frontend/.yarn/build-state.yml
+/frontend/.yarn/install-state.gz
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env*.local
+
+# Backend generated data
+# Ignores the entire directory where task data (UUID folders, metadata.json) is stored
+/backend/data/
+
+# Operating System generated files
+.DS_Store
+Thumbs.db 
+
+# Cursor rules
+cursor/rules/
+
+# Project specific files
+启动.md
