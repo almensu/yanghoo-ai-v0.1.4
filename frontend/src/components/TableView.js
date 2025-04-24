@@ -123,7 +123,7 @@ function TableView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelet
 
                     <div className="flex gap-1 ml-1">
                       <div className="dropdown dropdown-bottom">
-                        <button tabIndex={0} className="btn btn-ghost btn-xs btn-square tooltip tooltip-info" data-tip="下载视频">
+                        <button tabIndex={0} className="btn btn-ghost btn-xs btn-square tooltip tooltip-info hover:bg-base-content/10 flex items-center justify-center" data-tip="下载视频">
                           <FaDownload size="0.9em" />
                         </button>
                         <ul tabIndex={0} className="dropdown-content menu p-1 shadow bg-base-200 rounded-box w-24 z-[1]">
@@ -136,7 +136,7 @@ function TableView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelet
                       </div>
 
                       <button 
-                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
+                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                         onClick={() => onDeleteVideo(task.uuid)}
                         disabled={!videoExists}
                         data-tip="删除视频"
@@ -157,7 +157,7 @@ function TableView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelet
 
                     <div className="flex gap-1 ml-1">
                       <button 
-                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-accent ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-accent'}`}
+                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-accent hover:bg-base-content/10 flex items-center justify-center ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-accent'}`}
                         onClick={() => onExtractAudio(task.uuid)}
                         disabled={!videoExists}
                         data-tip={!videoExists ? "请先下载视频" : "提取音频"}
@@ -166,7 +166,7 @@ function TableView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelet
                       </button>
 
                       <button 
-                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning ${!audioExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
+                        className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!audioExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                         onClick={() => onDeleteAudio(task.uuid)}
                         disabled={!audioExists}
                         data-tip="删除音频"
@@ -187,13 +187,13 @@ function TableView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelet
                          <FaLanguage size="0.9em" className="text-base-content/70"/> 
                          <span className={`text-xs w-8 ${vttEnExists ? 'font-medium' : 'text-base-content/70'}`}>英文</span>
                          <button 
-                            className="btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info" 
+                            className="btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info hover:bg-base-content/10 flex items-center justify-center" 
                             onClick={() => onDownloadVtt(task.uuid)}
                             data-tip="下载可用 VTT (EN/ZH)">
                            <FaDownload size="0.9em" />
                          </button>
                          <button 
-                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning ${!vttEnExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
+                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttEnExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                             onClick={() => onDeleteVtt(task.uuid, 'en')}
                             disabled={!vttEnExists}
                             data-tip="删除英文 VTT">
@@ -204,13 +204,13 @@ function TableView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelet
                          <FaLanguage size="0.9em" className="text-base-content/70"/> 
                          <span className={`text-xs w-8 ${vttZhExists ? 'font-medium' : 'text-base-content/70'}`}>中文</span>
                          <button 
-                            className="btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info" 
+                            className="btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info hover:bg-base-content/10 flex items-center justify-center" 
                             onClick={() => onDownloadVtt(task.uuid)}
                             data-tip="下载可用 VTT (EN/ZH)">
                            <FaDownload size="0.9em" />
                          </button>
                          <button 
-                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning ${!vttZhExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
+                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttZhExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                             onClick={() => onDeleteVtt(task.uuid, 'zh-Hans')}
                             disabled={!vttZhExists}
                             data-tip="删除中文 VTT">
@@ -224,7 +224,7 @@ function TableView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelet
                 </td>
                 <td className="py-2 px-4 align-middle">
                   <button 
-                    className="btn btn-ghost btn-xs btn-square tooltip tooltip-error text-error" 
+                    className="btn btn-ghost btn-xs btn-square tooltip tooltip-error text-error hover:bg-base-content/10 flex items-center justify-center" 
                     onClick={() => onDelete(task.uuid)}
                     data-tip="删除整个任务"
                   >

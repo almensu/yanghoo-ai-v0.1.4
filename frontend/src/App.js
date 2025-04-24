@@ -437,6 +437,8 @@ function App() {
                 onExtractAudio={handleExtractAudio} 
                 onDeleteVideo={handleDeleteVideo}
                 onDeleteAudio={handleDeleteAudio}
+                onDownloadVtt={handleDownloadVtt} 
+                onDeleteVtt={handleDeleteVtt} 
               />
             )}
             {tasks.length === 0 && !fetchLoading && <p className="text-center text-gray-500 mt-4">No tasks ingested yet.</p>}

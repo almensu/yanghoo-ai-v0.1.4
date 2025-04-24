@@ -83,41 +83,36 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
         const isYouTube = task.platform === 'youtube';
 
         return (
-          <div key={task.uuid} className="card bg-base-100 shadow-xl border border-base-300">
-            <figure className="h-48 overflow-hidden"> {/* Fixed height for image area */}
+          <div key={task.uuid} className="card bg-base-100 shadow-md border border-base-200/70 rounded-lg overflow-hidden">
+            <figure className="h-48 overflow-hidden">
                <ImageWithFallback 
                  src={task.thumbnail_path}
                  alt={task.title || 'Thumbnail'} 
-                 className="object-cover w-full h-full" // Cover ensures image fills the area
+                 className="object-cover w-full h-full"
                 />
             </figure>
-            <div className="card-body p-4">
-              <h2 className="card-title text-base line-clamp-2" title={task.title}> {/* Limit title lines */} 
+            <div className="card-body p-3">
+              <h2 className="card-title text-sm font-medium line-clamp-2 mb-1" title={task.title}>
                 {task.title || 'No Title'}
               </h2>
-              <p className="text-xs text-gray-500 truncate" title={task.url}>{task.url}</p>
+              <p className="text-xs text-base-content/70 truncate mb-2" title={task.url}>{task.url}</p>
               
-              {/* 平台徽章 */}
-              <div className="mt-2">
-                <span className="badge badge-outline badge-sm">{task.platform}</span>
+              <div className="mb-2">
+                <span className="badge badge-ghost badge-sm font-normal">{task.platform}</span>
               </div>
 
-              {/* 媒体状态和操作区 - 视频部分 */}
-              <div className="flex justify-between items-center mt-3 mb-1 border-t pt-2">
-                {/* 视频状态图标和标签 */}
-                <div className="flex items-center gap-1">
-                  <span className={`text-lg ${videoExists ? 'text-success' : 'text-gray-400'}`}>
+              <div className="flex justify-between items-center mt-2 pt-2 border-t border-base-200/60">
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-lg ${videoExists ? 'text-success' : 'text-base-content/40'}`}>
                     {videoExists ? <FaFileVideo /> : <FaVideoSlash6 />}
                   </span>
-                  <span className="text-sm">{videoExists ? "视频已下载" : "无视频"}</span>
+                  <span className="text-xs font-medium">{videoExists ? "视频" : "无视频"}</span>
                 </div>
                 
-                {/* 视频操作按钮 */}
-                <div className="flex gap-1">
-                  {/* 下载视频按钮 */}
+                <div className="flex gap-0.5">
                   <div className="dropdown dropdown-end">
-                    <button tabIndex={0} className="btn btn-success btn-xs btn-outline flex items-center gap-1">
-                      <FaDownload size="0.85em" /> 下载
+                    <button tabIndex={0} className="btn btn-ghost btn-xs btn-square tooltip tooltip-info hover:bg-base-content/10 flex items-center justify-center" data-tip="下载视频">
+                      <FaDownload size="0.9em" className="text-info"/>
                     </button>
                     <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-32 z-[1]">
                       {videoQualities.map(quality => (
@@ -128,107 +123,98 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
                     </ul>
                   </div>
                   
-                  {/* 删除视频按钮 */}
                   <button 
-                    className={`btn btn-warning btn-xs btn-outline flex items-center gap-1 ${!videoExists ? 'btn-disabled' : ''}`} 
+                    className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                     onClick={() => onDeleteVideo(task.uuid)}
                     disabled={!videoExists}
                     title="删除视频文件"
                   >
-                    <FaTrash size="0.85em" /> 删除
+                    <FaTrash size="0.9em" /> 
                   </button>
                 </div>
               </div>
               
-              {/* 媒体状态和操作区 - 音频部分 */}
-              <div className="flex justify-between items-center mt-2 mb-1 border-t pt-2">
-                {/* 音频状态图标和标签 */}
-                <div className="flex items-center gap-1">
-                  <span className={`text-lg ${audioExists ? 'text-accent' : 'text-gray-400'}`}>
+              <div className="flex justify-between items-center mt-1 pt-2 border-t border-base-200/60">
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-lg ${audioExists ? 'text-accent' : 'text-base-content/40'}`}>
                     {audioExists ? <FaFileAudio /> : <FaVolumeXmark />}
                   </span>
-                  <span className="text-sm">{audioExists ? "音频已提取" : "无音频"}</span>
+                  <span className="text-xs font-medium">{audioExists ? "音频" : "无音频"}</span>
                 </div>
                 
-                {/* 音频操作按钮 */}
-                <div className="flex gap-1">
-                  {/* 提取音频按钮 */}
+                <div className="flex gap-0.5">
                   <button 
-                    className="btn btn-accent btn-xs btn-outline flex items-center gap-1"
+                    className={`btn btn-ghost btn-xs btn-square tooltip tooltip-accent hover:bg-base-content/10 flex items-center justify-center ${!videoExists ? 'btn-disabled text-base-content/30' : 'text-accent'}`}
                     onClick={() => onExtractAudio(task.uuid)}
                     disabled={!videoExists}
                     title={!videoExists ? "请先下载视频" : "从视频中提取音频"}
                   >
-                    <FaMusic size="0.85em" /> 提取
+                    <FaMusic size="0.9em" />
                   </button>
                   
-                  {/* 删除音频按钮 */}
                   <button 
-                    className={`btn btn-warning btn-xs btn-outline flex items-center gap-1 ${!audioExists ? 'btn-disabled' : ''}`} 
+                    className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!audioExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                     onClick={() => onDeleteAudio(task.uuid)}
                     disabled={!audioExists}
                     title="删除音频文件"
                   >
-                    <FaTrash size="0.85em" /> 删除
+                    <FaTrash size="0.9em" />
                   </button>
                 </div>
               </div>
               
-              {/* VTT 部分 - Conditionally render based on platform */}
               {isYouTube && (
-                <div className="mt-2 mb-1 border-t pt-2">
-                  <div className="flex items-center gap-1 mb-2">
-                      <span className={`text-lg ${(vttEnExists || vttZhExists) ? 'text-info' : 'text-gray-400'}`}>
+                <div className="mt-1 pt-2 border-t border-base-200/60">
+                  <div className="flex items-center gap-1.5 mb-1">
+                      <span className={`text-lg ${(vttEnExists || vttZhExists) ? 'text-info' : 'text-base-content/40'}`}>
                           <FaClosedCaptioning />
                       </span>
-                      <span className="text-sm">字幕 (VTT)</span>
+                      <span className="text-xs font-medium">字幕 (VTT)</span>
                   </div>
-                  <div className="flex flex-col gap-2"> {/* Arrange VTT actions vertically */}
-                      {/* English VTT */}
+                  <div className="flex flex-col gap-1">
                       <div className="flex justify-between items-center">
                           <div className="flex items-center gap-1">
-                              <FaLanguage size="0.9em" /> 
-                              <span className={`text-xs ${vttEnExists ? 'font-semibold' : ''}`}>英文</span>
+                              <FaLanguage size="0.9em" className="text-base-content/70"/> 
+                              <span className={`text-xs ${vttEnExists ? 'font-medium' : 'text-base-content/70'}`}>英文</span>
                           </div>
-                          <div className="flex gap-1">
+                          <div className="flex gap-0.5">
                               <button 
-                                  className="btn btn-info btn-xs btn-outline flex items-center gap-1"
-                                  onClick={() => onDownloadVtt(task.uuid, 'en')}
-                                  title="下载英文 VTT"
+                                  className="btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info hover:bg-base-content/10 flex items-center justify-center"
+                                  onClick={() => onDownloadVtt(task.uuid)}
+                                  title="下载可用 VTT (EN/ZH)"
                               >
-                                  <FaDownload size="0.85em" /> 下载
+                                  <FaDownload size="0.9em" />
                               </button>
                               <button 
-                                  className={`btn btn-warning btn-xs btn-outline flex items-center gap-1 ${!vttEnExists ? 'btn-disabled' : ''}`} 
+                                  className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttEnExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                                   onClick={() => onDeleteVtt(task.uuid, 'en')}
                                   disabled={!vttEnExists}
                                   title="删除英文 VTT"
                               >
-                                  <FaTrash size="0.85em" /> 删除
+                                  <FaTrash size="0.9em" /> 
                               </button>
                           </div>
                       </div>
-                      {/* Chinese VTT */}
                       <div className="flex justify-between items-center">
                            <div className="flex items-center gap-1">
-                              <FaLanguage size="0.9em" /> 
-                              <span className={`text-xs ${vttZhExists ? 'font-semibold' : ''}`}>中文</span>
+                              <FaLanguage size="0.9em" className="text-base-content/70"/> 
+                              <span className={`text-xs ${vttZhExists ? 'font-medium' : 'text-base-content/70'}`}>中文</span>
                           </div>
-                          <div className="flex gap-1">
+                          <div className="flex gap-0.5">
                                <button 
-                                  className="btn btn-info btn-xs btn-outline flex items-center gap-1"
-                                  onClick={() => onDownloadVtt(task.uuid, 'zh-Hans')} // Use 'zh-Hans' for simplified Chinese
-                                  title="下载中文 VTT"
+                                  className="btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info hover:bg-base-content/10 flex items-center justify-center"
+                                  onClick={() => onDownloadVtt(task.uuid)}
+                                  title="下载可用 VTT (EN/ZH)"
                               >
-                                  <FaDownload size="0.85em" /> 下载
+                                  <FaDownload size="0.9em" />
                               </button>
-                              <button 
-                                  className={`btn btn-warning btn-xs btn-outline flex items-center gap-1 ${!vttZhExists ? 'btn-disabled' : ''}`} 
+                               <button 
+                                  className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttZhExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
                                   onClick={() => onDeleteVtt(task.uuid, 'zh-Hans')}
                                   disabled={!vttZhExists}
                                   title="删除中文 VTT"
                               >
-                                  <FaTrash size="0.85em" /> 删除
+                                  <FaTrash size="0.9em" />
                               </button>
                           </div>
                       </div>
@@ -236,14 +222,15 @@ function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDelete
                 </div>
               )}
 
-              {/* 删除整个任务的按钮 - 放在底部较明显的位置 */}
-              <div className="card-actions justify-end mt-2 pt-1 border-t">
+              {/* Delete Task Button - Icon only, keep tooltip */}
+              <div className="card-actions justify-end mt-2 pt-2 border-t border-base-200/60"> 
                 <button 
-                  className="btn btn-error btn-xs flex items-center gap-1" 
+                  className="btn btn-ghost btn-xs btn-square text-error tooltip tooltip-error hover:bg-base-content/10 flex items-center justify-center"
                   onClick={() => onDelete(task.uuid)}
                   title="删除整个任务"
+                  data-tip="删除任务"
                 >
-                  <FaTrash /> 删除任务
+                  <FaTrash size="0.9em"/>
                 </button>
               </div>
             </div>
