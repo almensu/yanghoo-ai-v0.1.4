@@ -1,6 +1,7 @@
 import asyncio
 import yt_dlp
-from pathlib import Path
+import os
+import glob
 from uuid import UUID
 from ..schemas import TaskMetadata
 import logging
@@ -20,78 +21,83 @@ def get_format_string(quality: str) -> str:
     # Default to 'best' if quality string is not recognized
     return quality_map.get(quality, quality_map['best'])
 
-async def run_download_media(task_metadata: TaskMetadata, quality: str, base_dir: Path) -> str:
+async def run_download_media(task_metadata: TaskMetadata, quality: str, base_dir: str) -> str:
     """
     Downloads the media file for a given task and quality using yt-dlp.
 
     Args:
         task_metadata: The metadata object for the task.
         quality: Desired quality ('best', '1080p', '720p', '360p').
-        base_dir: The base directory where task data is stored.
+        base_dir: The base directory where task data is stored (string path).
 
     Returns:
-        The relative path to the downloaded media file.
+        The relative path to the downloaded media file (relative to backend dir).
 
     Raises:
-        FileNotFoundError: If the task directory doesn't exist.
+        FileNotFoundError: If the task directory doesn't exist or download fails.
         ValueError: If the quality string is invalid (though currently defaults).
         yt_dlp.utils.DownloadError: If yt-dlp fails to download the media.
         Exception: For other unexpected errors.
     """
     task_uuid_str = str(task_metadata.uuid)
     url = task_metadata.url
-    uuid_dir = base_dir / task_uuid_str
+    uuid_dir = os.path.join(base_dir, task_uuid_str)
+    backend_dir = os.path.dirname(base_dir)
 
-    if not uuid_dir.is_dir():
+    if not os.path.isdir(uuid_dir):
         raise FileNotFoundError(f"Task directory not found: {uuid_dir}")
 
     format_string = get_format_string(quality)
-    # Define output template including quality, removing UUID from filename
-    output_filename_base = f"video_{quality}" # Example: video_best, video_1080p
-    # If quality is 'bestaudio', maybe use a different prefix?
+    # Define output template including quality
+    output_filename_base = f"video_{quality}"
     if quality == 'bestaudio':
-        output_filename_base = f"audio_{quality}" # Example: audio_bestaudio
+        output_filename_base = f"audio_{quality}"
 
-    output_template = str(uuid_dir / f"{output_filename_base}.%(ext)s")
+    # Construct absolute base path for output template
+    output_template_base = os.path.join(uuid_dir, output_filename_base)
+    # yt-dlp needs the template string including extension placeholder
+    output_template = f"{output_template_base}.%(ext)s"
 
     ydl_opts = {
         'format': format_string,
         'outtmpl': output_template,
-        'quiet': False, # Set to False to see progress/errors
+        'quiet': False,
         'no_warnings': True,
         'ignoreerrors': False,
-        'merge_output_format': 'mp4', # Preferred format after merging video/audio
-        # 'overwrites': True, # yt-dlp default is usually not to overwrite
-        # Consider adding progress hooks if needed later
+        'merge_output_format': 'mp4',
     }
 
     loop = asyncio.get_event_loop()
-    downloaded_file_path = None
+    downloaded_file_path_abs = None
 
     try:
         logger.info(f"Attempting to download media for {url} (Quality: {quality}) to {uuid_dir}")
         
-        # Run yt-dlp download in executor
         await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).download([url]))
 
-        # Find the downloaded file using the simplified base name
-        found_files = list(uuid_dir.glob(f"{output_filename_base}.*"))
-        if not found_files:
-             # Check if maybe format selection failed and it defaulted to something else?
-             # This part might need refinement based on yt-dlp behavior
-             logger.warning(f"Could not find exact match for {output_filename_base}.* - checking for any video file.")
-             # Simple check for common video extensions
-             for ext in ['mp4', 'mkv', 'webm']: 
-                 found_files = list(uuid_dir.glob(f"*.{ext}"))
-                 if found_files:
-                     logger.warning(f"Found potential match: {found_files[0]}")
-                     break # Take the first one found
+        # Find the downloaded file using glob
+        search_pattern = f"{output_template_base}.*"
+        found_files_abs = glob.glob(search_pattern)
         
-        if found_files:
-            downloaded_file_path = found_files[0]
-            relative_path = downloaded_file_path.relative_to(base_dir.parent)
-            logger.info(f"Successfully downloaded media to {downloaded_file_path}")
-            return str(relative_path)
+        if not found_files_abs:
+             logger.warning(f"Could not find exact match for {search_pattern} - checking for any video/audio file.")
+             # Simple check for common extensions if exact match fails
+             extensions = ['.mp4', '.mkv', '.webm', '.m4a', '.mp3', '.wav']
+             all_files_in_dir = os.listdir(uuid_dir)
+             for filename in all_files_in_dir:
+                 if any(filename.lower().endswith(ext) for ext in extensions):
+                    found_path_abs = os.path.join(uuid_dir, filename)
+                    found_files_abs = [found_path_abs] # Treat as list
+                    logger.warning(f"Found potential match: {found_path_abs}")
+                    break # Take the first one found
+        
+        if found_files_abs:
+            # Assume the first match is the correct one
+            downloaded_file_path_abs = found_files_abs[0]
+            # Calculate relative path from backend_dir
+            relative_path = os.path.relpath(downloaded_file_path_abs, backend_dir)
+            logger.info(f"Successfully downloaded media to {downloaded_file_path_abs}")
+            return relative_path
         else:
             raise FileNotFoundError(f"Media download failed for {url}, file not found in {uuid_dir} after download attempt.")
 

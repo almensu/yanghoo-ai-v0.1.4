@@ -1,4 +1,12 @@
 import React from 'react';
+// Import icons
+import { FaVideo, FaVideoSlash, FaHeadphones, FaVolumeMute, FaTrash } from 'react-icons/fa';
+// Import more intuitive icons
+import { 
+  FaFileVideo, FaVideoSlash as FaVideoSlash6, 
+  FaFileAudio, FaVolumeXmark, 
+  FaDownload, FaMusic
+} from 'react-icons/fa6';  // Use fa6 version for updated icons
 
 // Basic placeholder for image loading/error
 const ImageWithFallback = ({ src, alt, className }) => {
@@ -41,7 +49,7 @@ const ImageWithFallback = ({ src, alt, className }) => {
 };
 
 
-function CardView({ tasks, onDelete, onDownloadRequest }) {
+function CardView({ tasks, onDelete, onDownloadRequest, onExtractAudio, onDeleteVideo, onDeleteAudio }) {
   if (!tasks || tasks.length === 0) {
     // This case is handled in App.js, but good practice to check
     return null; 
@@ -49,56 +57,128 @@ function CardView({ tasks, onDelete, onDownloadRequest }) {
 
   const videoQualities = ['best', '1080p', '720p', '360p'];
 
+  // Helper function to check if video exists (at least one non-null path)
+  const hasVideo = (mediaFiles) => {
+    return mediaFiles && typeof mediaFiles === 'object' && Object.values(mediaFiles).some(path => path !== null);
+  };
+
+  // Helper function to check if audio exists
+  const hasAudio = (audioPath) => {
+    return !!audioPath; // Simple truthiness check is fine if it's null or a string path
+  };
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-      {tasks.map((task) => (
-        <div key={task.uuid} className="card bg-base-100 shadow-xl border border-base-300">
-          <figure className="h-48 overflow-hidden"> {/* Fixed height for image area */}
-             <ImageWithFallback 
-               src={task.thumbnail_path}
-               alt={task.title || 'Thumbnail'} 
-               className="object-cover w-full h-full" // Cover ensures image fills the area
-              />
-          </figure>
-          <div className="card-body p-4">
-            <h2 className="card-title text-base line-clamp-2" title={task.title}> {/* Limit title lines */} 
-              {task.title || 'No Title'}
-            </h2>
-            <p className="text-xs text-gray-500 truncate" title={task.url}>{task.url}</p>
-            <div className="card-actions justify-between items-center mt-2">
-              <span className="badge badge-outline badge-sm">{task.platform}</span>
-              <div className="flex gap-1"> {/* Group buttons */}
-                {/* Audio Button */}
-                <button 
-                  className="btn btn-info btn-xs btn-outline" 
-                  onClick={() => onDownloadRequest(task.uuid, 'bestaudio')} 
-                >
-                  Audio
-                </button>
-                {/* Video Dropdown */}
-                <div className="dropdown dropdown-end">
-                  <button tabIndex={0} className="btn btn-success btn-xs btn-outline">Video</button>
-                  <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-32 z-[1]"> {/* Ensure z-index */}
-                    {videoQualities.map(quality => (
-                      <li key={quality}>
-                        <a onClick={() => onDownloadRequest(task.uuid, quality)}>{quality}</a>
-                      </li>
-                    ))}
-                  </ul>
+      {tasks.map((task) => {
+        const videoExists = hasVideo(task.media_files);
+        const audioExists = hasAudio(task.extracted_wav_path);
+
+        return (
+          <div key={task.uuid} className="card bg-base-100 shadow-xl border border-base-300">
+            <figure className="h-48 overflow-hidden"> {/* Fixed height for image area */}
+               <ImageWithFallback 
+                 src={task.thumbnail_path}
+                 alt={task.title || 'Thumbnail'} 
+                 className="object-cover w-full h-full" // Cover ensures image fills the area
+                />
+            </figure>
+            <div className="card-body p-4">
+              <h2 className="card-title text-base line-clamp-2" title={task.title}> {/* Limit title lines */} 
+                {task.title || 'No Title'}
+              </h2>
+              <p className="text-xs text-gray-500 truncate" title={task.url}>{task.url}</p>
+              
+              {/* 平台徽章 */}
+              <div className="mt-2">
+                <span className="badge badge-outline badge-sm">{task.platform}</span>
+              </div>
+
+              {/* 媒体状态和操作区 - 视频部分 */}
+              <div className="flex justify-between items-center mt-3 mb-1 border-t pt-2">
+                {/* 视频状态图标和标签 */}
+                <div className="flex items-center gap-1">
+                  <span className={`text-lg ${videoExists ? 'text-success' : 'text-gray-400'}`}>
+                    {videoExists ? <FaFileVideo /> : <FaVideoSlash6 />}
+                  </span>
+                  <span className="text-sm">{videoExists ? "视频已下载" : "无视频"}</span>
                 </div>
-                {/* Delete Button */}
+                
+                {/* 视频操作按钮 */}
+                <div className="flex gap-1">
+                  {/* 下载视频按钮 */}
+                  <div className="dropdown dropdown-end">
+                    <button tabIndex={0} className="btn btn-success btn-xs btn-outline flex items-center gap-1">
+                      <FaDownload size="0.85em" /> 下载
+                    </button>
+                    <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-32 z-[1]">
+                      {videoQualities.map(quality => (
+                        <li key={quality}>
+                          <a onClick={() => onDownloadRequest(task.uuid, quality)}>{quality}</a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  
+                  {/* 删除视频按钮 */}
+                  <button 
+                    className={`btn btn-warning btn-xs btn-outline flex items-center gap-1 ${!videoExists ? 'btn-disabled' : ''}`} 
+                    onClick={() => onDeleteVideo(task.uuid)}
+                    disabled={!videoExists}
+                    title="删除视频文件"
+                  >
+                    <FaTrash size="0.85em" /> 删除
+                  </button>
+                </div>
+              </div>
+              
+              {/* 媒体状态和操作区 - 音频部分 */}
+              <div className="flex justify-between items-center mt-2 mb-1 border-t pt-2">
+                {/* 音频状态图标和标签 */}
+                <div className="flex items-center gap-1">
+                  <span className={`text-lg ${audioExists ? 'text-accent' : 'text-gray-400'}`}>
+                    {audioExists ? <FaFileAudio /> : <FaVolumeXmark />}
+                  </span>
+                  <span className="text-sm">{audioExists ? "音频已提取" : "无音频"}</span>
+                </div>
+                
+                {/* 音频操作按钮 */}
+                <div className="flex gap-1">
+                  {/* 提取音频按钮 */}
+                  <button 
+                    className="btn btn-accent btn-xs btn-outline flex items-center gap-1"
+                    onClick={() => onExtractAudio(task.uuid)}
+                    disabled={!videoExists}
+                    title={!videoExists ? "请先下载视频" : "从视频中提取音频"}
+                  >
+                    <FaMusic size="0.85em" /> 提取
+                  </button>
+                  
+                  {/* 删除音频按钮 */}
+                  <button 
+                    className={`btn btn-warning btn-xs btn-outline flex items-center gap-1 ${!audioExists ? 'btn-disabled' : ''}`} 
+                    onClick={() => onDeleteAudio(task.uuid)}
+                    disabled={!audioExists}
+                    title="删除音频文件"
+                  >
+                    <FaTrash size="0.85em" /> 删除
+                  </button>
+                </div>
+              </div>
+              
+              {/* 删除整个任务的按钮 - 放在底部较明显的位置 */}
+              <div className="card-actions justify-end mt-2 pt-1 border-t">
                 <button 
-                  className="btn btn-error btn-xs btn-outline" 
+                  className="btn btn-error btn-xs flex items-center gap-1" 
                   onClick={() => onDelete(task.uuid)}
-                  // Consider adding a loading state per card if deletion is slow
+                  title="删除整个任务"
                 >
-                  Delete
+                  <FaTrash /> 删除任务
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

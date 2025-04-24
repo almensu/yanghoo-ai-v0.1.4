@@ -132,12 +132,107 @@ function App() {
       console.log(`Successfully started/completed download for task: ${taskUuid}`, data);
       // Update UI or state if needed based on `data` (e.g., show file path)
       alert(`Download request for ${taskUuid} successful! Backend response: ${data.message}`);
+      await fetchTasks(); 
 
     } catch (e) {
       console.error("Error downloading media:", e);
       alert(`Failed to download media for task ${taskUuid}: ${e.message}`);
     } finally {
       // Clear loading state indicator if you added one
+    }
+  };
+
+  // --- Handle Extract Audio --- 
+  const handleExtractAudio = async (taskUuid) => {
+    console.log(`Attempting to extract audio for task: ${taskUuid}`);
+    // Indicate loading/processing start (e.g., via state or simple alert)
+    alert(`Starting audio extraction for ${taskUuid}... This might take a while.`);
+
+    try {
+      const res = await fetch(`/api/tasks/${taskUuid}/extract_audio`, {
+        method: 'POST',
+        // No body needed for this request
+      });
+
+      const data = await res.json(); // Expect JSON response on success or structured error
+
+      if (!res.ok) {
+        // Handle specific errors like needing to download first, or generic errors
+        const errorMsg = data.detail || `HTTP error! status: ${res.status}`;
+        console.error("Audio extraction error:", errorMsg);
+        alert(`Failed to extract audio for task ${taskUuid}: ${errorMsg}`);
+        return; // Stop processing on error
+      }
+
+      // Handle success
+      console.log(`Successfully extracted audio for task: ${taskUuid}`, data);
+      alert(`Audio extraction successful for ${taskUuid}! Output: ${data.wav_path} (${data.message})`);
+      
+      await fetchTasks(); 
+
+    } catch (e) {
+      console.error("Error during audio extraction fetch:", e);
+      alert(`Failed to extract audio for task ${taskUuid}: An unexpected network or parsing error occurred. ${e.message}`);
+    } finally {
+       // Clear loading/processing state indicator if implemented
+    }
+  };
+
+  // --- Handle Delete Video Only --- 
+  const handleDeleteVideo = async (taskUuid) => {
+    if (!window.confirm("Are you sure you want to delete all video files for this task?")) {
+      return;
+    }
+    console.log(`Attempting to delete video files for task: ${taskUuid}`);
+    try {
+      const res = await fetch(`/api/tasks/${taskUuid}/media/video`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        let errorDetail = `HTTP error! status: ${res.status}`;
+        try {
+          if (res.headers.get("content-length") !== "0" && res.headers.get("content-type")?.includes("application/json")) {
+             const errorData = await res.json();
+             errorDetail = errorData.detail || errorDetail;
+          }
+        } catch (jsonError) { console.warn("Could not parse error JSON:", jsonError); }
+        throw new Error(errorDetail);
+      }
+      console.log(`Successfully deleted video files for task: ${taskUuid}`);
+      alert(`Video files for task ${taskUuid} deleted successfully.`);
+      await fetchTasks(); // Refresh tasks to update UI state
+    } catch (e) {
+      console.error("Error deleting video files:", e);
+      alert(`Failed to delete video files: ${e.message}`);
+    }
+  };
+
+  // --- Handle Delete Audio Only --- 
+  const handleDeleteAudio = async (taskUuid) => {
+    if (!window.confirm("Are you sure you want to delete the audio file for this task?")) {
+      return;
+    }
+    console.log(`Attempting to delete audio file for task: ${taskUuid}`);
+    try {
+      const res = await fetch(`/api/tasks/${taskUuid}/media/audio`, {
+        method: 'DELETE',
+      });
+       if (!res.ok) {
+        let errorDetail = `HTTP error! status: ${res.status}`;
+        try {
+          if (res.headers.get("content-length") !== "0" && res.headers.get("content-type")?.includes("application/json")) {
+             const errorData = await res.json();
+             errorDetail = errorData.detail || errorDetail;
+          }
+        } catch (jsonError) { console.warn("Could not parse error JSON:", jsonError); }
+        throw new Error(errorDetail);
+      }
+      console.log(`Successfully deleted audio file for task: ${taskUuid}`);
+      alert(`Audio file for task ${taskUuid} deleted successfully.`);
+      await fetchTasks(); // Refresh tasks to update UI state
+    } catch (e) {
+      console.error("Error deleting audio file:", e);
+      alert(`Failed to delete audio file: ${e.message}`);
     }
   };
 
@@ -192,10 +287,24 @@ function App() {
           <div>
             {viewMode === 'card' ? (
               // Use CardView component
-              <CardView tasks={tasks} onDelete={handleDeleteTask} onDownloadRequest={handleDownloadRequest} />
+              <CardView 
+                tasks={tasks} 
+                onDelete={handleDeleteTask} 
+                onDownloadRequest={handleDownloadRequest} 
+                onExtractAudio={handleExtractAudio}
+                onDeleteVideo={handleDeleteVideo}
+                onDeleteAudio={handleDeleteAudio}
+               />
             ) : (
               // Use TableView component
-              <TableView tasks={tasks} onDelete={handleDeleteTask} onDownloadRequest={handleDownloadRequest} />
+              <TableView 
+                tasks={tasks} 
+                onDelete={handleDeleteTask} 
+                onDownloadRequest={handleDownloadRequest} 
+                onExtractAudio={handleExtractAudio} 
+                onDeleteVideo={handleDeleteVideo}
+                onDeleteAudio={handleDeleteAudio}
+              />
             )}
             {tasks.length === 0 && !fetchLoading && <p className="text-center text-gray-500 mt-4">No tasks ingested yet.</p>}
           </div>
