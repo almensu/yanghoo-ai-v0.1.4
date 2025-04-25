@@ -307,22 +307,25 @@ async def download_vtt_endpoint(task_uuid: UUID):
          logger.warning(f"Attempted VTT download for non-YouTube task: {task_uuid_str} (Platform: {task_meta.platform})")
          raise HTTPException(status_code=400, detail="VTT download is only supported for YouTube videos.")
 
+    # Get the TaskMetadata object needed by the async download function
+    task_meta_obj = all_metadata.get(task_uuid_str)
+    if not task_meta_obj:
+        logger.warning(f"Task not found for VTT download: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
     try:
-        # Run the potentially blocking download function in a thread pool
-        await run_in_threadpool(download_youtube_vtt, task_uuid_str, str(METADATA_FILE))
+        # Directly await the async download function
+        downloaded_vtt_files = await download_youtube_vtt(task_meta_obj, str(METADATA_FILE))
         
-        # Re-load metadata to confirm update (optional but good practice)
-        updated_metadata = await load_metadata()
-        updated_task_meta = updated_metadata.get(task_uuid_str)
-        
-        if not updated_task_meta or not updated_task_meta.vtt_files:
-             logger.warning(f"VTT download initiated for {task_uuid_str}, but metadata doesn't reflect downloaded files yet or function didn't find URLs.")
-             # Decide on response: maybe still success, or indicate pending/check logs
-             return {"message": "VTT download process initiated. Check logs or task status for results."}
-
-
-        logger.info(f"Successfully initiated VTT download for task: {task_uuid_str}")
-        return {"message": "VTT download successful.", "vtt_files": updated_task_meta.vtt_files} # Return paths
+        # Check the result returned by the function
+        if downloaded_vtt_files:
+            logger.info(f"Successfully downloaded VTT files for task: {task_uuid_str}. Files: {downloaded_vtt_files}")
+            return {"message": "VTT download successful.", "vtt_files": downloaded_vtt_files}
+        else:
+            # Function returned empty dict, likely due to yt-dlp error or no subs found
+            logger.warning(f"VTT download process completed for {task_uuid_str}, but no files were downloaded or reported. Check logs.")
+            # Return success but indicate no files were generated/found
+            return {"message": "VTT download process completed, but no subtitles were downloaded. Check logs for details.", "vtt_files": {}}
 
     except FileNotFoundError as e:
          logger.error(f"File not found during VTT download process for {task_uuid_str}: {e}", exc_info=True)

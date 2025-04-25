@@ -4,6 +4,11 @@ import requests
 import logging
 from pathlib import Path
 import threading
+import asyncio
+
+# Assuming fetch_info_json is in the same directory or adjust path
+from .fetch_info_json import run_fetch_info_json
+from ..schemas import TaskMetadata # Import TaskMetadata
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -11,111 +16,137 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Use a lock for metadata file operations to prevent race conditions if run concurrently
 metadata_lock = threading.Lock()
 
-def download_youtube_vtt(video_uuid: str, metadata_file: str = "backend/data/metadata.json"):
+# Make the function async and accept TaskMetadata
+async def download_youtube_vtt(task_meta: TaskMetadata, metadata_file: str = "backend/data/metadata.json") -> dict:
     """
-    Downloads VTT subtitles for a given YouTube video UUID.
+    Downloads VTT subtitles for a given YouTube video TaskMetadata.
+    Attempts to parse info.json, download VTTs. If a 404 occurs,
+    attempts to refresh info.json and retry the download once.
 
     Args:
-        video_uuid: The UUID of the video.
+        task_meta: The metadata object for the task.
         metadata_file: Path to the main metadata JSON file.
     """
+    video_uuid = str(task_meta.uuid)
     logging.info(f"Attempting to download VTT for UUID: {video_uuid}")
 
+    downloaded_files = {} # Store successfully downloaded files
+    base_dir = Path(metadata_file).parent # data directory
+    video_dir = base_dir / video_uuid
+
     try:
-        with metadata_lock:
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-
-        video_data = metadata.get(video_uuid)
-
-        if not video_data:
-            logging.error(f"Video UUID {video_uuid} not found in metadata.")
-            return
-
-        if video_data.get("platform") != "youtube":
+        # Use task_meta directly
+        if task_meta.platform != "youtube":
             logging.warning(f"Video {video_uuid} is not from YouTube. Skipping VTT download.")
-            return
+            return {}
 
-        info_json_path_str = video_data.get("info_json_path")
-        if not info_json_path_str:
-            logging.error(f"info_json_path not found for video {video_uuid}.")
-            return
+        # Function to get VTT URLs from current info.json
+        def get_vtt_urls_from_info(info_json_path: Path) -> dict:
+            urls = {}
+            target_langs = {"zh-Hans": ["zh-Hans"], "en": ["en", "en-orig"]}
+            try:
+                if not info_json_path.exists():
+                    logging.warning(f"Info JSON file not found at {info_json_path} during URL extraction.")
+                    return {}
+                with open(info_json_path, 'r') as f:
+                    info_data = json.load(f)
+                
+                captions = info_data.get("automatic_captions", {}) 
+                if not captions:
+                    logging.warning(f"No automatic captions found in {info_json_path}.")
+                    return {}
 
-        info_json_path = Path(info_json_path_str)
-        if not info_json_path.exists():
-             # Adjust path relative to metadata file if necessary
-             base_dir = Path(metadata_file).parent
-             info_json_path = (base_dir / info_json_path_str).resolve()
-             if not info_json_path.exists():
-                 logging.error(f"Info JSON file not found at {info_json_path_str} or {info_json_path}")
-                 return
-
-
-        with open(info_json_path, 'r') as f:
-            info_data = json.load(f)
-
-        captions = info_data.get("automatic_captions", {})
-        if not captions:
-            logging.warning(f"No automatic captions found in info.json for {video_uuid}.")
-            # Optionally check requested_subtitles here too if yt-dlp schema includes them separately
-            # captions.update(info_data.get("requested_subtitles", {}))
-            # if not captions:
-            #     logging.warning(f"No automatic or requested captions found for {video_uuid}.")
-            #     return
-
-
-        # --- VTT Selection Logic ---
-        vtt_urls_to_download = {} # lang_code: url
-        target_langs = {"zh-Hans": ["zh-Hans"], "en": ["en", "en-orig"]} # Target codes and their potential keys in info.json
-
-        # Find best match for each target language
-        for target_code, potential_keys in target_langs.items():
-            found_url = None
-            for key in potential_keys:
-                if key in captions and isinstance(captions[key], list):
-                    for entry in captions[key]:
-                        if entry.get("ext") == "vtt" and entry.get("url"):
-                            found_url = entry["url"]
-                            logging.info(f"Found VTT URL for standard code '{target_code}' (searched using key: {key}) for {video_uuid}")
-                            break # Take the first valid VTT entry for this key
+                for target_code, potential_keys in target_langs.items():
+                    found_url = None
+                    for key in potential_keys:
+                        if key in captions and isinstance(captions[key], list):
+                            for entry in captions[key]:
+                                if entry.get("ext") == "vtt" and entry.get("url"):
+                                    found_url = entry["url"]
+                                    break 
+                            if found_url:
+                                break
                     if found_url:
-                        break # Found URL for this target_code via one of its potential_keys
-            if found_url:
-                vtt_urls_to_download[target_code] = found_url
-            else:
-                logging.warning(f"Could not find suitable VTT URL for target standard code '{target_code}' for {video_uuid}")
+                        urls[target_code] = found_url
+                    else:
+                        logging.warning(f"Could not find VTT URL for '{target_code}' in {info_json_path}")
+                return urls
+            except (json.JSONDecodeError, IOError) as e:
+                logging.error(f"Error reading/parsing {info_json_path}: {e}")
+                return {}
 
+        # --- Initial Attempt --- 
+        info_json_path_str = task_meta.info_json_path
+        if not info_json_path_str:
+            logging.error(f"info_json_path not set in metadata for video {video_uuid}. Cannot proceed.")
+            return {}
+            
+        info_json_abs_path = base_dir.parent / info_json_path_str # Path relative to backend dir
+        initial_vtt_urls = get_vtt_urls_from_info(info_json_abs_path)
 
-        if not vtt_urls_to_download:
-            logging.warning(f"No suitable VTT URLs found to download for {video_uuid}.")
-            return
+        if not initial_vtt_urls:
+            logging.warning(f"No VTT URLs found in initial info.json ({info_json_abs_path}) for {video_uuid}. Cannot download.")
+            # Attempt refresh anyway?
+            # Let's proceed, the refresh logic might fix it if info.json was missing/bad
 
-        # --- Download and Save ---
-        downloaded_files = {}
-        video_dir = info_json_path.parent
+        target_langs_to_try = list(initial_vtt_urls.keys()) if initial_vtt_urls else ["zh-Hans", "en"] # Try both if initial parse failed
 
-        for lang_code, url in vtt_urls_to_download.items():
+        for lang_code in target_langs_to_try:
+            url_to_download = initial_vtt_urls.get(lang_code)
+            if not url_to_download:
+                logging.warning(f"No initial URL for {lang_code}, skipping first attempt.")
+                # Trigger refresh logic below if needed?
+                # For now, just skip if no initial URL
+                continue 
+
             output_filename = f"transcript_{lang_code}.vtt"
             output_path = video_dir / output_filename
-            relative_output_path = Path("data") / video_uuid / output_filename # Path relative to backend dir for metadata
+            relative_output_path = Path("data") / video_uuid / output_filename
 
             try:
-                logging.info(f"Downloading {lang_code} VTT from {url} to {output_path}")
-                response = requests.get(url, timeout=30)
-                response.raise_for_status() # Raise an exception for bad status codes
-
-                with open(output_path, 'wb') as f: # Write in binary mode
+                logging.info(f"Attempt 1: Downloading {lang_code} VTT from {url_to_download} to {output_path}")
+                response = requests.get(url_to_download, timeout=30)
+                response.raise_for_status()
+                with open(output_path, 'wb') as f:
                     f.write(response.content)
-
-                downloaded_files[lang_code] = str(relative_output_path).replace("\\", "/") # Store relative path with forward slashes
-
-                logging.info(f"Successfully downloaded {lang_code} VTT for {video_uuid}")
+                downloaded_files[lang_code] = str(relative_output_path).replace("\\", "/")
+                logging.info(f"Attempt 1: Successfully downloaded {lang_code} VTT for {video_uuid}")
 
             except requests.exceptions.RequestException as e:
-                logging.error(f"Failed to download {lang_code} VTT for {video_uuid}: {e}")
-            except IOError as e:
-                logging.error(f"Failed to save {lang_code} VTT file for {video_uuid} to {output_path}: {e}")
+                is_404 = isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 404
+                if is_404:
+                    logging.warning(f"Attempt 1: Failed to download {lang_code} VTT (404 Not Found). Refreshing info.json and retrying...")
+                    try:
+                        # --- Refresh info.json --- 
+                        await run_fetch_info_json(task_meta, str(base_dir))
+                        logging.info(f"Refreshed info.json for {video_uuid}")
 
+                        # --- Re-read and Re-extract URL --- 
+                        refreshed_vtt_urls = get_vtt_urls_from_info(info_json_abs_path)
+                        new_url = refreshed_vtt_urls.get(lang_code)
+
+                        if new_url:
+                            logging.info(f"Attempt 2: Retrying download for {lang_code} with new URL: {new_url}")
+                            try:
+                                response = requests.get(new_url, timeout=30)
+                                response.raise_for_status()
+                                with open(output_path, 'wb') as f:
+                                    f.write(response.content)
+                                downloaded_files[lang_code] = str(relative_output_path).replace("\\", "/")
+                                logging.info(f"Attempt 2: Successfully downloaded {lang_code} VTT for {video_uuid}")
+                            except requests.exceptions.RequestException as e2:
+                                logging.error(f"Attempt 2: Failed to download {lang_code} VTT after refresh: {e2}")
+                            except IOError as e2:
+                                logging.error(f"Attempt 2: Failed to save {lang_code} VTT file after refresh: {e2}")
+                        else:
+                             logging.error(f"Attempt 2: Could not find URL for {lang_code} even after refreshing info.json.")
+                    except Exception as refresh_err:
+                        logging.error(f"Error during info.json refresh or retry for {lang_code}: {refresh_err}")
+                else:
+                    # Initial download failed with non-404 error
+                    logging.error(f"Attempt 1: Failed to download {lang_code} VTT (non-404 error): {e}")
+            except IOError as e:
+                 logging.error(f"Attempt 1: Failed to save {lang_code} VTT file to {output_path}: {e}")
 
         # --- Update Metadata ---
         if downloaded_files:
@@ -126,7 +157,7 @@ def download_youtube_vtt(video_uuid: str, metadata_file: str = "backend/data/met
                         current_metadata = json.load(f)
                 except (FileNotFoundError, json.JSONDecodeError) as e:
                     logging.error(f"Error reading metadata file {metadata_file} before update: {e}")
-                    return # Cannot update if we can't read
+                    return {} # Cannot update if we can't read
 
                 if video_uuid in current_metadata:
                     if "vtt_files" not in current_metadata[video_uuid] or not isinstance(current_metadata[video_uuid]["vtt_files"], dict) :
@@ -144,12 +175,18 @@ def download_youtube_vtt(video_uuid: str, metadata_file: str = "backend/data/met
                 else:
                     logging.error(f"Video UUID {video_uuid} disappeared from metadata between read and write. Update failed.")
 
+        # Return the dictionary of successfully downloaded files (relative paths)
+        return downloaded_files
+
     except FileNotFoundError:
         logging.error(f"Metadata file not found at {metadata_file}")
+        return {} # Return empty dict on error
     except json.JSONDecodeError:
         logging.error(f"Error decoding JSON from {metadata_file} or info.json")
+        return {} # Return empty dict on error
     except Exception as e:
         logging.error(f"An unexpected error occurred during VTT download for {video_uuid}: {e}", exc_info=True)
+        return {} # Return empty dict on unexpected error
 
 
 # Example Usage (you would call this from your main application logic/API endpoint)
