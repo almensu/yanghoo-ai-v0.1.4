@@ -4,19 +4,22 @@ from pathlib import Path # Import Path
 import shutil
 import json
 from uuid import UUID
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Literal
 import aiofiles
 import yt_dlp
 import ffmpeg
 import torch
+import subprocess
+import sys
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 # from pathlib import Path # Remove Path import
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel
 from pydantic.json import pydantic_encoder
 
 # --- Schemas Import --- 
@@ -36,7 +39,7 @@ from .tasks.download_media import run_download_media
 from .tasks.extract_audio import run_extract_audio
 from .tasks.transcribe_youtube_vtt import run_transcribe_youtube_vtt
 from .tasks.transcribe_whisperx import run_transcribe_whisperx
-from .tasks.merge_vtt import run_merge_vtt
+from .tasks.merge_vtt import main as run_merge_vtt
 from .tasks.merge_whisperx import run_merge_whisperx
 from .tasks.download_youtueb_vtt import download_youtube_vtt
 from .tasks.download_audio import download_audio_sync, AUDIO_DOWNLOAD_PLATFORMS
@@ -53,6 +56,23 @@ BACKEND_DIR = SRC_DIR.parent
 DATA_DIR = BACKEND_DIR / "data"
 
 app = FastAPI()
+
+# --- Add CORS Middleware --- 
+# Allow origins (e.g., your frontend development server)
+origins = [
+    "http://localhost:3000", # React default dev port
+    "http://localhost:8080", # Vue default dev port (example)
+    "http://localhost:4200", # Angular default dev port (example)
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Allow all methods (GET, POST, DELETE, etc.)
+    allow_headers=["*"], # Allow all headers
+)
+# --- End CORS Middleware ---
 
 # Ensure the directory exists using pathlib
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -823,6 +843,109 @@ async def download_audio_endpoint(task_uuid: UUID):
         logger.error(f"Error during audio download endpoint for {task_uuid_str}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error during audio download: {str(e)}")
 # --- END: New Download Audio Endpoint ---
+
+# --- NEW: Merge VTT Endpoint ---
+class MergeVttRequest(BaseModel):
+    format: Literal['parallel', 'merged'] = 'parallel' # Default to parallel
+
+@app.post("/api/tasks/{task_uuid}/merge_vtt", status_code=200)
+async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
+    metadata = await load_metadata()
+    task_meta = metadata.get(str(task_uuid))
+    task_uuid_str = str(task_uuid)
+
+    if not task_meta:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task_meta.archived:
+        raise HTTPException(status_code=400, detail="Task is archived")
+    if task_meta.platform != Platform.YOUTUBE:
+        raise HTTPException(status_code=400, detail="VTT merging is only supported for YouTube platform")
+    if task_meta.merged_vtt_md_path and (BASE_DIR / task_meta.merged_vtt_md_path).exists():
+        logger.info(f"VTT already merged for task {task_uuid_str}")
+        return {
+            "message": "VTT transcripts already merged.",
+            "merged_file_path": task_meta.merged_vtt_md_path
+        }
+
+    # Find required VTT file paths
+    en_vtt_rel_path = task_meta.vtt_files.get('en')
+    zh_vtt_rel_path = task_meta.vtt_files.get('zh-Hans')
+
+    if not en_vtt_rel_path and not zh_vtt_rel_path:
+        raise HTTPException(status_code=400, detail="Cannot merge: Neither English nor Chinese VTT file found in metadata.")
+
+    # Construct absolute paths and check file existence
+    en_vtt_abs = str(BACKEND_DIR / en_vtt_rel_path) if en_vtt_rel_path and (BACKEND_DIR / en_vtt_rel_path).exists() else None
+    zh_vtt_abs = str(BACKEND_DIR / zh_vtt_rel_path) if zh_vtt_rel_path and (BACKEND_DIR / zh_vtt_rel_path).exists() else None
+
+    # The script needs at least one valid VTT file on disk
+    if not en_vtt_abs and not zh_vtt_abs:
+         raise HTTPException(status_code=400, detail="VTT file paths found in metadata, but corresponding files not found on disk.")
+
+    # Define paths for the script and output
+    TASKS_DIR = SRC_DIR / 'tasks' 
+    script_path = str(TASKS_DIR / "merge_vtt.py")
+    task_data_dir = BASE_DIR / task_uuid_str
+    output_filename = f"{request.format}_transcript_vtt.md" # Use the requested format in filename
+    output_abs_path = str(task_data_dir / output_filename)
+    output_rel_path = str(Path(task_uuid_str) / output_filename) # Relative path for metadata
+
+    # Ensure the output directory exists
+    task_data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build the command - Pass absolute paths or "MISSING" sentinel
+    # IMPORTANT: Assumes merge_vtt.py is updated to handle 5 args: <en_path|MISSING> <zh_path|MISSING> <format> <output_abs_path>
+    en_arg = en_vtt_abs if en_vtt_abs else "MISSING"
+    zh_arg = zh_vtt_abs if zh_vtt_abs else "MISSING"
+    command = [ sys.executable, script_path, en_arg, zh_arg, request.format, output_abs_path ]
+
+    logger.info(f"Running merge script for task {task_uuid_str}: {' '.join(command)}")
+
+    try:
+        # Run the script in a threadpool as it involves file I/O
+        process = await run_in_threadpool(
+            subprocess.run,
+            command,
+            capture_output=True,
+            text=True,
+            check=False, # Don't automatically raise error on non-zero exit
+            encoding='utf-8' # Specify encoding
+        )
+
+        if process.returncode != 0:
+            logger.error(f"Merge script failed for task {task_uuid_str}. Return code: {process.returncode}")
+            logger.error(f"Script stderr:\n{process.stderr}")
+            logger.error(f"Script stdout:\n{process.stdout}")
+            # Try to delete potentially incomplete output file
+            try:
+                output_file_path = Path(output_abs_path)
+                if output_file_path.exists():
+                    await run_in_threadpool(os.remove, output_file_path)
+                    logger.info(f"Deleted potentially incomplete output file: {output_abs_path}")
+            except Exception as del_e:
+                logger.error(f"Failed to delete incomplete output file {output_abs_path}: {del_e}")
+
+            raise HTTPException(status_code=500, detail=f"Merge script failed: {process.stderr[:500]}") # Limit error detail length
+
+        # Script succeeded, update metadata
+        task_meta.merged_vtt_md_path = output_rel_path
+        metadata[task_uuid_str] = task_meta
+        await save_metadata(metadata)
+
+        logger.info(f"Successfully merged VTT for task {task_uuid_str}. Output: {output_rel_path}")
+        return {
+            "message": f"VTT merge successful (format: {request.format}).",
+            "merged_file_path": output_rel_path
+        }
+
+    except FileNotFoundError:
+        logger.error(f"Merge script not found at {script_path}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Merge script not found.")
+    except Exception as e:
+        logger.error(f"Unexpected error during VTT merge for task {task_uuid_str}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during VTT merge: {str(e)}")
+
+# --- END: Merge VTT Endpoint ---
 
 if __name__ == "__main__":
     import uvicorn
