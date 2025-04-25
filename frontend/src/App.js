@@ -4,6 +4,9 @@ import { FaArchive, FaUndo } from 'react-icons/fa'; // Import new icons
 // Uncomment the view components
 import CardView from './components/CardView';
 import TableView from './components/TableView';
+import axios from 'axios';
+
+const API_BASE_URL = 'http://127.0.0.1:8000'; // Replace with your backend URL
 
 function App() {
   // State for the URL input form
@@ -17,25 +20,34 @@ function App() {
   const [fetchLoading, setFetchLoading] = useState(true); // Loading state for fetching tasks
   const [fetchError, setFetchError] = useState(null); // Error state for fetching tasks
   const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterArchived, setFilterArchived] = useState(false); // State for filtering archived tasks
 
   // --- Fetch Tasks --- 
   const fetchTasks = useCallback(async () => {
     setFetchLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch('/api/tasks');
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      const data = await res.json();
-      setTasks(data); // Assuming the endpoint returns an array of TaskMetadata
-    } catch (e) {
-      console.error("Error fetching tasks:", e);
-      setFetchError(e.message || 'Failed to load tasks.');
+      const response = await axios.get(`${API_BASE_URL}/api/tasks`);
+      // Sort tasks so unarchived appear first, then potentially by date or title
+      const sortedTasks = response.data.sort((a, b) => {
+          if (a.archived !== b.archived) {
+              return a.archived ? 1 : -1; // Unarchived first
+          }
+          // Add secondary sorting if needed, e.g., by title
+          // return a.title.localeCompare(b.title);
+          return 0; // Keep original order among same archive status for now
+      });
+      setTasks(sortedTasks);
+      setFetchError(null);
+    } catch (err) {
+      console.error("Error fetching tasks:", err);
+      setFetchError('Failed to fetch tasks. Please check the backend connection.');
+      setTasks([]); // Clear tasks on error
     } finally {
       setFetchLoading(false);
     }
-  }, []); // Empty dependency array means this doesn't depend on props/state
+  }, []);
 
   useEffect(() => {
     fetchTasks();
@@ -460,6 +472,33 @@ function App() {
   };
   // --- END: Handle Download Audio ---
 
+  // --- Merge VTT Handler ---
+  const handleMergeVtt = async (uuid, format = 'parallel') => { // Default format
+    setFetchLoading(true);
+    setFetchError(null);
+    try {
+      // Assuming a new endpoint like /api/tasks/{uuid}/merge_vtt
+      await axios.post(`${API_BASE_URL}/api/tasks/${uuid}/merge_vtt`, { format: format });
+      console.log(`VTT merge request for ${uuid} (format: ${format}) sent.`);
+      alert('VTT merge started. Refresh list later to see the updated status.');
+      setTimeout(fetchTasks, 2000); // Refetch to update UI state (e.g., disable button)
+    } catch (err) {
+      console.error("Error requesting VTT merge:", err);
+      setFetchError(err.response?.data?.detail || 'Failed to merge VTT files.');
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
+  // --- Filtering Logic ---
+  const filteredTasks = tasks.filter(task => {
+    const matchesSearch = searchTerm === '' || 
+                          (task.title && task.title.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                          (task.url && task.url.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesArchive = !filterArchived || !task.archived;
+    return matchesSearch && matchesArchive;
+  });
+
   // --- Render --- 
   return (
     // Using data-theme for daisyUI theming
@@ -537,7 +576,8 @@ function App() {
                 onDeleteAudio={handleDeleteAudio}
                 onDownloadVtt={handleDownloadVtt}
                 onDeleteVtt={handleDeleteVtt}
-               />
+                onMergeVtt={handleMergeVtt} // Pass the handler
+              />
             ) : (
               <TableView 
                 tasks={tasks} 
@@ -550,6 +590,7 @@ function App() {
                 onDeleteAudio={handleDeleteAudio}
                 onDownloadVtt={handleDownloadVtt}
                 onDeleteVtt={handleDeleteVtt} 
+                onMergeVtt={handleMergeVtt} // Pass the handler
               />
             )}
             {tasks.length === 0 && !fetchLoading && <p className="text-center text-gray-500 mt-4">No tasks ingested yet.</p>}

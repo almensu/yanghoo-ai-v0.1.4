@@ -7,6 +7,8 @@ import { FaFileVideo, FaFileAudio, FaVolumeXmark, FaDownload, FaMusic } from 're
 import { FaClosedCaptioning, FaLanguage, FaTrash as FaTrash6 } from 'react-icons/fa6';
 // Add FaArchive for Archive button
 import { FaArchive } from 'react-icons/fa';
+// Add FaCodeMerge
+import { FaCodeMerge } from 'react-icons/fa6';
 
 // Basic placeholder for image loading/error (Could be shared in a utils file)
 const ImageWithFallback = ({ src, alt, className }) => {
@@ -47,8 +49,8 @@ const ImageWithFallback = ({ src, alt, className }) => {
   return <img src={finalSrc} alt={alt} className={className} onError={onError} />;
 };
 
-// Accept onDownloadAudio prop
-function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt }) {
+// Accept onDownloadAudio and onMergeVtt props
+function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt, onMergeVtt }) {
   if (!tasks || tasks.length === 0) {
     return null; 
   }
@@ -72,6 +74,13 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAu
   const isAudioPlatform = (platform) => {
       return ['xiaoyuzhou', 'podcast'].includes(platform);
   };
+  
+  // Helper function to check if merging is possible
+  const canMergeVtt = (task) => {
+    const vttEnExists = hasVtt(task.vtt_files, 'en');
+    const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans');
+    return task.platform === 'youtube' && (vttEnExists || vttZhExists) && !task.merged_vtt_md_path && !task.archived;
+  }
 
   return (
     <div className="overflow-x-auto border border-base-200 rounded-lg">
@@ -99,6 +108,8 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAu
             const vttZhExists = isYouTube && hasVtt(task.vtt_files, 'zh-Hans');
             const audioDownloaded = !!task.downloaded_audio_path;
             const canDirectDownloadAudio = isAudioPlatform(task.platform);
+            const canMerge = canMergeVtt(task); // Use the helper
+            const isMerged = !!task.merged_vtt_md_path;
 
             return (
               <tr key={task.uuid} className={`hover`}>
@@ -203,13 +214,26 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAu
                     <div className="flex flex-col gap-1 items-start">
                       <div className="flex items-center gap-1 text-xs mb-0.5">
                          <span className={`text-base ${(vttEnExists || vttZhExists) ? 'text-info' : 'text-base-content/50'}`}><FaClosedCaptioning /></span>
-                         <span className={`${(vttEnExists || vttZhExists) ? '' : 'text-base-content/70'}`}>{ (vttEnExists || vttZhExists) ? '可用' : '无' }</span>
-                         {/* Single Download Button - Conditionally Disabled */}
+                         <span className={`${(vttEnExists || vttZhExists) ? '' : 'text-base-content/70'}`}>
+                             {(vttEnExists || vttZhExists) ? (isMerged ? '已合并' : '可用') : '无'}
+                         </span>
+                         
+                         {/* Merge Button */}
                          <button 
-                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info hover:bg-base-content/10 flex items-center justify-center ml-2 ${!task.info_json_path ? 'btn-disabled text-base-content/30' : ''}`} 
+                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-secondary ${!canMerge ? 'btn-disabled text-base-content/30' : 'text-secondary'} hover:bg-base-content/10 flex items-center justify-center ml-auto`} 
+                            onClick={() => onMergeVtt(task.uuid, 'parallel')} // Defaulting to parallel
+                            disabled={!canMerge}
+                            data-tip={isMerged ? "字幕已合并" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "缺少字幕" : "合并字幕 (MD)"))}
+                          >
+                            <FaCodeMerge size="0.9em" />
+                         </button>
+                         
+                         {/* Download Button */}
+                         <button 
+                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-info ${!task.info_json_path ? 'btn-disabled text-base-content/30' : 'text-info'} hover:bg-base-content/10 flex items-center justify-center ml-1`} 
                             onClick={() => onDownloadVtt(task.uuid)}
                             disabled={!task.info_json_path}
-                            data-tip={!task.info_json_path ? "需要先获取 Info JSON" : "下载可用 VTT (EN/ZH)"}
+                            data-tip={!task.info_json_path ? "获取 Info JSON" : "下载 VTT"}
                         >
                            <FaDownload size="0.9em" />
                          </button>

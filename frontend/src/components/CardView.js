@@ -4,7 +4,7 @@ import {
   FaFileVideo, FaVideoSlash as FaVideoSlash6, 
   FaFileAudio, FaVolumeXmark, 
   FaDownload, FaMusic, FaClosedCaptioning, FaLanguage, FaTrash as FaTrash6, 
-  FaHeadphones 
+  FaHeadphones, FaCodeMerge
 } from 'react-icons/fa6';
 // FaArchive seems only available in fa, FaTrash is in both, use FaTrash6 from fa6 consistently
 import { FaArchive } from 'react-icons/fa'; 
@@ -49,7 +49,7 @@ const ImageWithFallback = ({ src, alt, className }) => {
   return <img src={finalSrc} alt={alt} className={className} onError={onError} />;
 };
 
-function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt }) {
+function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt, onMergeVtt }) {
   if (!tasks || tasks.length === 0) {
     // This case is handled in App.js, but good practice to check
     return null; 
@@ -77,6 +77,13 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAud
       return ['xiaoyuzhou', 'podcast'].includes(platform); // Use same list as backend
   };
 
+  // Helper function to check if merging is possible
+  const canMergeVtt = (task) => {
+    const vttEnExists = hasVtt(task.vtt_files, 'en');
+    const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans');
+    return task.platform === 'youtube' && (vttEnExists || vttZhExists) && !task.merged_vtt_md_path && !task.archived;
+  }
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       {tasks.map((task) => {
@@ -88,6 +95,8 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAud
         const vttEnExists = hasVtt(task.vtt_files, 'en');
         const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans'); // Assuming 'zh-Hans' for Simplified Chinese
         const isYouTube = task.platform === 'youtube';
+        const canMerge = canMergeVtt(task); // Use the helper
+        const isMerged = !!task.merged_vtt_md_path;
 
         return (
           <div key={task.uuid} className={`card bg-base-100 shadow-md border border-base-200/70 rounded-lg overflow-hidden relative`}>
@@ -194,13 +203,26 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAud
                       <span className={`text-lg ${(vttEnExists || vttZhExists) ? 'text-info' : 'text-base-content/40'}`}>
                           <FaClosedCaptioning />
                       </span>
-                      <span className="text-xs font-medium">字幕 (VTT)</span>
+                      <span className="text-xs font-medium mr-auto">字幕 (VTT) {isMerged ? '(已合并)' : ''}</span>
+                      
+                       {/* Merge Button */}
                        <button 
-                           className={`btn btn-ghost btn-xs btn-square tooltip tooltip-info text-info hover:bg-base-content/10 flex items-center justify-center ml-auto ${!task.info_json_path ? 'btn-disabled text-base-content/30' : ''}`} 
+                           className={`btn btn-ghost btn-xs btn-square tooltip tooltip-secondary ${!canMerge ? 'btn-disabled text-base-content/30' : 'text-secondary'} hover:bg-base-content/10 flex items-center justify-center`} 
+                           onClick={() => onMergeVtt(task.uuid, 'parallel')} // Defaulting to parallel, adjust if needed
+                           disabled={!canMerge}
+                           title={isMerged ? "字幕已合并为 Markdown" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "需要 EN 或 ZH 字幕" : "合并字幕为 Markdown (表格)"))}
+                           data-tip={isMerged ? "字幕已合并" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "缺少字幕" : "合并字幕 (MD)"))}
+                       >
+                           <FaCodeMerge size="0.9em" /> 
+                       </button>
+                       
+                       {/* Download VTT Button */}
+                       <button 
+                           className={`btn btn-ghost btn-xs btn-square tooltip tooltip-info ${!task.info_json_path ? 'btn-disabled text-base-content/30' : 'text-info'} hover:bg-base-content/10 flex items-center justify-center`} 
                            onClick={() => onDownloadVtt(task.uuid)}
                            disabled={!task.info_json_path}
                            title={!task.info_json_path ? "需要先获取 Info JSON" : "下载可用 VTT (EN/ZH)"}
-                           data-tip={!task.info_json_path ? "需要先获取 Info JSON" : "下载可用 VTT (EN/ZH)"}
+                           data-tip={!task.info_json_path ? "获取 Info JSON" : "下载 VTT"}
                        >
                            <FaDownload size="0.9em" />
                        </button>
