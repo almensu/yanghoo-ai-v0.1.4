@@ -35,17 +35,56 @@ def parse_vtt(vtt_file):
         # Convert timestamp to simplified format
         time_obj = timestamp.split('.')
         simplified_time = time_obj[0]
-        parsed.append((simplified_time, text))
-    
+        # Only add if text is not empty after stripping
+        if text:
+            parsed.append((simplified_time, text))
+            
     return parsed
+
+def deduplicate_overlaps(content_list):
+    """Remove starting overlaps between consecutive segments."""
+    if not content_list:
+        return []
+    
+    deduplicated = [] 
+    if content_list: # Ensure list is not empty before accessing index 0
+        deduplicated.append(content_list[0]) # Keep the first segment as is
+        
+    for i in range(1, len(content_list)):
+        # Compare with the last added segment in deduplicated list
+        if not deduplicated: # Should not happen if content_list was not empty, but safety check
+             deduplicated.append(content_list[i])
+             continue
+             
+        prev_time, prev_text = deduplicated[-1]
+        current_time, current_text = content_list[i]
+        
+        # Simple check: if current text starts with previous text and prev_text is not empty
+        # Also check if prev_text is not identical to current_text to avoid duplicate lines being added as empty strings
+        if prev_text and current_text != prev_text and current_text.startswith(prev_text):
+             # Remove the overlapping part from the start of the current text
+            new_text = current_text[len(prev_text):].strip()
+            # Only add if there's remaining non-empty text
+            if new_text:
+                 deduplicated.append((current_time, new_text))
+            # else: segment was fully overlapped or only contained the overlap, skip it
+        # Avoid adding exact duplicates
+        elif current_text != prev_text: 
+             deduplicated.append((current_time, current_text)) # No overlap or different start
+            
+    return deduplicated
 
 def create_merged_doc(en_vtt_path, zh_vtt_path, output_file):
     """Create a merged markdown document with both languages."""
-    en_content = parse_vtt(en_vtt_path) if en_vtt_path != MISSING_SENTINEL else []
-    zh_content = parse_vtt(zh_vtt_path) if zh_vtt_path != MISSING_SENTINEL else []
+    en_content_raw = parse_vtt(en_vtt_path) if en_vtt_path != MISSING_SENTINEL else []
+    zh_content_raw = parse_vtt(zh_vtt_path) if zh_vtt_path != MISSING_SENTINEL else []
+    
+    # Deduplicate overlaps for each language separately
+    en_content = deduplicate_overlaps(en_content_raw)
+    zh_content = deduplicate_overlaps(zh_content_raw)
     
     if not en_content and not zh_content:
-        print("Error: No valid VTT content found to merge.", file=sys.stderr)
+        print("Error: No valid VTT content found or remaining after deduplication.", file=sys.stderr)
         # Create an empty file or error out?
         with open(output_file, 'w', encoding='utf-8') as f:
              f.write("# Bilingual Transcript / 双语字幕\n\nError: No valid input VTT files found or content parsed.\n")
@@ -83,11 +122,15 @@ def create_merged_doc(en_vtt_path, zh_vtt_path, output_file):
 
 def create_parallel_doc(en_vtt_path, zh_vtt_path, output_file):
     """Create a parallel document with timestamps and both languages in table format."""
-    en_content = parse_vtt(en_vtt_path) if en_vtt_path != MISSING_SENTINEL else []
-    zh_content = parse_vtt(zh_vtt_path) if zh_vtt_path != MISSING_SENTINEL else []
+    en_content_raw = parse_vtt(en_vtt_path) if en_vtt_path != MISSING_SENTINEL else []
+    zh_content_raw = parse_vtt(zh_vtt_path) if zh_vtt_path != MISSING_SENTINEL else []
+
+    # Deduplicate overlaps for each language separately
+    en_content = deduplicate_overlaps(en_content_raw)
+    zh_content = deduplicate_overlaps(zh_content_raw)
 
     if not en_content and not zh_content:
-        print("Error: No valid VTT content found to merge.", file=sys.stderr)
+        print("Error: No valid VTT content found or remaining after deduplication.", file=sys.stderr)
         with open(output_file, 'w', encoding='utf-8') as f:
              f.write("# Bilingual Transcript / 双语字幕\n\nError: No valid input VTT files found or content parsed.\n")
         return # Or sys.exit(1)
