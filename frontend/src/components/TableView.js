@@ -221,7 +221,7 @@ function TableView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAu
                          {/* Merge Button */}
                          <button 
                             className={`btn btn-ghost btn-xs btn-square tooltip tooltip-secondary ${!canMerge ? 'btn-disabled text-base-content/30' : 'text-secondary'} hover:bg-base-content/10 flex items-center justify-center ml-auto`} 
-                            onClick={() => onMergeVtt(task.uuid, 'parallel')} // Defaulting to parallel
+                            onClick={() => onMergeVtt(task.uuid)}
                             disabled={!canMerge}
                             data-tip={isMerged ? "字幕已合并" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "缺少字幕" : "合并字幕 (MD)"))}
                           >

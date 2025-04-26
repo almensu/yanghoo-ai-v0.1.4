@@ -4,7 +4,8 @@ import {
   FaFileVideo, FaVideoSlash as FaVideoSlash6, 
   FaFileAudio, FaVolumeXmark, 
   FaDownload, FaMusic, FaClosedCaptioning, FaLanguage, FaTrash as FaTrash6, 
-  FaHeadphones, FaCodeMerge
+  FaHeadphones, FaCodeMerge,
+  FaMicrophoneLines,
 } from 'react-icons/fa6';
 // FaArchive seems only available in fa, FaTrash is in both, use FaTrash6 from fa6 consistently
 import { FaArchive } from 'react-icons/fa'; 
@@ -13,7 +14,7 @@ import { FaArchive } from 'react-icons/fa';
 const ImageWithFallback = ({ src, alt, className }) => {
   const [currentSrc, setCurrentSrc] = React.useState(src);
   const [error, setError] = React.useState(false);
-  const backendUrl = 'http://127.0.0.1:8000'; 
+  const backendUrl = 'http://127.0.0.1:8000';
   const placeholder = "https://via.placeholder.com/150/eeeeee/999999?text=No+Image";
 
   React.useEffect(() => {
@@ -23,7 +24,7 @@ const ImageWithFallback = ({ src, alt, className }) => {
   }, [src]);
 
   const onError = () => {
-    // Only set error flag if it wasn't already the placeholder
+    // Avoid setting error if the placeholder itself failed (though unlikely)
     if (finalSrc !== placeholder) {
         setError(true);
     }
@@ -36,26 +37,33 @@ const ImageWithFallback = ({ src, alt, className }) => {
     // use the external placeholder directly.
     finalSrc = placeholder;
   } else if (currentSrc.startsWith('http')) {
-     // If src is already an absolute URL (e.g., placeholder), use it.
-     // This case might overlap with !currentSrc if placeholder was set initially, which is fine.
+     // If src is already an absolute URL (like placeholder or potentially external URL in future), use it.
      finalSrc = currentSrc;
   } else {
-    // Otherwise, construct the backend URL
-    // Strip "data/" prefix 
-    const relativePath = currentSrc.startsWith('data/') ? currentSrc.substring(5) : currentSrc;
-    finalSrc = `${backendUrl}/files/${relativePath}`;
+    // Otherwise, construct the backend URL assuming currentSrc is relative to the /files mount point
+    // No need to strip 'data/' prefix anymore
+    finalSrc = `${backendUrl}/files/${currentSrc}`;
   }
 
   return <img src={finalSrc} alt={alt} className={className} onError={onError} />;
 };
 
-function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, onDeleteVtt, onMergeVtt }) {
+function CardView({
+  tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio,
+  onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt,
+  onDeleteVtt, onMergeVtt,
+  onTranscribeWhisperX, onDeleteWhisperX
+}) {
+  // State to store selected WhisperX model for each task
+  const [whisperxModels, setWhisperxModels] = React.useState({});
+
   if (!tasks || tasks.length === 0) {
     // This case is handled in App.js, but good practice to check
-    return null; 
+    return null;
   }
 
   const videoQualities = ['best', '1080p', '720p', '360p'];
+  const whisperXModelChoices = ['tiny.en', 'small.en', 'medium.en', 'large-v3'];
 
   // Helper function to check if video exists (at least one non-null path)
   const hasVideo = (mediaFiles) => {
@@ -84,6 +92,16 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAud
     return task.platform === 'youtube' && (vttEnExists || vttZhExists) && !task.merged_vtt_md_path && !task.archived;
   }
 
+  // Helper to get the selected model for a task, defaulting to medium.en
+  const getSelectedWhisperXModel = (uuid) => {
+    return whisperxModels[uuid] || 'medium.en';
+  };
+
+  // Handler for changing the selected model
+  const handleWhisperXModelChange = (uuid, model) => {
+    setWhisperxModels(prev => ({ ...prev, [uuid]: model }));
+  };
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       {tasks.map((task) => {
@@ -97,6 +115,13 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAud
         const isYouTube = task.platform === 'youtube';
         const canMerge = canMergeVtt(task); // Use the helper
         const isMerged = !!task.merged_vtt_md_path;
+
+        // --- WhisperX specific checks ---
+        const whisperXJsonExists = !!task.whisperx_json_path;
+        const hasAudioForTranscription = audioExists || audioDownloaded;
+        const selectedWhisperXModel = getSelectedWhisperXModel(task.uuid);
+        // TODO: Add a check for transcription in progress if the backend/App.js supports it
+        const isTranscribing = false; // Placeholder
 
         return (
           <div key={task.uuid} className={`card bg-base-100 shadow-md border border-base-200/70 rounded-lg overflow-hidden relative`}>
@@ -208,7 +233,7 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAud
                        {/* Merge Button */}
                        <button 
                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-secondary ${!canMerge ? 'btn-disabled text-base-content/30' : 'text-secondary'} hover:bg-base-content/10 flex items-center justify-center`} 
-                           onClick={() => onMergeVtt(task.uuid, 'parallel')} // Defaulting to parallel, adjust if needed
+                           onClick={() => onMergeVtt(task.uuid)}
                            disabled={!canMerge}
                            title={isMerged ? "字幕已合并为 Markdown" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "需要 EN 或 ZH 字幕" : "合并字幕为 Markdown (表格)"))}
                            data-tip={isMerged ? "字幕已合并" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "缺少字幕" : "合并字幕 (MD)"))}
@@ -265,6 +290,62 @@ function CardView({ tasks, onDelete, onArchive, onDownloadRequest, onDownloadAud
                   </div>
                 </div>
               )}
+
+              {/* --- WhisperX Section --- */}
+              <div className="mt-1 pt-2 border-t border-base-200/60">
+                  <div className="flex items-center gap-1.5 mb-2">
+                      <span className={`text-lg ${whisperXJsonExists ? 'text-success' : 'text-base-content/40'}`}>
+                          <FaMicrophoneLines />
+                      </span>
+                      <span className={`text-xs font-medium mr-auto ${whisperXJsonExists ? 'text-success' : ''}`}>
+                          字幕 (WhisperX)
+                          {whisperXJsonExists && <span className="font-normal text-success/80"> (已完成)</span>}
+                          {whisperXJsonExists && task.transcription_model && ` (${task.transcription_model})`}
+                      </span>
+                      {isTranscribing && <span className="loading loading-spinner loading-xs text-primary ml-2"></span>}
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                      <select
+                          className={`select select-bordered select-xs w-full ${!hasAudioForTranscription || whisperXJsonExists || isTranscribing ? 'select-disabled' : ''}`}
+                          value={selectedWhisperXModel}
+                          onChange={(e) => handleWhisperXModelChange(task.uuid, e.target.value)}
+                          disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing}
+                          title={
+                            !hasAudioForTranscription ? "需要先下载或提取音频" :
+                            whisperXJsonExists ? "已转录，请先删除" :
+                            isTranscribing ? "正在转录中..." : "选择 WhisperX 模型"
+                          }
+                      >
+                          {whisperXModelChoices.map(model => (
+                              <option key={model} value={model}>{model}</option>
+                          ))}
+                      </select>
+
+                      <div className="flex justify-end gap-1">
+                           <button
+                              className={`btn btn-outline btn-xs btn-primary ${!hasAudioForTranscription || whisperXJsonExists || isTranscribing ? 'btn-disabled' : ''}`}
+                              onClick={() => onTranscribeWhisperX(task.uuid, selectedWhisperXModel)}
+                              disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing}
+                              title={
+                                !hasAudioForTranscription ? "需要音频文件" :
+                                whisperXJsonExists ? "转录已存在" :
+                                isTranscribing ? "正在转录..." : `使用 ${selectedWhisperXModel} 模型转录`
+                              }
+                          >
+                              {isTranscribing ? "转录中..." : (whisperXJsonExists ? "已转录" : "开始转录")}
+                          </button>
+                          <button
+                              className={`btn btn-outline btn-xs btn-warning ${!whisperXJsonExists || isTranscribing ? 'btn-disabled' : ''}`}
+                              onClick={() => onDeleteWhisperX(task.uuid)}
+                              disabled={!whisperXJsonExists || isTranscribing}
+                              title={!whisperXJsonExists ? "无转录文件" : "删除 WhisperX 转录文件"}
+                          >
+                              删除转录
+                          </button>
+                      </div>
+                  </div>
+              </div>
 
               {/* Actions: Archive and Delete Task Button */}
               <div className="card-actions justify-end items-center mt-2 pt-2 border-t border-base-200/60"> 

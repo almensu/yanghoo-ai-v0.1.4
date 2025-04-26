@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { FaArchive, FaUndo } from 'react-icons/fa'; // Import new icons
 // Uncomment the view components
@@ -7,6 +7,7 @@ import TableView from './components/TableView';
 import axios from 'axios';
 
 const API_BASE_URL = 'http://127.0.0.1:8000'; // Replace with your backend URL
+const WS_BASE_URL = 'ws://127.0.0.1:8000'; // WebSocket URL
 
 function App() {
   // State for the URL input form
@@ -22,6 +23,9 @@ function App() {
   const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
   const [searchTerm, setSearchTerm] = useState('');
   const [filterArchived, setFilterArchived] = useState(false); // State for filtering archived tasks
+
+  // Ref for the WebSocket object
+  const ws = useRef(null);
 
   // --- Fetch Tasks --- 
   const fetchTasks = useCallback(async () => {
@@ -52,6 +56,78 @@ function App() {
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  // --- WebSocket Connection --- 
+  useEffect(() => {
+    // Function to establish connection
+    const connectWebSocket = () => {
+        ws.current = new WebSocket(`${WS_BASE_URL}/ws`);
+        console.log('Attempting WebSocket connection...');
+
+        ws.current.onopen = () => {
+            console.log('WebSocket Connected');
+        };
+
+        ws.current.onclose = (event) => {
+            console.log('WebSocket Disconnected', event.reason, `Code: ${event.code}`);
+            // Optional: Attempt to reconnect after a delay
+            // setTimeout(connectWebSocket, 5000); 
+        };
+
+        ws.current.onerror = (error) => {
+            console.error('WebSocket Error:', error);
+        };
+
+        ws.current.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                console.log('WebSocket Message Received:', message);
+
+                // Check message type (we expect 'task_update')
+                if (message.type === 'task_update' && message.uuid && message.task_data) {
+                    setTasks(currentTasks => {
+                        // Find the task and update it
+                        const taskExists = currentTasks.some(task => task.uuid === message.uuid);
+                        if (taskExists) {
+                            return currentTasks.map(task =>
+                                task.uuid === message.uuid
+                                ? { ...task, ...message.task_data } // Merge the updated data
+                                : task
+                            );
+                        } else {
+                            // If task doesn't exist locally yet (e.g., freshly ingested), add it
+                            // This might need refinement based on how ingestion updates work
+                            // console.warn('Received update for non-existing task:', message.uuid);
+                            // return [...currentTasks, message.task_data]; 
+                            return currentTasks; // Or simply ignore if task not found
+                        }
+                    });
+                     // Optional: Add a visual cue/notification that a task updated
+                    if (message.status === 'failed') {
+                        alert(`Task ${message.uuid} failed processing: ${message.error || 'Unknown error'}`);
+                    } else {
+                         // Maybe a subtle notification instead of alert for success?
+                        console.log(`Task ${message.uuid} updated via WebSocket.`);
+                    }
+                } else {
+                     console.warn('Received unknown WebSocket message format:', message);
+                }
+            } catch (error) {
+                console.error('Error parsing WebSocket message or updating state:', error);
+            }
+        };
+    }
+
+    connectWebSocket(); // Initial connection attempt
+
+    // Cleanup function on component unmount
+    return () => {
+        if (ws.current) {
+            console.log('Closing WebSocket connection...');
+            ws.current.close();
+        }
+    };
+}, []); // Empty dependency array ensures this runs only once on mount
 
   // --- Handle Ingest and Fetch Info ---
   const handleIngestSubmit = async (event) => {
@@ -473,24 +549,150 @@ function App() {
   // --- END: Handle Download Audio ---
 
   // --- Merge VTT Handler ---
-  const handleMergeVtt = async (uuid, format = 'parallel') => { // Default format
+  // Remove format parameter and call API twice
+  const handleMergeVtt = async (uuid) => { 
     setFetchLoading(true);
     setFetchError(null);
+    let mergeError = null; // Track potential errors
     try {
-      // Assuming a new endpoint like /api/tasks/{uuid}/merge_vtt
-      await axios.post(`${API_BASE_URL}/api/tasks/${uuid}/merge_vtt`, { format: format });
-      console.log(`VTT merge request for ${uuid} (format: ${format}) sent.`);
-      alert('VTT merge started. Refresh list later to see the updated status.');
-      setTimeout(fetchTasks, 2000); // Refetch to update UI state (e.g., disable button)
+      console.log(`Starting VTT merge requests for ${uuid} (merged & parallel)...`);
+      // Call for 'merged' format
+      try {
+        await axios.post(`${API_BASE_URL}/api/tasks/${uuid}/merge_vtt`, { format: 'merged' });
+        console.log(`VTT merge request for ${uuid} (format: merged) sent.`);
+      } catch (err) {
+         console.error("Error requesting VTT merge (merged):", err);
+         mergeError = err; // Store first error encountered
+      }
+
+      // Call for 'parallel' format
+      try {
+        await axios.post(`${API_BASE_URL}/api/tasks/${uuid}/merge_vtt`, { format: 'parallel' });
+        console.log(`VTT merge request for ${uuid} (format: parallel) sent.`);
+      } catch (err) {
+         console.error("Error requesting VTT merge (parallel):", err);
+         if (!mergeError) mergeError = err; // Store error if no previous one
+      }
+      
+      if (mergeError) {
+          throw mergeError; // Re-throw if any error occurred
+      }
+
+      alert('VTT merge requests (merged & parallel) sent. Refresh list later to see the updated status.');
+      setTimeout(fetchTasks, 2000); // Refetch to update UI state
     } catch (err) {
-      console.error("Error requesting VTT merge:", err);
-      setFetchError(err.response?.data?.detail || 'Failed to merge VTT files.');
+      // Use the stored error or provide a generic message
+      setFetchError(err.response?.data?.detail || 'Failed to merge VTT files (one or both formats).');
+      alert(`Error during VTT merge: ${err.response?.data?.detail || 'Failed to merge VTT files.'}`); // Also show alert on error
     } finally {
       setFetchLoading(false);
     }
   };
 
-  // --- Filtering Logic ---
+  // --- START: Handle WhisperX Transcription (REMOVE setTimeout) --- 
+  const handleTranscribeWhisperX = async (taskUuid, model) => {
+    if (!taskUuid || !model) {
+        alert("Task UUID and WhisperX model are required.");
+        return;
+    }
+    console.log(`Attempting WhisperX transcription for task: ${taskUuid} with model: ${model}`);
+    // Indicate processing started (maybe update task state locally to 'processing')
+    // setTasks(currentTasks => currentTasks.map(t => t.uuid === taskUuid ? {...t, status: 'processing'} : t));
+    alert(`Starting WhisperX transcription for ${taskUuid} with model ${model}... This may block other actions. Status will update automatically.`); // Updated alert
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/tasks/${taskUuid}/transcribe_whisperx`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: model }),
+        });
+
+        // API now waits and returns the final task data on success
+        if (res.ok) { 
+             const updatedTaskData = await res.json(); 
+             console.log(`WhisperX transcription request completed for ${taskUuid}. Final state received.`, updatedTaskData);
+             // Update state immediately with the final result (though WebSocket should also handle this)
+             // It's slightly redundant but ensures immediate feedback after the await
+              setTasks(currentTasks => 
+                 currentTasks.map(task => 
+                     task.uuid === taskUuid ? { ...task, ...updatedTaskData } : task
+                 )
+              );
+              // Alert can be removed as state update + WS message provide feedback
+              // alert(`Transcription completed for ${taskUuid}.`); 
+        } else {
+            // Handle non-OK responses (e.g., 4xx, 5xx from the synchronous API call)
+            const errorData = await res.json();
+            throw new Error(errorData.detail || `WhisperX transcription failed with status: ${res.status}`);
+        }
+
+    } catch (e) {
+        console.error("Error during WhisperX transcription request:", e);
+        alert(`Failed to start or complete WhisperX transcription: ${e.message}`);
+        // Reset local 'processing' state if implemented
+        // setTasks(currentTasks => currentTasks.map(t => t.uuid === taskUuid ? {...t, status: 'idle'} : t));
+    }
+  };
+  // --- END: Handle WhisperX Transcription ---
+
+  // --- START: Handle Delete WhisperX Transcript ---
+  const handleDeleteWhisperX = async (taskUuid) => {
+    if (!taskUuid) {
+        alert("Task UUID is required.");
+        return;
+    }
+    if (!window.confirm(`Are you sure you want to delete the WhisperX transcript for task ${taskUuid}?`)) {
+        return;
+    }
+    console.log(`Attempting to delete WhisperX transcript for task: ${taskUuid}`);
+
+    // TODO: Implement task-specific loading state if needed
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/tasks/${taskUuid}/transcribe_whisperx`, {
+            method: 'DELETE',
+        });
+
+        const data = await res.json(); // Expect updated task data or status message
+
+        if (!res.ok) {
+            throw new Error(data.detail || `Failed to delete WhisperX transcript with status: ${res.status}`);
+        }
+
+        console.log(`Successfully deleted WhisperX transcript for ${taskUuid}:`, data);
+        alert(data.message || `WhisperX transcript deleted for ${taskUuid}.`);
+
+        // Update the task state using the data returned from the backend
+        if (data.task_data) {
+            setTasks(currentTasks =>
+                currentTasks.map(task =>
+                    task.uuid === taskUuid
+                    ? { ...task, ...data.task_data } // Merge the updated data
+                    : task
+                )
+            );
+        } else {
+            // Fallback: Manually clear the fields if backend didn't return full data
+            setTasks(currentTasks =>
+                currentTasks.map(task =>
+                    task.uuid === taskUuid
+                    ? { ...task, whisperx_json_path: null, transcription_model: null } 
+                    : task
+                )
+            );
+            // Consider calling fetchTasks() as another fallback
+            // await fetchTasks();
+        }
+
+    } catch (e) {
+        console.error("Error deleting WhisperX transcript:", e);
+        alert(`Failed to delete WhisperX transcript: ${e.message}`);
+        // TODO: Reset task-specific loading state if implemented
+    }
+  };
+  // --- END: Handle Delete WhisperX Transcript ---
+
+  // Filter tasks based on search term and archive status
   const filteredTasks = tasks.filter(task => {
     const matchesSearch = searchTerm === '' || 
                           (task.title && task.title.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -566,7 +768,7 @@ function App() {
           <div>
             {viewMode === 'card' ? (
               <CardView 
-                tasks={tasks} 
+                tasks={filteredTasks} 
                 onDelete={handleDeleteTask} 
                 onArchive={handleArchiveTask}
                 onDownloadRequest={handleDownloadRequest} 
@@ -577,10 +779,12 @@ function App() {
                 onDownloadVtt={handleDownloadVtt}
                 onDeleteVtt={handleDeleteVtt}
                 onMergeVtt={handleMergeVtt} // Pass the handler
+                onTranscribeWhisperX={handleTranscribeWhisperX}
+                onDeleteWhisperX={handleDeleteWhisperX}
               />
             ) : (
               <TableView 
-                tasks={tasks} 
+                tasks={filteredTasks} 
                 onDelete={handleDeleteTask} 
                 onArchive={handleArchiveTask}
                 onDownloadRequest={handleDownloadRequest} 

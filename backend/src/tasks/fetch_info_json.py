@@ -35,7 +35,7 @@ async def run_fetch_info_json(task_metadata: TaskMetadata, base_dir_str: str) ->
     # Define the final desired filename and path
     final_filename = "info.json"
     final_json_path_abs = uuid_dir / final_filename
-    expected_relative_path = str(final_json_path_abs.relative_to(backend_dir))
+    expected_relative_path = str(final_json_path_abs.relative_to(base_dir))
 
     # Define the temporary filename yt-dlp will use
     # We will let yt-dlp create task_uuid_str.info.json and then rename it.

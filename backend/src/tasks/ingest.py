@@ -91,8 +91,8 @@ async def create_ingest_task(url: str, base_dir_str: str) -> TaskMetadata:
 
                 # Store the relative path and clean up others if a file was found
                 if found_path_abs:
-                    # Calculate relative path from backend_dir using pathlib, store as string
-                    actual_thumbnail_rel_path = str(found_path_abs.relative_to(backend_dir))
+                    # Calculate relative path from base_dir (DATA_DIR) using pathlib, store as string
+                    actual_thumbnail_rel_path = str(found_path_abs.relative_to(base_dir))
                     print(f"[Ingest Task {task_uuid_str}] Selected thumbnail path: {actual_thumbnail_rel_path}")
 
                     # Clean up other potential thumbnail files

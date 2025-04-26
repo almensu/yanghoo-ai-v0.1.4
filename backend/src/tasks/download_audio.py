@@ -152,7 +152,6 @@ def download_audio_sync(task_uuid: str, metadata_file: str) -> Optional[str]:
     # --- Convert to WAV --- 
     wav_output_filename = "audio.wav"
     wav_output_path = task_data_dir / wav_output_filename
-    relative_wav_path = Path("data") / task_uuid / wav_output_filename
 
     try:
         logger.info(f"Converting {temp_output_path} to {wav_output_path}")
@@ -187,5 +186,10 @@ def download_audio_sync(task_uuid: str, metadata_file: str) -> Optional[str]:
     except OSError as del_e:
         logger.warning(f"Could not delete intermediate audio file {temp_output_path}: {del_e}") # Non-critical
 
-    # --- Return path to WAV file --- 
-    return str(relative_wav_path).replace("\\", "/")
+    # --- Return path to WAV file relative to data_dir --- 
+    try:
+        relative_wav_path_for_metadata = wav_output_path.relative_to(data_dir)
+        return str(relative_wav_path_for_metadata).replace("\\", "/")
+    except ValueError as e:
+        logger.error(f"Could not calculate relative path for {wav_output_path} based on {data_dir}: {e}")
+        return None # Return None if path calculation fails

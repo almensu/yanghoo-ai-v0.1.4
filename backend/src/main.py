@@ -4,7 +4,7 @@ from pathlib import Path # Import Path
 import shutil
 import json
 from uuid import UUID
-from typing import Dict, List, Optional, Literal
+from typing import Dict, List, Optional, Literal, Any
 import aiofiles
 import yt_dlp
 import ffmpeg
@@ -15,7 +15,7 @@ import sys
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 # from pathlib import Path # Remove Path import
@@ -38,7 +38,6 @@ from .tasks.fetch_info_json import run_fetch_info_json
 from .tasks.download_media import run_download_media
 from .tasks.extract_audio import run_extract_audio
 from .tasks.transcribe_youtube_vtt import run_transcribe_youtube_vtt
-from .tasks.transcribe_whisperx import run_transcribe_whisperx
 from .tasks.merge_vtt import main as run_merge_vtt
 from .tasks.merge_whisperx import run_merge_whisperx
 from .tasks.download_youtueb_vtt import download_youtube_vtt
@@ -85,6 +84,48 @@ BASE_DIR = DATA_DIR # BASE_DIR is now a Path object
 METADATA_FILE = BASE_DIR / "metadata.json"
 # --- NEW: Define Archive File Path --- 
 METADATA_ARCHIVED_FILE = BASE_DIR / "metadata_archived.json"
+
+# --- WebSocket Connection Manager ---
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        logger.info(f"WebSocket connection established: {websocket.client}")
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+        logger.info(f"WebSocket connection closed: {websocket.client}")
+
+    async def send_personal_message(self, message: str, websocket: WebSocket):
+        await websocket.send_text(message)
+
+    async def send_json(self, data: Dict[str, Any], websocket: WebSocket):
+        await websocket.send_json(data)
+        
+    async def broadcast(self, data: Dict[str, Any]):
+        disconnected_clients = []
+        message_str = json.dumps(data, default=pydantic_encoder) # Use pydantic_encoder if broadcasting TaskMetadata
+        logger.info(f"Broadcasting message to {len(self.active_connections)} clients: {message_str[:200]}...")
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(data)
+            except WebSocketDisconnect:
+                logger.warning(f"Client disconnected during broadcast: {connection.client}")
+                disconnected_clients.append(connection)
+            except Exception as e:
+                logger.error(f"Error sending message to client {connection.client}: {e}", exc_info=False) # Log less verbosely
+                disconnected_clients.append(connection) # Also remove clients causing errors
+                
+        # Clean up disconnected clients after broadcasting
+        for client in disconnected_clients:
+            if client in self.active_connections: # Check if not already removed by another process/exception
+                 self.disconnect(client)
+
+manager = ConnectionManager()
+# --- End WebSocket Connection Manager ---
 
 async def load_metadata() -> Dict[str, TaskMetadata]:
     if not METADATA_FILE.exists(): # Use pathlib
@@ -279,22 +320,22 @@ async def fetch_info_json_endpoint(task_uuid: UUID):
     if not task_meta:
         raise HTTPException(status_code=404, detail="Task not found")
         
-    # Check if info.json exists using pathlib
+    # Check if info.json exists (relative to DATA_DIR)
     info_json_abs_path = None
     if task_meta.info_json_path:
-        # Assume path stored is relative to BACKEND_DIR
-        info_json_abs_path = BACKEND_DIR / task_meta.info_json_path # Use pathlib
+        info_json_abs_path = DATA_DIR / task_meta.info_json_path # Corrected base
 
-    if info_json_abs_path and info_json_abs_path.exists(): # Use pathlib
-         return FetchInfoJsonResponse(
+    if info_json_abs_path and info_json_abs_path.exists():
+        return FetchInfoJsonResponse(
             task_uuid=task_uuid,
             info_json_path=task_meta.info_json_path,
             message="info.json already exists."
         )
 
     try:
-        # Pass BASE_DIR as string if task expects string
-        info_json_rel_path = await run_fetch_info_json(task_meta, str(BASE_DIR))
+        # run_fetch_info_json needs to return path relative to DATA_DIR
+        # Assuming run_fetch_info_json internally uses DATA_DIR correctly
+        info_json_rel_path = await run_fetch_info_json(task_meta, str(DATA_DIR)) # Pass DATA_DIR as base
         task_meta.info_json_path = info_json_rel_path
         all_metadata[str(task_uuid)] = task_meta
         await save_metadata(all_metadata)
@@ -406,11 +447,10 @@ async def extract_audio_endpoint(task_uuid: UUID):
             detail="Cannot extract audio: No media files found in metadata. Please download video/audio first."
         )
         
-    # Check if already extracted using pathlib
+    # Check if already extracted (relative to DATA_DIR)
     extracted_wav_abs_path = None
     if task_meta.extracted_wav_path:
-        # Assume path stored is relative to BACKEND_DIR
-        extracted_wav_abs_path = BACKEND_DIR / task_meta.extracted_wav_path # Use pathlib
+        extracted_wav_abs_path = DATA_DIR / task_meta.extracted_wav_path # Corrected base
         
     if extracted_wav_abs_path and extracted_wav_abs_path.exists(): # Use pathlib
         logger.info(f"Audio already extracted for task {task_uuid}")
@@ -423,7 +463,7 @@ async def extract_audio_endpoint(task_uuid: UUID):
     try:
         logger.info(f"Starting audio extraction for task {task_uuid}")
         # Pass BASE_DIR as string if task expects string
-        extracted_wav_rel_path = await run_extract_audio(task_meta, str(BACKEND_DIR), str(BASE_DIR))
+        extracted_wav_rel_path = await run_extract_audio(task_meta, str(BACKEND_DIR), str(DATA_DIR))
         task_meta.extracted_wav_path = extracted_wav_rel_path
         all_metadata[str(task_uuid)] = task_meta
         await save_metadata(all_metadata)
@@ -459,28 +499,29 @@ async def merge_transcripts_endpoint(task_uuid: UUID):
     message = ""
     
     # Helper function using pathlib
-    def check_rel_path_exists(rel_path):
+    def check_rel_path_exists_in_data(rel_path):
         if not rel_path:
             return False
-        return (BACKEND_DIR / rel_path).exists() # Use pathlib
+        # Check existence relative to DATA_DIR
+        return (DATA_DIR / rel_path).exists()
 
     try:
         if task_meta.platform == Platform.YOUTUBE:
             logger.info(f"Starting VTT merge for YouTube task {task_uuid}")
-            if task_meta.merged_vtt_md_path and check_rel_path_exists(task_meta.merged_vtt_md_path):
+            if task_meta.merged_vtt_md_path and check_rel_path_exists_in_data(task_meta.merged_vtt_md_path):
                 logger.info(f"Merged VTT markdown already exists for {task_uuid}")
                 merged_md_path = task_meta.merged_vtt_md_path
-                source_files = [str(BACKEND_DIR / p) for p in task_meta.vtt_files.values() if p and check_rel_path_exists(p)]
+                source_files = [str(DATA_DIR / p) for p in task_meta.vtt_files.values() if p and check_rel_path_exists_in_data(p)]
                 message = "Merged VTT markdown file already exists."
             else:
                 if not task_meta.vtt_files:
                      raise HTTPException(status_code=400, detail="Cannot merge: No VTT files found in metadata. Run VTT transcription first.")
-                vtt_paths_exist = [ check_rel_path_exists(p) for p in task_meta.vtt_files.values() if p ]
+                vtt_paths_exist = [ check_rel_path_exists_in_data(p) for p in task_meta.vtt_files.values() if p ]
                 if not any(vtt_paths_exist):
                     raise HTTPException(status_code=400, detail="Cannot merge: Source VTT files listed in metadata not found on disk.")
                 
                 # Pass BASE_DIR as string
-                merged_md_path, source_files_abs = await run_merge_vtt(task_meta, str(BASE_DIR), str(BACKEND_DIR))
+                merged_md_path, source_files_abs = await run_merge_vtt(task_meta, str(DATA_DIR), str(DATA_DIR))
                 task_meta.merged_vtt_md_path = merged_md_path # Assuming task returns relative path
                 message = f"VTT transcripts merged successfully into markdown."
                 logger.info(message)
@@ -491,17 +532,17 @@ async def merge_transcripts_endpoint(task_uuid: UUID):
         
         else: # Non-YouTube platforms merge WhisperX JSON
             logger.info(f"Starting WhisperX merge for task {task_uuid}")
-            if task_meta.merged_whisperx_md_path and check_rel_path_exists(task_meta.merged_whisperx_md_path):
+            if task_meta.merged_whisperx_md_path and check_rel_path_exists_in_data(task_meta.merged_whisperx_md_path):
                  logger.info(f"Merged WhisperX markdown already exists for {task_uuid}")
                  merged_md_path = task_meta.merged_whisperx_md_path
-                 source_files = [os.path.basename(os.path.join(BACKEND_DIR, task_meta.whisperx_json_path))] if task_meta.whisperx_json_path else []
+                 source_files = [os.path.basename(os.path.join(DATA_DIR, task_meta.whisperx_json_path))] if task_meta.whisperx_json_path else []
                  message = "Merged WhisperX markdown file already exists."
             else:
-                if not task_meta.whisperx_json_path or not check_rel_path_exists(task_meta.whisperx_json_path):
+                if not task_meta.whisperx_json_path or not check_rel_path_exists_in_data(task_meta.whisperx_json_path):
                     raise HTTPException(status_code=400, detail="Cannot merge: WhisperX JSON file not found. Run WhisperX transcription first.")
 
                 # Pass BASE_DIR as string
-                merged_md_path, source_files_abs = await run_merge_whisperx(task_meta, str(BASE_DIR), str(BACKEND_DIR))
+                merged_md_path, source_files_abs = await run_merge_whisperx(task_meta, str(DATA_DIR), str(DATA_DIR))
                 task_meta.merged_whisperx_md_path = merged_md_path # Assuming task returns relative path
                 message = f"WhisperX transcript merged successfully into markdown."
                 logger.info(message)
@@ -540,12 +581,12 @@ async def delete_task_video_files(task_uuid: UUID):
     task_meta_dict = task_meta.dict() # Work with dict for sync function
 
     try:
-        # Pass BASE_DIR as string
+        # Pass DATA_DIR to the sync function
         updated_task_meta_dict = await run_in_threadpool(
             delete_video_files_sync, 
             uuid=task_uuid_str, 
             entry=task_meta_dict, 
-            data_dir=str(BASE_DIR) # Pass string path
+            data_dir=str(DATA_DIR) # Pass DATA_DIR
         )
         
         # Update the specific field in the Pydantic model
@@ -579,12 +620,12 @@ async def delete_task_audio_file(task_uuid: UUID):
     task_meta_dict = task_meta.dict() # Work with dict for sync function
 
     try:
-        # Pass BASE_DIR as string
+        # Pass DATA_DIR to the sync function
         updated_task_meta_dict = await run_in_threadpool(
             delete_audio_file_sync, 
             uuid=task_uuid_str, 
             entry=task_meta_dict, 
-            data_dir=str(BASE_DIR) # Pass string path
+            data_dir=str(DATA_DIR) # Pass DATA_DIR
         )
         
         # Update the specific field in the Pydantic model
@@ -623,7 +664,7 @@ async def delete_vtt_file(task_uuid: UUID, lang_code: str):
          # This case should be covered by the check above, but belts and suspenders
          raise HTTPException(status_code=404, detail=f"VTT path for language '{lang_code}' is empty or invalid in metadata")
 
-    vtt_abs_path = BACKEND_DIR / vtt_rel_path_str # Use pathlib
+    vtt_abs_path = DATA_DIR / vtt_rel_path_str # Use pathlib
 
     file_deleted = False
     # Attempt to delete the file from filesystem
@@ -717,7 +758,7 @@ async def restore_archived_tasks_endpoint():
                 try:
                     logger.info(f"Attempting to fetch info.json for new task {new_task_meta.uuid}...")
                     # Call the function that handles info.json download
-                    info_json_rel_path = await run_fetch_info_json(new_task_meta, str(BASE_DIR))
+                    info_json_rel_path = await run_fetch_info_json(new_task_meta, str(DATA_DIR))
                     
                     # Update the metadata object with the path
                     if info_json_rel_path:
@@ -784,10 +825,9 @@ async def download_audio_endpoint(task_uuid: UUID):
         logger.warning(f"Direct audio download not supported for platform '{task_meta.platform}' on task {task_uuid_str}")
         raise HTTPException(status_code=400, detail=f"Direct audio download not supported for platform: {task_meta.platform}")
 
-    # Check if audio already downloaded
+    # Check if audio already downloaded (relative to DATA_DIR)
     if task_meta.downloaded_audio_path:
-         # Check if file actually exists using pathlib
-         audio_abs_path = BACKEND_DIR / task_meta.downloaded_audio_path
+         audio_abs_path = DATA_DIR / task_meta.downloaded_audio_path # Corrected base
          if audio_abs_path.exists():
             logger.info(f"Audio already downloaded for task {task_uuid_str} at {task_meta.downloaded_audio_path}")
             return DownloadAudioResponse(
@@ -800,11 +840,11 @@ async def download_audio_endpoint(task_uuid: UUID):
              # Reset path in metadata before attempting download again?
              # task_meta.downloaded_audio_path = None # Maybe? For now, just proceed.
 
-    # Check if info.json exists (needed to find audio URL)
+    # Check if info.json exists (relative to DATA_DIR)
     if not task_meta.info_json_path:
          logger.warning(f"Cannot download audio for {task_uuid_str}: info.json path is missing.")
          raise HTTPException(status_code=400, detail="Info JSON has not been fetched yet. Please fetch info first.")
-    info_json_abs_path = BACKEND_DIR / task_meta.info_json_path
+    info_json_abs_path = DATA_DIR / task_meta.info_json_path # Corrected base
     if not info_json_abs_path.exists():
          logger.warning(f"Cannot download audio for {task_uuid_str}: info.json file not found at {info_json_abs_path}.")
          raise HTTPException(status_code=404, detail="Info JSON file not found on disk.")
@@ -860,11 +900,31 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
         raise HTTPException(status_code=400, detail="Task is archived")
     if task_meta.platform != Platform.YOUTUBE:
         raise HTTPException(status_code=400, detail="VTT merging is only supported for YouTube platform")
-    if task_meta.merged_vtt_md_path and (BASE_DIR / task_meta.merged_vtt_md_path).exists():
-        logger.info(f"VTT already merged for task {task_uuid_str}")
+    
+    # Define paths for the script and output
+    TASKS_DIR = SRC_DIR / 'tasks' 
+    script_path = str(TASKS_DIR / "merge_vtt.py")
+    task_data_dir = DATA_DIR / task_uuid_str
+    output_filename = f"{request.format}_transcript_vtt.md" # Use the requested format in filename
+    output_abs_path = task_data_dir / output_filename
+    output_rel_path = Path(task_uuid_str) / output_filename # Relative path for metadata
+
+    # Check if the specific requested format already exists
+    target_metadata_field = None
+    if request.format == 'parallel':
+        target_metadata_field = 'parallel_vtt_md_path'
+    elif request.format == 'merged':
+        target_metadata_field = 'merged_format_vtt_md_path'
+    else:
+        # Should not happen due to Literal validation, but good practice
+        raise HTTPException(status_code=400, detail=f"Invalid format requested: {request.format}")
+
+    existing_path = getattr(task_meta, target_metadata_field, None)
+    if existing_path and (DATA_DIR / existing_path).exists():
+        logger.info(f"VTT format '{request.format}' already exists for task {task_uuid_str} at {existing_path}")
         return {
-            "message": "VTT transcripts already merged.",
-            "merged_file_path": task_meta.merged_vtt_md_path
+            "message": f"VTT transcript (format: {request.format}) already exists.",
+            "merged_file_path": existing_path # Return the existing path
         }
 
     # Find required VTT file paths
@@ -875,29 +935,18 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
         raise HTTPException(status_code=400, detail="Cannot merge: Neither English nor Chinese VTT file found in metadata.")
 
     # Construct absolute paths and check file existence
-    en_vtt_abs = str(BACKEND_DIR / en_vtt_rel_path) if en_vtt_rel_path and (BACKEND_DIR / en_vtt_rel_path).exists() else None
-    zh_vtt_abs = str(BACKEND_DIR / zh_vtt_rel_path) if zh_vtt_rel_path and (BACKEND_DIR / zh_vtt_rel_path).exists() else None
+    en_vtt_abs = DATA_DIR / en_vtt_rel_path if en_vtt_rel_path and (DATA_DIR / en_vtt_rel_path).exists() else None
+    zh_vtt_abs = DATA_DIR / zh_vtt_rel_path if zh_vtt_rel_path and (DATA_DIR / zh_vtt_rel_path).exists() else None
 
     # The script needs at least one valid VTT file on disk
     if not en_vtt_abs and not zh_vtt_abs:
          raise HTTPException(status_code=400, detail="VTT file paths found in metadata, but corresponding files not found on disk.")
 
-    # Define paths for the script and output
-    TASKS_DIR = SRC_DIR / 'tasks' 
-    script_path = str(TASKS_DIR / "merge_vtt.py")
-    task_data_dir = BASE_DIR / task_uuid_str
-    output_filename = f"{request.format}_transcript_vtt.md" # Use the requested format in filename
-    output_abs_path = str(task_data_dir / output_filename)
-    output_rel_path = str(Path(task_uuid_str) / output_filename) # Relative path for metadata
-
-    # Ensure the output directory exists
-    task_data_dir.mkdir(parents=True, exist_ok=True)
-
     # Build the command - Pass absolute paths or "MISSING" sentinel
     # IMPORTANT: Assumes merge_vtt.py is updated to handle 5 args: <en_path|MISSING> <zh_path|MISSING> <format> <output_abs_path>
     en_arg = en_vtt_abs if en_vtt_abs else "MISSING"
     zh_arg = zh_vtt_abs if zh_vtt_abs else "MISSING"
-    command = [ sys.executable, script_path, en_arg, zh_arg, request.format, output_abs_path ]
+    command = [ sys.executable, script_path, en_arg, zh_arg, request.format, str(output_abs_path) ]
 
     logger.info(f"Running merge script for task {task_uuid_str}: {' '.join(command)}")
 
@@ -927,15 +976,21 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
 
             raise HTTPException(status_code=500, detail=f"Merge script failed: {process.stderr[:500]}") # Limit error detail length
 
-        # Script succeeded, update metadata
-        task_meta.merged_vtt_md_path = output_rel_path
-        metadata[task_uuid_str] = task_meta
-        await save_metadata(metadata)
+        # Script succeeded, update the specific metadata field
+        if target_metadata_field:
+            setattr(task_meta, target_metadata_field, str(output_rel_path))
+            metadata[task_uuid_str] = task_meta
+            await save_metadata(metadata)
+            logger.info(f"Successfully updated metadata field '{target_metadata_field}' for task {task_uuid_str}. Output: {output_rel_path}")
+        else:
+             # This should not happen if validation is correct
+            logger.error(f"Internal logic error: target_metadata_field not set for format {request.format}")
+            # Avoid saving metadata if the field name is unknown
 
         logger.info(f"Successfully merged VTT for task {task_uuid_str}. Output: {output_rel_path}")
         return {
             "message": f"VTT merge successful (format: {request.format}).",
-            "merged_file_path": output_rel_path
+            "merged_file_path": str(output_rel_path) # Return the newly generated path
         }
 
     except FileNotFoundError:
@@ -947,7 +1002,206 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
 
 # --- END: Merge VTT Endpoint ---
 
+# --- Define Request Body Model for WhisperX ---
+class TranscribeWhisperXRequest(BaseModel):
+    model: Literal['tiny.en', 'small.en', 'medium.en', 'large-v3']
+
+# --- Helper Function to Run Transcription Script and Broadcast --- 
+def run_transcription_script_and_notify(uuid: str, model: str):
+    """Runs transcription script and broadcasts update via WebSocket."""
+    script_path = SRC_DIR / "tasks" / "transcribe_whisperx.py"
+    python_executable = sys.executable
+    command = [python_executable, str(script_path), '--uuid', uuid, '--model', model]
+    workspace_root = BACKEND_DIR.parent
+    logger.info(f"Running WhisperX transcription command in {workspace_root}: {' '.join(command)}")
+    
+    success = False
+    error_message = None
+    
+    try:
+        process = subprocess.run(
+            command, capture_output=True, text=True, check=True, encoding='utf-8', cwd=workspace_root
+        )
+        logger.info(f"WhisperX script completed successfully for UUID {uuid}. Output:\n{process.stdout}")
+        if process.stderr:
+             logger.warning(f"WhisperX script for UUID {uuid} produced stderr:\n{process.stderr}")
+        success = True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"WhisperX script failed for UUID {uuid}. Return code: {e.returncode}")
+        logger.error(f"Stderr:\n{e.stderr}")
+        logger.error(f"Stdout:\n{e.stdout}")
+        error_message = f"Script failed with code {e.returncode}. Stderr: {e.stderr[:200]}..."
+    except Exception as e:
+        logger.error(f"An unexpected error occurred running WhisperX script for UUID {uuid}: {e}", exc_info=True)
+        error_message = f"Unexpected error running script: {e}"
+
+    # --- Notify via WebSocket --- 
+    # Use run_in_threadpool to run async load/broadcast from sync function
+    async def notify():
+        try:
+            updated_metadata = await load_metadata() # Reload fresh metadata
+            task_data = updated_metadata.get(uuid)
+            if task_data:
+                # Ensure archived status is correct before sending (load_metadata doesn't handle this)
+                # We might need a sync version of load_archived or adjust logic
+                # For simplicity, we'll send the raw TaskMetadata object for now
+                message = {
+                    "type": "task_update",
+                    "status": "completed" if success else "failed",
+                    "uuid": uuid,
+                    "task_data": task_data.dict() # Send updated task data as dict
+                }
+                if error_message:
+                    message["error"] = error_message
+                    
+                await manager.broadcast(message)
+                logger.info(f"Broadcasted task update for UUID {uuid}")
+            else:
+                 logger.warning(f"Task {uuid} not found in metadata after script run, cannot broadcast update.")
+        except Exception as e:
+             logger.error(f"Error during WebSocket notification for UUID {uuid}: {e}", exc_info=True)
+
+    # Run the async notification function in the event loop from this thread
+    # This requires careful handling or a running event loop. 
+    # A simpler, though less ideal way, is to make run_transcription_script async
+    # OR use a dedicated queue/messaging system. 
+    # Let's try a slightly different approach: Modify the POST endpoint to await the helper.
+    # This is NOT ideal for long tasks as it ties up a worker.
+    # For true background tasks + websockets, a queue (like Celery/Redis) is better.
+    # ---- REVISING PLAN: Await the task for simplicity first ----
+    pass # Remove direct notification from sync helper
+
+# --- POST Endpoint to Start WhisperX Transcription (Modified to Await) ---
+# REMOVED BackgroundTasks, added response_model to return updated task
+@app.post("/api/tasks/{task_uuid}/transcribe_whisperx", response_model=TaskMetadata)
+async def transcribe_whisperx_endpoint(
+    task_uuid: UUID,
+    request: TranscribeWhisperXRequest # Removed BackgroundTasks
+):
+    uuid_str = str(task_uuid)
+    model = request.model
+    logger.info(f"Received SYNC request to start WhisperX transcription for UUID {uuid_str} with model {model}")
+
+    metadata = await load_metadata()
+    task_meta = metadata.get(uuid_str)
+    # ... (Existing checks: not found, archived, transcript exists, audio exists) ...
+    if not task_meta: raise HTTPException(status_code=404, detail="Task not found")
+    if task_meta.archived: raise HTTPException(status_code=400, detail="Cannot transcribe archived task.")
+    if task_meta.whisperx_json_path: raise HTTPException(status_code=409, detail="WhisperX transcript already exists. Delete it first.")
+    audio_path_str = task_meta.downloaded_audio_path or task_meta.extracted_wav_path
+    if not audio_path_str: raise HTTPException(status_code=400, detail="Audio file path not found...")
+    expected_audio_path = DATA_DIR / audio_path_str
+    if not expected_audio_path.exists(): raise HTTPException(status_code=400, detail=f"Audio file not found at {expected_audio_path}...")
+
+    # --- Run the script synchronously in threadpool and wait --- 
+    script_failed = False
+    error_detail = None
+    try:
+        await run_in_threadpool(run_transcription_script_and_notify, uuid_str, model) # Await the helper
+        logger.info(f"WhisperX transcription script completed (awaited) for {uuid_str}.")
+    except Exception as e:
+        # This catches errors *running* the script (like CalledProcessError if check=True was used) 
+        # or errors within run_transcription_script itself if not caught there.
+        logger.error(f"Error running transcription in threadpool for {uuid_str}: {e}", exc_info=True)
+        script_failed = True
+        error_detail = str(e)
+        # Decide if we should still try to broadcast or just raise HTTP 500
+        # For now, let's raise 500, as waiting failed.
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {error_detail}")
+
+    # --- Reload metadata and broadcast --- 
+    try:
+        updated_metadata = await load_metadata() # Reload fresh metadata
+        updated_task_data = updated_metadata.get(uuid_str)
+        
+        if updated_task_data:
+             message = {
+                 "type": "task_update",
+                 # Determine status based on whether whisperx_json_path was set by the script
+                 "status": "completed" if updated_task_data.whisperx_json_path else "failed", 
+                 "uuid": uuid_str,
+                 "task_data": updated_task_data.dict() 
+             }
+             # We don't have specific error details here if script internal error occurred but didn't crash runner
+             # The status 'failed' relies on whisperx_json_path not being set.
+             await manager.broadcast(message)
+             logger.info(f"Broadcasted task update for UUID {uuid_str} after sync run.")
+             # Return the final state of the task data
+             return updated_task_data 
+        else:
+             logger.error(f"Task {uuid_str} not found in metadata after sync script run. Cannot broadcast or return.")
+             # This case is problematic, internal state inconsistency
+             raise HTTPException(status_code=500, detail="Task data inconsistency after processing.")
+
+    except Exception as e:
+        logger.error(f"Error reloading metadata or broadcasting for {uuid_str} after sync run: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error finalizing task update after processing.")
+
+# --- DELETE Endpoint to Remove WhisperX Transcript ---
+@app.delete("/api/tasks/{task_uuid}/transcribe_whisperx", status_code=200)
+async def delete_whisperx_transcript(task_uuid: UUID):
+    uuid_str = str(task_uuid)
+    logger.info(f"Received request to delete WhisperX transcript for UUID {uuid_str}")
+
+    metadata = await load_metadata()
+    task_meta = metadata.get(uuid_str)
+
+    if not task_meta:
+        logger.warning(f"Task {uuid_str} not found for WhisperX transcript deletion.")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task_meta.whisperx_json_path:
+        logger.info(f"No WhisperX transcript path found for task {uuid_str}. Nothing to delete.")
+        task_meta.whisperx_json_path = None
+        task_meta.transcription_model = None
+        await save_metadata(metadata)
+        return {"message": "No WhisperX transcript found, metadata cleared.", "task_data": task_meta.dict()}
+
+
+    transcript_rel_path = task_meta.whisperx_json_path
+    # Construct absolute path relative to DATA_DIR
+    transcript_abs_path = DATA_DIR / transcript_rel_path
+    logger.info(f"Attempting to delete transcript file at: {transcript_abs_path}")
+
+    deleted = False
+    if transcript_abs_path.exists() and transcript_abs_path.is_file():
+        try:
+            await run_in_threadpool(os.remove, transcript_abs_path)
+            logger.info(f"Successfully deleted transcript file: {transcript_abs_path}")
+            deleted = True
+        except OSError as e:
+            logger.error(f"Failed to delete transcript file {transcript_abs_path}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error deleting file {transcript_abs_path}: {e}", exc_info=True)
+
+    # Update metadata regardless of file deletion success
+    task_meta.whisperx_json_path = None
+    task_meta.transcription_model = None
+
+    await save_metadata(metadata)
+    logger.info(f"Updated metadata for task {uuid_str}, removing WhisperX transcript info.")
+
+    # Return the updated task metadata as expected by the frontend
+    return {"message": f"WhisperX transcript data {'deleted and ' if deleted else ''}metadata cleared for task {uuid_str}.", "task_data": task_meta.dict()}
+
+# --- WebSocket Endpoint ---
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive, maybe listen for client messages if needed
+            data = await websocket.receive_text() 
+            # Example: Respond to a ping or specific client request
+            # await manager.send_personal_message(f"Message text was: {data}", websocket)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error for {websocket.client}: {e}", exc_info=True)
+        if websocket in manager.active_connections: # Ensure disconnect even on unexpected errors
+             manager.disconnect(websocket)
+
 if __name__ == "__main__":
     import uvicorn
-    from pydantic import ValidationError 
+    # from pydantic import ValidationError # Already imported earlier if needed
     uvicorn.run(app, host="0.0.0.0", port=8000) 
