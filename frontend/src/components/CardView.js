@@ -129,9 +129,13 @@ function CardView({
                      </button>
                   </div>
                   <div className="tooltip" data-tip="删除任务">
-                     <button 
+                     <button
                          className="btn btn-square btn-xs btn-ghost text-error/70 hover:bg-error hover:text-error-content"
-                         onClick={() => onDelete(task.uuid)}
+                         onClick={() => {
+                           if (window.confirm('确定要删除这个任务吗？')) {
+                              onDelete(task.uuid);
+                           }
+                         }}
                      >
                        <IconWrapper icon={Trash2}/>
                      </button>

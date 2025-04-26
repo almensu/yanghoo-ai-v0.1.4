@@ -346,7 +346,11 @@ function TableView({
                     </button>
                     <button 
                       className="btn btn-ghost btn-xs btn-square tooltip text-error/70 hover:bg-error hover:text-error-content"
-                      onClick={() => onDelete(task.uuid)}
+                      onClick={() => {
+                        if (window.confirm('确定要删除这个任务吗？')) {
+                          onDelete(task.uuid);
+                        }
+                      }}
                       data-tip="删除任务"
                     >
                       <IconWrapper icon={Trash2} />
