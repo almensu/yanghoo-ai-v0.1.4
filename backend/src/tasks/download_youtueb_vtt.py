@@ -81,7 +81,7 @@ async def download_youtube_vtt(task_meta: TaskMetadata, metadata_file: str = "ba
             logging.error(f"info_json_path not set in metadata for video {video_uuid}. Cannot proceed.")
             return {}
             
-        info_json_abs_path = base_dir.parent / info_json_path_str # Path relative to backend dir
+        info_json_abs_path = base_dir / info_json_path_str # Path relative to data dir (base_dir)
         initial_vtt_urls = get_vtt_urls_from_info(info_json_abs_path)
 
         if not initial_vtt_urls:
@@ -101,7 +101,7 @@ async def download_youtube_vtt(task_meta: TaskMetadata, metadata_file: str = "ba
 
             output_filename = f"transcript_{lang_code}.vtt"
             output_path = video_dir / output_filename
-            relative_output_path = Path("data") / video_uuid / output_filename
+            relative_output_path = output_path.relative_to(base_dir)
 
             try:
                 logging.info(f"Attempt 1: Downloading {lang_code} VTT from {url_to_download} to {output_path}")

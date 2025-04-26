@@ -91,8 +91,8 @@ def download_audio_sync(task_uuid: str, metadata_file: str) -> Optional[str]:
     # Resolve info.json path correctly relative to backend directory
     metadata_path_obj = Path(metadata_file)
     data_dir = metadata_path_obj.parent # Should be backend/data
-    backend_dir = data_dir.parent      # Should be backend/
-    info_json_path = (backend_dir / info_json_path_str).resolve()
+    # backend_dir = data_dir.parent      # Should be backend/  <-- REMOVE THIS or comment out
+    info_json_path = (data_dir / info_json_path_str).resolve() # <-- USE data_dir here
     logger.debug(f"Resolved info.json absolute path: {info_json_path}") # Add debug log
     
     if not info_json_path.exists():

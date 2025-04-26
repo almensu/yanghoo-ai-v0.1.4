@@ -117,7 +117,7 @@ async def run_download_media(task_metadata: TaskMetadata, quality: str, base_dir
             
             final_filename = f"{final_filename_stem}{final_extension}"
             final_absolute_path = uuid_dir / final_filename
-            final_relative_path = Path("data") / str(task_metadata.uuid) / final_filename
+            final_relative_path = final_absolute_path.relative_to(base_dir)
 
             # --- Rename/Move downloaded file --- 
             # Ensure we are comparing resolved absolute paths

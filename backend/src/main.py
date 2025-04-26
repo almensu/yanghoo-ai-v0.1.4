@@ -944,8 +944,8 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
 
     # Build the command - Pass absolute paths or "MISSING" sentinel
     # IMPORTANT: Assumes merge_vtt.py is updated to handle 5 args: <en_path|MISSING> <zh_path|MISSING> <format> <output_abs_path>
-    en_arg = en_vtt_abs if en_vtt_abs else "MISSING"
-    zh_arg = zh_vtt_abs if zh_vtt_abs else "MISSING"
+    en_arg = str(en_vtt_abs) if en_vtt_abs else "MISSING" # Convert Path to string
+    zh_arg = str(zh_vtt_abs) if zh_vtt_abs else "MISSING" # Convert Path to string
     command = [ sys.executable, script_path, en_arg, zh_arg, request.format, str(output_abs_path) ]
 
     logger.info(f"Running merge script for task {task_uuid_str}: {' '.join(command)}")

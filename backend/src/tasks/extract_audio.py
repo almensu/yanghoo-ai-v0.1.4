@@ -69,7 +69,7 @@ async def run_extract_audio(task_metadata: TaskMetadata, backend_dir_str: str, b
     output_wav_filename = "audio.wav"
     output_wav_path_abs = uuid_dir / output_wav_filename # Use pathlib
     # Calculate the relative path using pathlib, store as string
-    relative_wav_path = str(output_wav_path_abs.relative_to(backend_dir))
+    relative_wav_path = str(output_wav_path_abs.relative_to(base_dir)) # Use base_dir (data dir) as base
 
     logger.info(f"Attempting to extract audio from {input_media_path_abs} to {output_wav_path_abs}")
 
