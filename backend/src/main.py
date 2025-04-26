@@ -11,6 +11,8 @@ import ffmpeg
 import torch
 import subprocess
 import sys
+import asyncio
+import mimetypes # 添加 mimetypes 导入
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -21,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # from pathlib import Path # Remove Path import
 from pydantic import ValidationError, BaseModel
 from pydantic.json import pydantic_encoder
+from fastapi.responses import FileResponse # Import FileResponse
 
 # --- Schemas Import --- 
 from .schemas import (
@@ -48,6 +51,8 @@ from .data_management import delete_video_files_sync, delete_audio_file_sync
 from .tasks.Restore_Archived import restore_archived_metadata
 # --- Audio to Media Task Import ---
 from .tasks.audio_to_media import create_video_from_audio_image
+# --- 工具函数导入 ---
+from .utils import extract_youtube_video_id # 导入提取函数
 # ------------------------
 from fastapi.concurrency import run_in_threadpool
 
@@ -132,6 +137,21 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 # --- End WebSocket Connection Manager ---
+
+# --- 新增：填充 embed_url 的辅助函数 ---
+def _populate_embed_url(task_meta: TaskMetadata):
+    """Helper to populate embed_url if platform is YouTube."""
+    if task_meta.platform == Platform.YOUTUBE and task_meta.url:
+        video_id = extract_youtube_video_id(task_meta.url)
+        if video_id:
+            # Pydantic v2 会自动验证 HttpUrl，如果格式无效会抛错，需要处理
+            try:
+                task_meta.embed_url = f"https://www.youtube.com/embed/{video_id}"
+            except Exception as e: # 捕获可能的验证错误
+                logger.warning(f"无法为任务 {task_meta.uuid} 构建或验证有效的 embed_url: {e}")
+                task_meta.embed_url = None # 确保无效时不设置
+    return task_meta
+# --- 结束辅助函数 ---
 
 async def load_metadata() -> Dict[str, TaskMetadata]:
     if not METADATA_FILE.exists(): # Use pathlib
@@ -272,12 +292,12 @@ async def list_tasks():
         is_archived = uuid_str in archived_uuids
         
         # Update the archived status on the TaskMetadata object
-        # Ensure this doesn't save back to the file unintentionally
-        # Create a copy or update in place if the model allows
-        # Since TaskMetadata might be reused, modifying it directly should be fine
-        # as long as we don't call save_metadata() here.
         task_meta.archived = is_archived
         
+        # --- 调用 helper 来填充 embed_url ---
+        task_meta = _populate_embed_url(task_meta) 
+        # ------------------------------------
+
         tasks_to_return.append(task_meta)
 
     # Return the list of TaskMetadata objects, now with correct archived status
@@ -290,6 +310,11 @@ async def get_task(task_uuid: UUID):
     task_meta = metadata.get(str(task_uuid))
     if not task_meta:
         raise HTTPException(status_code=404, detail="Task not found")
+    
+    # --- 调用 helper 来填充 embed_url ---
+    task_meta = _populate_embed_url(task_meta)
+    # ------------------------------------
+
     return task_meta
 
 # Add endpoint to delete a specific task
@@ -705,6 +730,133 @@ async def delete_vtt_file(task_uuid: UUID, lang_code: str):
 
     # Return 204 No Content on success
     return
+
+# --- START: New GET VTT Endpoint ---
+@app.get("/api/tasks/{task_uuid}/vtt/{lang_code}", response_class=FileResponse)
+async def get_vtt_file(task_uuid: UUID, lang_code: str):
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to get VTT file ({lang_code}) for task: {task_uuid_str}")
+
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(task_uuid_str)
+
+    if not task_meta:
+        logger.warning(f"Task not found for VTT get: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task_meta.vtt_files or lang_code not in task_meta.vtt_files:
+        logger.warning(f"VTT file for language '{lang_code}' not found in metadata for task {task_uuid_str}")
+        raise HTTPException(status_code=404, detail=f"VTT file for language '{lang_code}' not found")
+
+    vtt_rel_path_str = task_meta.vtt_files.get(lang_code)
+    if not vtt_rel_path_str:
+         raise HTTPException(status_code=404, detail=f"VTT path for language '{lang_code}' is empty or invalid in metadata")
+
+    vtt_abs_path = DATA_DIR / vtt_rel_path_str
+
+    if not vtt_abs_path.exists() or not vtt_abs_path.is_file():
+        logger.error(f"VTT file specified in metadata not found on disk: {vtt_abs_path}")
+        raise HTTPException(status_code=404, detail=f"VTT file not found on server at path: {vtt_rel_path_str}")
+
+    # Return the file as a response
+    # Use the original filename stored in metadata if available, otherwise construct it
+    # The relative path usually contains the filename.
+    filename = Path(vtt_rel_path_str).name 
+    return FileResponse(path=vtt_abs_path, filename=filename, media_type='text/vtt')
+# --- END: New GET VTT Endpoint ---
+
+
+# --- START: New GET Markdown Endpoint ---
+@app.get("/api/tasks/{task_uuid}/markdown/{format}", response_class=FileResponse)
+async def get_markdown_file(task_uuid: UUID, format: Literal['merged', 'parallel']):
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to get Markdown file (format: {format}) for task: {task_uuid_str}")
+
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(task_uuid_str)
+
+    if not task_meta:
+        logger.warning(f"Task not found for Markdown get: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    markdown_rel_path_str = None
+    if format == 'merged':
+        markdown_rel_path_str = task_meta.merged_format_vtt_md_path
+    elif format == 'parallel':
+        markdown_rel_path_str = task_meta.parallel_vtt_md_path
+    
+    if not markdown_rel_path_str:
+        logger.warning(f"Markdown file (format: {format}) path not found in metadata for task {task_uuid_str}")
+        raise HTTPException(status_code=404, detail=f"Markdown transcript (format: {format}) not found in metadata. Has it been generated?")
+
+    markdown_abs_path = DATA_DIR / markdown_rel_path_str
+
+    if not markdown_abs_path.exists() or not markdown_abs_path.is_file():
+        logger.error(f"Markdown file specified in metadata not found on disk: {markdown_abs_path}")
+        raise HTTPException(status_code=404, detail=f"Markdown file not found on server at path: {markdown_rel_path_str}")
+
+    # Return the file as a response
+    filename = Path(markdown_rel_path_str).name
+    return FileResponse(path=markdown_abs_path, filename=filename, media_type='text/markdown')
+# --- END: New GET Markdown Endpoint ---
+
+
+# --- START: 新增 - 获取任务目录下的任意文件 ---
+@app.get("/api/tasks/{task_uuid}/files/{filename}", response_class=FileResponse)
+async def get_task_file(task_uuid: UUID, filename: str):
+    """
+    提供任务数据目录中指定文件的访问。
+    进行了基本的安全检查，防止访问目录外的文件。
+    """
+    task_uuid_str = str(task_uuid)
+    logger.info(f"请求获取任务 {task_uuid_str} 的文件: {filename}")
+
+    # 基础安全检查：防止文件名包含路径遍历字符
+    if ".." in filename or filename.startswith("/"):
+        logger.warning(f"检测到非法的文件名请求: {filename} (任务: {task_uuid_str})")
+        raise HTTPException(status_code=400, detail="不允许的文件名")
+
+    # 构建文件的绝对路径
+    # 假设 DATA_DIR 是 pathlib.Path 对象
+    file_path = DATA_DIR / task_uuid_str / filename
+
+    # --- 重要的安全检查：确保文件路径在预期的 DATA_DIR/{task_uuid} 目录下 ---
+    try:
+        # resolve() 会处理 '..' 等路径，并返回绝对路径
+        # common_path() 用于检查解析后的路径是否仍在 DATA_DIR / task_uuid_str 之下
+        expected_task_dir = (DATA_DIR / task_uuid_str).resolve(strict=True) # 确保任务目录存在
+        resolved_file_path = file_path.resolve(strict=True) # 确保文件实际存在
+
+        # 检查解析后的文件路径是否是预期任务目录的子路径
+        # os.path.commonpath 在 python 3.9+ 可用，或者可以用 Path.is_relative_to (3.9+)
+        # 为了兼容性，我们用 startswith
+        if not str(resolved_file_path).startswith(str(expected_task_dir)):
+             logger.warning(f"检测到目录遍历尝试或文件不在任务目录内: 请求路径 {file_path}, 解析后 {resolved_file_path}, 预期目录 {expected_task_dir}")
+             raise HTTPException(status_code=404, detail="文件未找到或不在允许的目录下")
+
+    except FileNotFoundError:
+        logger.warning(f"文件未找到: {file_path}")
+        raise HTTPException(status_code=404, detail=f"文件未找到: {filename}")
+    except Exception as e: # 捕获 resolve 可能的其他错误 (如权限问题)
+         logger.error(f"检查文件路径时出错: {file_path} - {e}", exc_info=True)
+         raise HTTPException(status_code=500, detail="服务器内部错误")
+    # -----------------------------------------------------------------------
+
+    # 检查路径是否确实是一个文件
+    if not file_path.is_file():
+        logger.warning(f"请求的路径不是一个文件: {file_path}")
+        raise HTTPException(status_code=404, detail=f"请求的路径不是一个文件: {filename}")
+
+    # 猜测文件的 MIME 类型 (例如 'video/mp4')
+    media_type, _ = mimetypes.guess_type(file_path)
+    if media_type is None:
+        media_type = 'application/octet-stream' # 如果无法猜测，使用通用二进制流类型
+
+    logger.info(f"正在提供文件: {file_path} (类型: {media_type})")
+    # 使用 FileResponse 返回文件
+    return FileResponse(path=file_path, filename=filename, media_type=media_type)
+# --- END: 新增 - 获取任务目录下的任意文件 ---
+
 
 # --- Restore Archived Endpoint --- 
 @app.post("/api/tasks/restore_archived", status_code=200)

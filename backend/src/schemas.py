@@ -29,6 +29,7 @@ class TaskMetadata(BaseModel):
     merged_whisperx_md_path: Optional[str] = None
     archived: bool = False
     downloaded_audio_path: Optional[str] = None
+    embed_url: Optional[HttpUrl] = None
 
 class FetchInfoJsonResponse(BaseModel):
     task_uuid: UUID
