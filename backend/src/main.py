@@ -96,8 +96,12 @@ class ConnectionManager:
         logger.info(f"WebSocket connection established: {websocket.client}")
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        logger.info(f"WebSocket connection closed: {websocket.client}")
+        # Add check before removing to prevent race condition errors
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            logger.info(f"WebSocket connection closed: {websocket.client}")
+        else:
+            logger.warning(f"Attempted to disconnect websocket already removed: {websocket.client}")
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
@@ -1007,72 +1011,68 @@ class TranscribeWhisperXRequest(BaseModel):
     model: Literal['tiny.en', 'small.en', 'medium.en', 'large-v3']
 
 # --- Helper Function to Run Transcription Script and Broadcast --- 
-def run_transcription_script_and_notify(uuid: str, model: str):
-    """Runs transcription script and broadcasts update via WebSocket."""
+# MODIFIED to return the relative path of the generated JSON, or None on failure
+def run_transcription_script_and_notify(uuid: str, model: str) -> Optional[str]:
+    """Runs transcription script, captures its output, and returns relative path on success."""
     script_path = SRC_DIR / "tasks" / "transcribe_whisperx.py"
     python_executable = sys.executable
     command = [python_executable, str(script_path), '--uuid', uuid, '--model', model]
     workspace_root = BACKEND_DIR.parent
     logger.info(f"Running WhisperX transcription command in {workspace_root}: {' '.join(command)}")
-    
-    success = False
+
+    relative_path = None # Initialize return value
     error_message = None
-    
+
     try:
+        # Run with check=False, capture output
         process = subprocess.run(
-            command, capture_output=True, text=True, check=True, encoding='utf-8', cwd=workspace_root
+            command,
+            capture_output=True,
+            text=True,
+            check=False, # Don't raise error on non-zero exit
+            encoding='utf-8',
+            cwd=workspace_root
         )
-        logger.info(f"WhisperX script completed successfully for UUID {uuid}. Output:\n{process.stdout}")
-        if process.stderr:
-             logger.warning(f"WhisperX script for UUID {uuid} produced stderr:\n{process.stderr}")
-        success = True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"WhisperX script failed for UUID {uuid}. Return code: {e.returncode}")
-        logger.error(f"Stderr:\n{e.stderr}")
-        logger.error(f"Stdout:\n{e.stdout}")
-        error_message = f"Script failed with code {e.returncode}. Stderr: {e.stderr[:200]}..."
+
+        if process.returncode == 0:
+            logger.info(f"WhisperX script completed successfully for UUID {uuid}. Output:\n{process.stdout}")
+            if process.stderr:
+                 logger.warning(f"WhisperX script for UUID {uuid} produced stderr:\n{process.stderr}")
+            # Try to parse the success JSON from stdout
+            try:
+                # Find the last line of stdout which should contain the final JSON status
+                last_line = process.stdout.strip().splitlines()[-1]
+                result_json = json.loads(last_line)
+                if result_json.get("status") == "completed" and result_json.get("relative_path"):
+                    relative_path = result_json["relative_path"]
+                    logger.info(f"Successfully parsed relative path from script output: {relative_path}")
+                else:
+                    error_message = "Script finished but did not report completed status or relative path in output."
+                    logger.error(f"{error_message} Last line: {last_line}")
+            except (json.JSONDecodeError, IndexError) as e:
+                error_message = f"Failed to parse JSON status from script stdout: {e}"
+                logger.error(f"{error_message} stdout:\n{process.stdout}")
+        else:
+            # Script failed
+            logger.error(f"WhisperX script failed for UUID {uuid}. Return code: {process.returncode}")
+            logger.error(f"Stderr:\n{process.stderr}")
+            logger.error(f"Stdout:\n{process.stdout}")
+            error_message = f"Script failed with code {process.returncode}. Stderr: {process.stderr[:200]}..."
+
     except Exception as e:
-        logger.error(f"An unexpected error occurred running WhisperX script for UUID {uuid}: {e}", exc_info=True)
+        logger.error(f"An unexpected error occurred running WhisperX script process for UUID {uuid}: {e}", exc_info=True)
         error_message = f"Unexpected error running script: {e}"
 
-    # --- Notify via WebSocket --- 
-    # Use run_in_threadpool to run async load/broadcast from sync function
-    async def notify():
-        try:
-            updated_metadata = await load_metadata() # Reload fresh metadata
-            task_data = updated_metadata.get(uuid)
-            if task_data:
-                # Ensure archived status is correct before sending (load_metadata doesn't handle this)
-                # We might need a sync version of load_archived or adjust logic
-                # For simplicity, we'll send the raw TaskMetadata object for now
-                message = {
-                    "type": "task_update",
-                    "status": "completed" if success else "failed",
-                    "uuid": uuid,
-                    "task_data": task_data.dict() # Send updated task data as dict
-                }
-                if error_message:
-                    message["error"] = error_message
-                    
-                await manager.broadcast(message)
-                logger.info(f"Broadcasted task update for UUID {uuid}")
-            else:
-                 logger.warning(f"Task {uuid} not found in metadata after script run, cannot broadcast update.")
-        except Exception as e:
-             logger.error(f"Error during WebSocket notification for UUID {uuid}: {e}", exc_info=True)
+    # --- REMOVED WebSocket Notification --- 
+    # Notification will now be handled by the endpoint AFTER metadata is saved.
 
-    # Run the async notification function in the event loop from this thread
-    # This requires careful handling or a running event loop. 
-    # A simpler, though less ideal way, is to make run_transcription_script async
-    # OR use a dedicated queue/messaging system. 
-    # Let's try a slightly different approach: Modify the POST endpoint to await the helper.
-    # This is NOT ideal for long tasks as it ties up a worker.
-    # For true background tasks + websockets, a queue (like Celery/Redis) is better.
-    # ---- REVISING PLAN: Await the task for simplicity first ----
-    pass # Remove direct notification from sync helper
+    if error_message:
+        # Log any error encountered during the process
+        logger.error(f"WhisperX helper function encountered error for {uuid}: {error_message}")
+
+    return relative_path # Return the path or None
 
 # --- POST Endpoint to Start WhisperX Transcription (Modified to Await) ---
-# REMOVED BackgroundTasks, added response_model to return updated task
 @app.post("/api/tasks/{task_uuid}/transcribe_whisperx", response_model=TaskMetadata)
 async def transcribe_whisperx_endpoint(
     task_uuid: UUID,
@@ -1087,55 +1087,95 @@ async def transcribe_whisperx_endpoint(
     # ... (Existing checks: not found, archived, transcript exists, audio exists) ...
     if not task_meta: raise HTTPException(status_code=404, detail="Task not found")
     if task_meta.archived: raise HTTPException(status_code=400, detail="Cannot transcribe archived task.")
-    if task_meta.whisperx_json_path: raise HTTPException(status_code=409, detail="WhisperX transcript already exists. Delete it first.")
+    # Allow re-transcription if path exists but maybe failed before?
+    # if task_meta.whisperx_json_path: raise HTTPException(status_code=409, detail="WhisperX transcript already exists. Delete it first.")
     audio_path_str = task_meta.downloaded_audio_path or task_meta.extracted_wav_path
     if not audio_path_str: raise HTTPException(status_code=400, detail="Audio file path not found...")
     expected_audio_path = DATA_DIR / audio_path_str
     if not expected_audio_path.exists(): raise HTTPException(status_code=400, detail=f"Audio file not found at {expected_audio_path}...")
 
-    # --- Run the script synchronously in threadpool and wait --- 
-    script_failed = False
-    error_detail = None
+    # --- Run the script synchronously in threadpool and get relative path --- 
+    relative_path = None
+    script_error = None
     try:
-        await run_in_threadpool(run_transcription_script_and_notify, uuid_str, model) # Await the helper
-        logger.info(f"WhisperX transcription script completed (awaited) for {uuid_str}.")
-    except Exception as e:
-        # This catches errors *running* the script (like CalledProcessError if check=True was used) 
-        # or errors within run_transcription_script itself if not caught there.
-        logger.error(f"Error running transcription in threadpool for {uuid_str}: {e}", exc_info=True)
-        script_failed = True
-        error_detail = str(e)
-        # Decide if we should still try to broadcast or just raise HTTP 500
-        # For now, let's raise 500, as waiting failed.
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {error_detail}")
-
-    # --- Reload metadata and broadcast --- 
-    try:
-        updated_metadata = await load_metadata() # Reload fresh metadata
-        updated_task_data = updated_metadata.get(uuid_str)
-        
-        if updated_task_data:
-             message = {
-                 "type": "task_update",
-                 # Determine status based on whether whisperx_json_path was set by the script
-                 "status": "completed" if updated_task_data.whisperx_json_path else "failed", 
-                 "uuid": uuid_str,
-                 "task_data": updated_task_data.dict() 
-             }
-             # We don't have specific error details here if script internal error occurred but didn't crash runner
-             # The status 'failed' relies on whisperx_json_path not being set.
-             await manager.broadcast(message)
-             logger.info(f"Broadcasted task update for UUID {uuid_str} after sync run.")
-             # Return the final state of the task data
-             return updated_task_data 
+        # Await the helper which now returns the relative path or None
+        relative_path = await run_in_threadpool(run_transcription_script_and_notify, uuid_str, model)
+        if relative_path:
+            logger.info(f"WhisperX transcription script completed successfully for {uuid_str}. Relative path: {relative_path}")
         else:
-             logger.error(f"Task {uuid_str} not found in metadata after sync script run. Cannot broadcast or return.")
-             # This case is problematic, internal state inconsistency
-             raise HTTPException(status_code=500, detail="Task data inconsistency after processing.")
+            logger.error(f"WhisperX transcription script helper returned None (failure) for {uuid_str}.")
+            # Capture a generic error message if path is None
+            script_error = "Transcription script failed or did not return a valid path."
 
     except Exception as e:
-        logger.error(f"Error reloading metadata or broadcasting for {uuid_str} after sync run: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error finalizing task update after processing.")
+        # This catches errors *running* the helper in threadpool itself
+        logger.error(f"Error running transcription helper in threadpool for {uuid_str}: {e}", exc_info=True)
+        script_error = f"Error executing transcription task: {e}"
+
+    # --- Update Metadata and Broadcast --- 
+    task_status = "failed"
+    updated_task_data_dict = None
+    try:
+        # Reload metadata AFTER the script has potentially run
+        current_metadata = await load_metadata()
+        current_task_meta = current_metadata.get(uuid_str)
+
+        if not current_task_meta:
+            # Task disappeared somehow? Log error, cannot proceed.
+            logger.error(f"Task {uuid_str} not found in metadata after script execution. Cannot update status or broadcast.")
+            # Raise 500 as state is inconsistent
+            raise HTTPException(status_code=500, detail="Task metadata inconsistency after processing.")
+
+        if relative_path and not script_error:
+            # --- Success Path: Update Metadata --- 
+            current_task_meta.whisperx_json_path = relative_path
+            current_task_meta.transcription_model = model
+            current_metadata[uuid_str] = current_task_meta
+            await save_metadata(current_metadata)
+            logger.info(f"Successfully updated metadata for task {uuid_str} with WhisperX path and model.")
+            task_status = "completed"
+            updated_task_data_dict = current_task_meta.dict()
+        else:
+            # --- Failure Path: Metadata NOT updated --- 
+            logger.warning(f"Transcription failed for task {uuid_str}. Metadata will not be updated.")
+            # Use the existing task data (without transcript path) for broadcast
+            updated_task_data_dict = current_task_meta.dict()
+
+        # --- Broadcast Update --- 
+        message = {
+            "type": "task_update",
+            "status": task_status,
+            "uuid": uuid_str,
+            "task_data": updated_task_data_dict
+        }
+        if script_error and task_status == "failed":
+            message["error"] = script_error # Add error detail if script failed
+
+        await manager.broadcast(message)
+        logger.info(f"Broadcasted task update for UUID {uuid_str} (Status: {task_status})")
+
+        # --- Return Response --- 
+        if task_status == "completed":
+            return current_task_meta # Return the updated TaskMetadata on success
+        else:
+            # If script failed, raise an HTTP exception
+            raise HTTPException(status_code=500, detail=script_error or "Transcription failed for unknown reasons.")
+
+    except Exception as e:
+        # Catch errors during metadata reload, save, or broadcast
+        logger.error(f"Error during final metadata update or broadcast for {uuid_str}: {e}", exc_info=True)
+        # Try to broadcast a generic failure if possible?
+        try:
+            await manager.broadcast({
+                "type": "task_update",
+                "status": "failed",
+                "uuid": uuid_str,
+                "error": f"Internal server error during final update: {e}"
+            })
+        except Exception as broadcast_err:
+            logger.error(f"Failed to broadcast final error state for {uuid_str}: {broadcast_err}")
+        # Raise 500
+        raise HTTPException(status_code=500, detail="Internal server error during task finalization.")
 
 # --- DELETE Endpoint to Remove WhisperX Transcript ---
 @app.delete("/api/tasks/{task_uuid}/transcribe_whisperx", status_code=200)

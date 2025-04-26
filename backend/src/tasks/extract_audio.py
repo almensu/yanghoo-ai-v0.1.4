@@ -61,7 +61,7 @@ async def run_extract_audio(task_metadata: TaskMetadata, backend_dir_str: str, b
          raise ValueError(f"Could not determine input media file path from metadata for task {task_uuid_str}")
 
     # Construct absolute input path using pathlib
-    input_media_path_abs = backend_dir / input_media_rel_path_str # Use pathlib
+    input_media_path_abs = base_dir / input_media_rel_path_str # <-- Correct base (data_dir)
     if not input_media_path_abs.is_file(): # Use pathlib
         raise FileNotFoundError(f"Input media file not found at expected path: {input_media_path_abs}")
 

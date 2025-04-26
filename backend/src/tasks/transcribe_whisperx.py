@@ -145,49 +145,23 @@ def main():
         # Write output to file
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(final_result, f, indent=2, ensure_ascii=False)
-            
-        print(json.dumps({"status": "updating_metadata", "percent": 95}), flush=True)
-            
-        # --- Update metadata.json ---
-        try:
-             # Re-load metadata to avoid race conditions if multiple processes run
-            with open(metadata_path, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
 
-            # Calculate relative path from workspace root/backend
-            relative_output_path = os.path.relpath(output_path, script_dir / 'backend')
-            
-            # Update metadata for the specific UUID
-            if args.uuid in metadata:
-                 metadata[args.uuid]['whisperx_json_path'] = relative_output_path.replace("\\", "/") # Ensure forward slashes
-                 metadata[args.uuid]['transcription_model'] = model_name
-                 # Optionally store other metadata derived from transcription
-                 # metadata[args.uuid]['language'] = result.get("language", language_code)
-                 # metadata[args.uuid]['word_count'] = word_count 
-            else:
-                 # This shouldn't happen based on earlier check, but good practice
-                 print(json.dumps({"status": "error", "message": f"UUID {args.uuid} disappeared from metadata during processing?"}), file=sys.stderr)
-                 sys.exit(1)
+        # Calculate the correct relative path from data_dir
+        relative_output_path = output_path.relative_to(data_dir)
 
-            # Write updated metadata back
-            with open(metadata_path, 'w', encoding='utf-8') as f:
-                json.dump(metadata, f, indent=4, ensure_ascii=False) # Use indent=4 for consistency?
+        # Print completion status and the RELATIVE path to stdout
+        print(json.dumps({
+            "status": "completed",
+            "percent": 100,
+            "relative_path": str(relative_output_path) # Use the correct relative path
+        }), flush=True)
 
-        except Exception as e:
-            print(json.dumps({"status": "error", "message": f"Failed to update metadata.json: {str(e)}"}), file=sys.stderr)
-             # Decide if this is a fatal error for the script
-            sys.exit(1) 
-        # --- End metadata update ---
-
-        # Print completion
-        print(json.dumps({"status": "completed", "percent": 100}), flush=True)
-        
     except Exception as e:
         # Add more specific error reporting if possible
         import traceback
         print(json.dumps({
-            "status": "error", 
-            "message": str(e), 
+            "status": "error",
+            "message": str(e),
             "traceback": traceback.format_exc()
         }), file=sys.stderr)
         sys.exit(1)
