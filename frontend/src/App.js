@@ -692,6 +692,40 @@ function App() {
   };
   // --- END: Handle Delete WhisperX Transcript ---
 
+  // --- NEW: Handle Create Video --- 
+  const handleCreateVideo = async (taskUuid) => {
+    console.log(`Attempting to create video for task: ${taskUuid}`);
+    // Optionally add a loading indicator specific to this task/button
+    try {
+      const res = await fetch(`/api/tasks/${taskUuid}/create_video`, {
+        method: 'POST',
+      });
+
+      if (!res.ok) {
+        let errorDetail = `HTTP error! status: ${res.status}`;
+        try {
+          const errorData = await res.json();
+          errorDetail = errorData.detail || errorDetail;
+        } catch (jsonError) {
+          console.warn("Could not parse error response as JSON", jsonError);
+        }
+        throw new Error(errorDetail);
+      }
+
+      const result = await res.json();
+      console.log('Video creation successful:', result);
+      alert(`视频创建成功: ${result.output_path}`);
+      // The WebSocket update should ideally handle refreshing the task state,
+      // but we can trigger a manual fetch as a fallback or for immediate UI update.
+      // await fetchTasks(); 
+      
+    } catch (e) {
+      console.error("Error creating video:", e);
+      alert(`视频创建失败: ${e.message}`);
+    }
+  };
+  // --- END: Handle Create Video --- 
+
   // Filter tasks based on search term and archive status
   const filteredTasks = tasks.filter(task => {
     const matchesSearch = searchTerm === '' || 
@@ -778,9 +812,10 @@ function App() {
                 onDeleteAudio={handleDeleteAudio}
                 onDownloadVtt={handleDownloadVtt}
                 onDeleteVtt={handleDeleteVtt}
-                onMergeVtt={handleMergeVtt} // Pass the handler
+                onMergeVtt={handleMergeVtt}
                 onTranscribeWhisperX={handleTranscribeWhisperX}
                 onDeleteWhisperX={handleDeleteWhisperX}
+                onCreateVideo={handleCreateVideo}
               />
             ) : (
               <TableView 
@@ -794,7 +829,10 @@ function App() {
                 onDeleteAudio={handleDeleteAudio}
                 onDownloadVtt={handleDownloadVtt}
                 onDeleteVtt={handleDeleteVtt} 
-                onMergeVtt={handleMergeVtt} // Pass the handler
+                onMergeVtt={handleMergeVtt}
+                onTranscribeWhisperX={handleTranscribeWhisperX}
+                onDeleteWhisperX={handleDeleteWhisperX}
+                onCreateVideo={handleCreateVideo}
               />
             )}
             {tasks.length === 0 && !fetchLoading && <p className="text-center text-gray-500 mt-4">No tasks ingested yet.</p>}

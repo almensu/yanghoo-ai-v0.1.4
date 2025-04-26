@@ -4,7 +4,7 @@ import {
   FaFileVideo, FaVideoSlash as FaVideoSlash6, 
   FaFileAudio, FaVolumeXmark, 
   FaDownload, FaMusic, FaClosedCaptioning, FaLanguage, FaTrash as FaTrash6, 
-  FaHeadphones, FaCodeMerge,
+  FaHeadphones, FaCodeMerge, FaTv,
   FaMicrophoneLines,
 } from 'react-icons/fa6';
 // FaArchive seems only available in fa, FaTrash is in both, use FaTrash6 from fa6 consistently
@@ -51,7 +51,7 @@ const ImageWithFallback = ({ src, alt, className }) => {
 function CardView({
   tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio,
   onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt,
-  onDeleteVtt, onMergeVtt,
+  onDeleteVtt, onMergeVtt, onCreateVideo,
   onTranscribeWhisperX, onDeleteWhisperX
 }) {
   // State to store selected WhisperX model for each task
@@ -111,10 +111,16 @@ function CardView({
         const canDirectDownloadAudio = isAudioPlatform(task.platform);
         // Check for specific VTT files
         const vttEnExists = hasVtt(task.vtt_files, 'en');
-        const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans'); // Assuming 'zh-Hans' for Simplified Chinese
+        const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans');
         const isYouTube = task.platform === 'youtube';
         const canMerge = canMergeVtt(task); // Use the helper
         const isMerged = !!task.merged_vtt_md_path;
+        // Condition for showing the 'Create Video' button
+        const canCreatePodcastVideo = 
+            (task.platform === 'xiaoyuzhou' || task.platform === 'podcast') && 
+            !!task.thumbnail_path && 
+            !!task.downloaded_audio_path && 
+            !task.media_files?.best; // Hide if best video already exists
 
         // --- WhisperX specific checks ---
         const whisperXJsonExists = !!task.whisperx_json_path;
@@ -182,7 +188,7 @@ function CardView({
               <div className="flex justify-between items-center mt-1 pt-2 border-t border-base-200/60">
                 <div className="flex items-center gap-1.5">
                   <span className={`text-lg ${audioExists ? 'text-accent' : (audioDownloaded ? 'text-primary' : 'text-base-content/40')}`}>
-                    {audioExists ? <FaFileAudio /> : (audioDownloaded ? <FaHeadphones /> : <FaVolumeXmark />) }
+                    {audioExists ? <FaFileAudio /> : (audioDownloaded ? <FaHeadphones /> : <FaVolumeXmark />)}
                   </span>
                   <span className="text-xs font-medium">
                       {audioExists ? "已提取" : (audioDownloaded ? "已下载" : "无音频")}
@@ -190,6 +196,18 @@ function CardView({
                 </div>
                 
                 <div className="flex gap-0.5">
+                  {/* --- NEW: Create Video Button --- */}
+                  {canCreatePodcastVideo && (
+                    <button 
+                      className={`btn btn-ghost btn-xs btn-square tooltip tooltip-secondary text-secondary hover:bg-base-content/10 flex items-center justify-center`} 
+                      onClick={() => onCreateVideo(task.uuid)} // Call the new handler
+                      title="使用音频和封面图制作视频"
+                      data-tip="制作视频"
+                    >
+                        <FaTv size="0.9em" />
+                    </button>
+                  )}
+                  {/* --- END NEW: Create Video Button --- */}
                   {canDirectDownloadAudio && (
                       <button 
                           className={`btn btn-ghost btn-xs btn-square tooltip tooltip-primary ${audioDownloaded ? 'btn-disabled text-base-content/30' : 'text-primary'} hover:bg-base-content/10 flex items-center justify-center`} 
@@ -222,74 +240,76 @@ function CardView({
                 </div>
               </div>
               
+              {/* --- Conditional Rendering for YouTube/Podcast Section --- */}
               {isYouTube && (
-                <div className="mt-1 pt-2 border-t border-base-200/60">
-                  <div className="flex items-center gap-1.5 mb-1">
-                      <span className={`text-lg ${(vttEnExists || vttZhExists) ? 'text-info' : 'text-base-content/40'}`}>
-                          <FaClosedCaptioning />
-                      </span>
-                      <span className="text-xs font-medium mr-auto">字幕 (VTT) {isMerged ? '(已合并)' : ''}</span>
-                      
-                       {/* Merge Button */}
-                       <button 
-                           className={`btn btn-ghost btn-xs btn-square tooltip tooltip-secondary ${!canMerge ? 'btn-disabled text-base-content/30' : 'text-secondary'} hover:bg-base-content/10 flex items-center justify-center`} 
-                           onClick={() => onMergeVtt(task.uuid)}
-                           disabled={!canMerge}
-                           title={isMerged ? "字幕已合并为 Markdown" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "需要 EN 或 ZH 字幕" : "合并字幕为 Markdown (表格)"))}
-                           data-tip={isMerged ? "字幕已合并" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "缺少字幕" : "合并字幕 (MD)"))}
-                       >
-                           <FaCodeMerge size="0.9em" /> 
-                       </button>
+                 <div className="mt-1 pt-2 border-t border-base-200/60">
+                   <div className="flex items-center gap-1.5 mb-1">
+                       <span className={`text-lg ${(vttEnExists || vttZhExists) ? 'text-info' : 'text-base-content/40'}`}>
+                           <FaClosedCaptioning />
+                       </span>
+                       <span className="text-xs font-medium mr-auto">字幕 (VTT) {isMerged ? '(已合并)' : ''}</span>
                        
-                       {/* Download VTT Button */}
-                       <button 
-                           className={`btn btn-ghost btn-xs btn-square tooltip tooltip-info ${!task.info_json_path ? 'btn-disabled text-base-content/30' : 'text-info'} hover:bg-base-content/10 flex items-center justify-center`} 
-                           onClick={() => onDownloadVtt(task.uuid)}
-                           disabled={!task.info_json_path}
-                           title={!task.info_json_path ? "需要先获取 Info JSON" : "下载可用 VTT (EN/ZH)"}
-                           data-tip={!task.info_json_path ? "获取 Info JSON" : "下载 VTT"}
-                       >
-                           <FaDownload size="0.9em" />
-                       </button>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                      <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-1">
-                              <FaLanguage size="0.9em" className="text-base-content/70"/> 
-                              <span className={`text-xs ${vttEnExists ? 'font-medium' : 'text-base-content/70'}`}>英文</span>
-                          </div>
-                          <div className="flex gap-0.5">
-                              <button 
-                                  className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttEnExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
-                                  onClick={() => onDeleteVtt(task.uuid, 'en')}
-                                  disabled={!vttEnExists}
-                                  title="删除英文 VTT"
-                                  data-tip="删除英文 VTT"
-                              >
-                                  <FaTrash6 size="0.9em" /> 
-                              </button>
-                          </div>
-                      </div>
-                      <div className="flex justify-between items-center">
+                        {/* Merge Button */}
+                        <button 
+                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-secondary ${!canMerge ? 'btn-disabled text-base-content/30' : 'text-secondary'} hover:bg-base-content/10 flex items-center justify-center`} 
+                            onClick={() => onMergeVtt(task.uuid)}
+                            disabled={!canMerge}
+                            title={isMerged ? "字幕已合并为 Markdown" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "需要 EN 或 ZH 字幕" : "合并字幕为 Markdown (表格)"))}
+                            data-tip={isMerged ? "字幕已合并" : (!isYouTube ? "仅限 YouTube" : (!(vttEnExists || vttZhExists) ? "缺少字幕" : "合并字幕 (MD)"))}
+                        >
+                            <FaCodeMerge size="0.9em" /> 
+                        </button>
+                        
+                        {/* Download VTT Button */}
+                        <button 
+                            className={`btn btn-ghost btn-xs btn-square tooltip tooltip-info ${!task.info_json_path ? 'btn-disabled text-base-content/30' : 'text-info'} hover:bg-base-content/10 flex items-center justify-center`} 
+                            onClick={() => onDownloadVtt(task.uuid)}
+                            disabled={!task.info_json_path}
+                            title={!task.info_json_path ? "需要先获取 Info JSON" : "下载可用 VTT (EN/ZH)"}
+                            data-tip={!task.info_json_path ? "获取 Info JSON" : "下载 VTT"}
+                        >
+                            <FaDownload size="0.9em" />
+                        </button>
+                   </div>
+                   <div className="flex flex-col gap-1">
+                       <div className="flex justify-between items-center">
                            <div className="flex items-center gap-1">
-                              <FaLanguage size="0.9em" className="text-base-content/70"/> 
-                              <span className={`text-xs ${vttZhExists ? 'font-medium' : 'text-base-content/70'}`}>中文</span>
-                          </div>
-                          <div className="flex gap-0.5">
+                               <FaLanguage size="0.9em" className="text-base-content/70"/> 
+                               <span className={`text-xs ${vttEnExists ? 'font-medium' : 'text-base-content/70'}`}>英文</span>
+                           </div>
+                           <div className="flex gap-0.5">
                                <button 
-                                  className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttZhExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
-                                  onClick={() => onDeleteVtt(task.uuid, 'zh-Hans')}
-                                  disabled={!vttZhExists}
-                                  title="删除中文 VTT"
-                                  data-tip="删除中文 VTT"
-                              >
-                                  <FaTrash6 size="0.9em" />
-                              </button>
-                          </div>
-                      </div>
-                  </div>
-                </div>
+                                   className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttEnExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
+                                   onClick={() => onDeleteVtt(task.uuid, 'en')}
+                                   disabled={!vttEnExists}
+                                   title="删除英文 VTT"
+                                   data-tip="删除英文 VTT"
+                               >
+                                   <FaTrash6 size="0.9em" /> 
+                               </button>
+                           </div>
+                       </div>
+                       <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-1">
+                               <FaLanguage size="0.9em" className="text-base-content/70"/> 
+                               <span className={`text-xs ${vttZhExists ? 'font-medium' : 'text-base-content/70'}`}>中文</span>
+                           </div>
+                           <div className="flex gap-0.5">
+                                <button 
+                                   className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning hover:bg-base-content/10 flex items-center justify-center ${!vttZhExists ? 'btn-disabled text-base-content/30' : 'text-warning'}`} 
+                                   onClick={() => onDeleteVtt(task.uuid, 'zh-Hans')}
+                                   disabled={!vttZhExists}
+                                   title="删除中文 VTT"
+                                   data-tip="删除中文 VTT"
+                               >
+                                   <FaTrash6 size="0.9em" />
+                               </button>
+                           </div>
+                       </div>
+                   </div>
+                 </div>
               )}
+              {/* --- End Conditional Rendering --- */}
 
               {/* --- WhisperX Section --- */}
               <div className="mt-1 pt-2 border-t border-base-200/60">
@@ -351,23 +371,23 @@ function CardView({
               <div className="card-actions justify-end items-center mt-2 pt-2 border-t border-base-200/60"> 
                  {/* Archive Button */}
                  <button 
-                  className={`btn btn-ghost btn-xs btn-square text-primary tooltip tooltip-primary hover:bg-base-content/10 flex items-center justify-center ${task.archived ? 'btn-disabled text-base-content/30' : ''}`} 
-                  onClick={() => onArchive(task.uuid)}
-                  disabled={task.archived}
-                  title="归档任务"
-                  data-tip="归档任务"
-                >
-                  <FaArchive size="0.9em"/>
-                </button>
-                {/* Delete Button */}
-                <button 
-                  className={`btn btn-ghost btn-xs btn-square text-error tooltip tooltip-error hover:bg-base-content/10 flex items-center justify-center`}
-                  onClick={() => onDelete(task.uuid)}
-                  title="删除整个任务" 
-                  data-tip="删除任务" 
-                >
-                  <FaTrash6 size="0.9em"/> 
-                </button>
+                     className={`btn btn-ghost btn-xs btn-square tooltip tooltip-warning ${task.archived ? 'btn-disabled text-base-content/30' : 'text-warning'} hover:bg-base-content/10 flex items-center justify-center`}
+                     onClick={() => !task.archived && onArchive(task.uuid)} // Prevent archiving again
+                     disabled={task.archived}
+                     title={task.archived ? "任务已归档" : "归档任务(保留元数据,删除媒体)"}
+                     data-tip={task.archived ? "已归档" : "归档"}
+                 >
+                   <FaArchive size="0.9em"/>
+                 </button>
+                 {/* Delete Button */}
+                 <button 
+                   className={`btn btn-ghost btn-xs btn-square text-error tooltip tooltip-error hover:bg-base-content/10 flex items-center justify-center`}
+                   onClick={() => onDelete(task.uuid)}
+                   title="删除整个任务" 
+                   data-tip="删除任务" 
+                 >
+                   <FaTrash6 size="0.9em"/> 
+                 </button>
               </div>
             </div>
           </div>

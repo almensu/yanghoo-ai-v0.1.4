@@ -46,6 +46,8 @@ from .tasks.download_audio import download_audio_sync, AUDIO_DOWNLOAD_PLATFORMS
 from .data_management import delete_video_files_sync, delete_audio_file_sync
 # --- Restore Archived Task Import ---
 from .tasks.Restore_Archived import restore_archived_metadata
+# --- Audio to Media Task Import ---
+from .tasks.audio_to_media import create_video_from_audio_image
 # ------------------------
 from fastapi.concurrency import run_in_threadpool
 
@@ -1240,6 +1242,100 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"WebSocket error for {websocket.client}: {e}", exc_info=True)
         if websocket in manager.active_connections: # Ensure disconnect even on unexpected errors
              manager.disconnect(websocket)
+
+# --- NEW: Endpoint to Create Video from Audio+Image ---
+class CreateVideoResponse(BaseModel):
+    message: str
+    output_path: str
+
+@app.post("/api/tasks/{task_uuid}/create_video", response_model=CreateVideoResponse)
+async def create_video_endpoint(task_uuid: UUID):
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to create video for task: {task_uuid_str}")
+    metadata = await load_metadata()
+
+    if task_uuid_str not in metadata:
+        logger.error(f"Task not found: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    task_meta = metadata[task_uuid_str]
+    task_dir = BASE_DIR / task_uuid_str
+
+    # --- Input Validation ---
+    if task_meta.platform not in ["xiaoyuzhou", "podcast"]: # Assuming 'podcast' is a valid platform identifier
+        logger.warning(f"Platform '{task_meta.platform}' not supported for video creation for task {task_uuid_str}")
+        raise HTTPException(status_code=400, detail=f"Platform '{task_meta.platform}' not supported for this operation.")
+
+    if not task_meta.thumbnail_path:
+        logger.warning(f"Thumbnail path is missing for task {task_uuid_str}")
+        raise HTTPException(status_code=400, detail="Thumbnail path is missing.")
+        
+    if not task_meta.downloaded_audio_path:
+        logger.warning(f"Downloaded audio path is missing for task {task_uuid_str}")
+        raise HTTPException(status_code=400, detail="Downloaded audio path is missing.")
+
+    thumbnail_full_path = BASE_DIR / task_meta.thumbnail_path
+    audio_full_path = BASE_DIR / task_meta.downloaded_audio_path
+    output_video_rel_path = Path(task_uuid_str) / "video_best.mp4" # Relative path for metadata
+    output_video_full_path = BASE_DIR / output_video_rel_path # Full path for script
+
+    if not thumbnail_full_path.exists():
+        logger.error(f"Thumbnail file not found at expected location: {thumbnail_full_path}")
+        raise HTTPException(status_code=404, detail=f"Thumbnail file not found: {task_meta.thumbnail_path}")
+        
+    if not audio_full_path.exists():
+        logger.error(f"Audio file not found at expected location: {audio_full_path}")
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {task_meta.downloaded_audio_path}")
+
+    # --- Run Video Creation Script (Synchronously for now, consider BackgroundTasks for long processes) ---
+    try:
+        logger.info(f"Starting video creation for {task_uuid_str}: Image='{thumbnail_full_path}', Audio='{audio_full_path}', Output='{output_video_full_path}'")
+        
+        # Use run_in_threadpool to avoid blocking the event loop
+        await run_in_threadpool(
+            create_video_from_audio_image, 
+            image_path=str(thumbnail_full_path), 
+            audio_path=str(audio_full_path), 
+            output_path=str(output_video_full_path)
+        )
+
+        # --- Verify Output and Update Metadata ---
+        if not output_video_full_path.exists():
+             logger.error(f"Video creation script ran but output file not found: {output_video_full_path}")
+             raise HTTPException(status_code=500, detail="Video creation failed: Output file not generated.")
+
+        logger.info(f"Video created successfully: {output_video_full_path}")
+        # Update metadata
+        if task_meta.media_files is None: # Ensure media_files exists
+            task_meta.media_files = {}
+        task_meta.media_files["best"] = str(output_video_rel_path) # Store relative path
+
+        metadata[task_uuid_str] = task_meta
+        await save_metadata(metadata)
+        
+        # Broadcast update
+        await manager.broadcast({"type": "metadata_update", "payload": {task_uuid_str: task_meta.dict()}})
+        
+        logger.info(f"Metadata updated for task {task_uuid_str} with new video file: {output_video_rel_path}")
+        
+        return CreateVideoResponse(
+            message="Video created successfully", 
+            output_path=str(output_video_rel_path)
+        )
+
+    except Exception as e: # Catch errors from the script execution or file checks
+        logger.error(f"Error during video creation for task {task_uuid_str}: {e}", exc_info=True)
+        # Attempt to clean up potentially incomplete output file
+        if output_video_full_path.exists():
+            try:
+                os.remove(output_video_full_path)
+                logger.info(f"Cleaned up partial output file: {output_video_full_path}")
+            except OSError as rm_err:
+                logger.error(f"Failed to clean up partial output file {output_video_full_path}: {rm_err}")
+        raise HTTPException(status_code=500, detail=f"Video creation failed: {str(e)}")
+
+
+# --- END NEW Endpoint --- 
 
 if __name__ == "__main__":
     import uvicorn
