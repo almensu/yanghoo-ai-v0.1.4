@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
-import { FaArchive, FaUndo } from 'react-icons/fa'; // Import new icons
+import { Undo2 } from 'lucide-react'; // Use lucide-react icon
 // Uncomment the view components
 import CardView from './components/CardView';
 import TableView from './components/TableView';
@@ -781,7 +781,7 @@ function App() {
               className="btn btn-sm btn-outline btn-accent flex items-center gap-1"
               onClick={handleRestoreArchived}
             >
-              <FaUndo /> Restore Archived
+              <Undo2 className="w-4 h-4"/> Restore Archived
             </button>
           )}
            {/* --- END: Conditional Restore Button --- */}
