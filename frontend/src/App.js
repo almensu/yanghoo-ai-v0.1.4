@@ -726,6 +726,35 @@ function App() {
   };
   // --- END: Handle Create Video --- 
 
+  // --- START: Handle Open Folder --- 
+  const handleOpenFolder = async (taskUuid) => {
+    console.log(`Requesting to open folder for task: ${taskUuid}`);
+    try {
+      const res = await fetch(`/api/tasks/${taskUuid}/open_folder`, {
+        method: 'POST',
+      });
+      // Check if the request was successful (e.g., status 200 OK)
+      if (!res.ok) {
+        let errorDetail = `HTTP error! status: ${res.status}`;
+        try {
+          const errorData = await res.json();
+          errorDetail = errorData.detail || errorDetail;
+        } catch (jsonError) {
+           // Ignore if response is not JSON or if parsing fails
+        }
+        throw new Error(errorDetail);
+      }
+      // No specific UI update needed on success, maybe a console log
+      console.log(`Backend notified to open folder for ${taskUuid}`);
+      // Optionally, show a success message if needed
+      // alert('Folder open request sent successfully.');
+    } catch (e) {
+      console.error("Error requesting folder open:", e);
+      alert(`Failed to request folder open: ${e.message}`); // Inform user
+    }
+  };
+  // --- END: Handle Open Folder ---
+
   // Filter tasks based on search term and archive status
   const filteredTasks = tasks.filter(task => {
     const matchesSearch = searchTerm === '' || 
@@ -816,6 +845,7 @@ function App() {
                 onTranscribeWhisperX={handleTranscribeWhisperX}
                 onDeleteWhisperX={handleDeleteWhisperX}
                 onCreateVideo={handleCreateVideo}
+                onOpenFolder={handleOpenFolder}
               />
             ) : (
               <TableView 

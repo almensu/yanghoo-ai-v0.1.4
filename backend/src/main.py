@@ -1334,6 +1334,62 @@ async def create_video_endpoint(task_uuid: UUID):
                 logger.error(f"Failed to clean up partial output file {output_video_full_path}: {rm_err}")
         raise HTTPException(status_code=500, detail=f"Video creation failed: {str(e)}")
 
+# --- Endpoint to Open Task Folder --- 
+@app.post("/api/tasks/{task_uuid}/open_folder", status_code=200)
+async def open_task_folder_endpoint(task_uuid: UUID):
+    """
+    Opens the data folder for the specified task in the system's file explorer.
+    """
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to open folder for task: {task_uuid_str}")
+    
+    # No need to load metadata unless we need to validate existence first
+    # metadata = await load_metadata()
+    # if task_uuid_str not in metadata:
+    #     logger.warning(f"Task not found for opening folder: {task_uuid_str}")
+    #     raise HTTPException(status_code=404, detail="Task not found")
+
+    task_data_dir = DATA_DIR / task_uuid_str
+
+    if not task_data_dir.exists() or not task_data_dir.is_dir():
+        logger.warning(f"Task data directory not found or is not a directory: {task_data_dir}")
+        raise HTTPException(status_code=404, detail=f"Task data directory not found: {task_data_dir}")
+
+    try:
+        logger.info(f"Attempting to open folder: {task_data_dir}")
+        cmd = []
+        if sys.platform == "win32":
+            # Use os.startfile on Windows for better behavior?
+            # os.startfile(task_data_dir) 
+            # Or stick with explorer:
+            cmd = ["explorer", str(task_data_dir)]
+        elif sys.platform == "darwin": # macOS
+            cmd = ["open", str(task_data_dir)]
+        else: # Linux and other Unix-like
+            cmd = ["xdg-open", str(task_data_dir)]
+        
+        # Run the command asynchronously in a threadpool to avoid blocking
+        process = await run_in_threadpool(
+            subprocess.run,
+            cmd,
+            check=True, # Raise exception on non-zero exit code
+            capture_output=True # Capture output/errors if needed
+        )
+        logger.info(f"Successfully executed command to open folder: {' '.join(cmd)}")
+        return {"message": f"Request to open folder {task_data_dir} successful."}
+
+    except FileNotFoundError:
+        # This might happen if xdg-open/open/explorer is not in PATH
+        logger.error(f"Command to open file explorer not found (platform: {sys.platform}). Command: {' '.join(cmd)}")
+        raise HTTPException(status_code=501, detail="File explorer command not found on the server.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error executing command to open folder {task_data_dir}: {e}")
+        logger.error(f"Command stdout: {e.stdout}")
+        logger.error(f"Command stderr: {e.stderr}")
+        raise HTTPException(status_code=500, detail=f"Failed to open folder on server: {e.stderr or e.stdout}")
+    except Exception as e:
+        logger.error(f"Unexpected error opening folder {task_data_dir}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred on the server while trying to open the folder.")
 
 # --- END NEW Endpoint --- 
 
