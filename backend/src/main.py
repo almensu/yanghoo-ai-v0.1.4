@@ -165,8 +165,8 @@ async def save_metadata(metadata: Dict[str, TaskMetadata]):
     logger.info(f"Attempting to save metadata. Data to save: {metadata}") # Log the data
     try:
         # Use METADATA_FILE (Path object) directly with aiofiles
-        async with aiofiles.open(METADATA_FILE, mode='w') as f:
-            content_to_write = json.dumps(metadata, indent=4, default=pydantic_encoder)
+        async with aiofiles.open(METADATA_FILE, mode='w', encoding='utf-8') as f:
+            content_to_write = json.dumps(metadata, indent=4, default=pydantic_encoder, ensure_ascii=False)
             logger.debug(f"Content prepared for writing to {METADATA_FILE}:\n{content_to_write}") # Log exact content
             await f.write(content_to_write)
         logger.info(f"Successfully saved metadata to {METADATA_FILE}") # Log success
