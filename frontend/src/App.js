@@ -6,6 +6,8 @@ import Sidebar from './components/Sidebar';
 import TaskListPage from './pages/TaskListPage'; 
 import StudioPage from './pages/StudioPage';   
 import TestPage_VideoPlayer from './pages/TestPage_VideoPlayer'; // Updated import
+import TestPage_VttPreviewer from './pages/TestPage_VttPreviewer'; // Import new test page
+import TestPage_MarkdownViewer from './pages/TestPage_MarkdownViewer'; // Import Markdown test page
 
 const API_BASE_URL = 'http://127.0.0.1:8000';
 const WS_BASE_URL = 'ws://127.0.0.1:8000';
@@ -40,6 +42,10 @@ function App() {
                {/* <Route path="*" element={<div>404 Not Found</div>} /> */}
                {/* Add route for VideoPlayer Test Page */}
                <Route path="/test/video-player" element={<TestPage_VideoPlayer />} /> 
+               {/* Add route for VttPreviewer Test Page */}
+               <Route path="/test/vtt-previewer" element={<TestPage_VttPreviewer />} />
+               {/* Add route for MarkdownViewer Test Page */}
+               <Route path="/test/markdown" element={<TestPage_MarkdownViewer />} />
              </Routes>
            </main>
         </div>

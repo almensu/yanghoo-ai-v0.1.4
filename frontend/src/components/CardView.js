@@ -5,7 +5,7 @@ import {
   Download, AudioWaveform, Captions, Languages, Trash2, 
   Headphones, Combine, Tv, Mic, Archive, 
   ListVideo, ServerCrash, DownloadCloud, CheckCircle2, AlertCircle, XCircle, HelpCircle, Trash, MoreVertical, 
-  ChevronDown, Settings, FileText, Folder
+  ChevronDown, Settings, FileText, Folder, PlaySquare
 } from 'lucide-react'; 
 
 // Basic placeholder for image loading/error
@@ -52,7 +52,7 @@ function CardView({
   tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio,
   onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt,
   onDeleteVtt, onMergeVtt, onCreateVideo,
-  onTranscribeWhisperX, onDeleteWhisperX, onOpenFolder
+  onTranscribeWhisperX, onDeleteWhisperX, onOpenFolder, onGoToStudio
 }) {
   const [whisperxModels, setWhisperxModels] = React.useState({});
 
@@ -126,6 +126,15 @@ function CardView({
                          onClick={() => onOpenFolder(task.uuid)}
                      >
                        <IconWrapper icon={Folder}/>
+                     </button>
+                  </div>
+                  <div className="tooltip" data-tip="进入 Studio">
+                     <button
+                         className="btn btn-square btn-xs btn-ghost text-secondary/70 hover:bg-secondary hover:text-secondary-content"
+                         onClick={() => onGoToStudio(task.uuid)}
+                         disabled={task.archived}
+                     >
+                       <IconWrapper icon={PlaySquare}/>
                      </button>
                   </div>
                   <div className="tooltip" data-tip="删除任务">
