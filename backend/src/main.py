@@ -17,7 +17,7 @@ import mimetypes # 添加 mimetypes 导入
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 # from pathlib import Path # Remove Path import
@@ -297,7 +297,7 @@ async def list_tasks():
         # --- 调用 helper 来填充 embed_url ---
         task_meta = _populate_embed_url(task_meta) 
         # ------------------------------------
-
+        
         tasks_to_return.append(task_meta)
 
     # Return the list of TaskMetadata objects, now with correct archived status
@@ -800,6 +800,46 @@ async def get_markdown_file(task_uuid: UUID, format: Literal['merged', 'parallel
     return FileResponse(path=markdown_abs_path, filename=filename, media_type='text/markdown')
 # --- END: New GET Markdown Endpoint ---
 
+# --- START: New List Files Endpoint ---
+@app.get("/api/tasks/{task_uuid}/files/list", response_model=List[str])
+async def list_task_files(
+    task_uuid: UUID,
+    extension: Optional[str] = Query(None, description="Filter by file extension (e.g., .txt, .md)")
+):
+    """
+    Lists files within the specified task's data directory, optionally filtering by extension.
+    Only lists files, not directories.
+    """
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Request to list files for task {task_uuid_str} (extension filter: {extension})")
+
+    task_data_dir = DATA_DIR / task_uuid_str
+
+    if not task_data_dir.exists() or not task_data_dir.is_dir():
+        logger.warning(f"Task data directory not found: {task_data_dir}")
+        raise HTTPException(status_code=404, detail="Task data directory not found")
+
+    try:
+        all_files = []
+        for item in task_data_dir.iterdir():
+            if item.is_file():
+                # Apply extension filter if provided
+                if extension:
+                    # Ensure extension starts with a dot for consistent comparison
+                    filter_ext = extension if extension.startswith('.') else f".{extension}"
+                    if item.name.lower().endswith(filter_ext.lower()):
+                        all_files.append(item.name)
+                else:
+                    # No filter, add all files
+                    all_files.append(item.name)
+        
+        logger.info(f"Found {len(all_files)} files for task {task_uuid_str} matching filter '{extension}'")
+        return sorted(all_files) # Return sorted list
+
+    except Exception as e:
+        logger.error(f"Error listing files in directory {task_data_dir}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error listing files")
+# --- END: New List Files Endpoint ---
 
 # --- START: 新增 - 获取任务目录下的任意文件 ---
 @app.get("/api/tasks/{task_uuid}/files/{filename}", response_class=FileResponse)
@@ -818,36 +858,58 @@ async def get_task_file(task_uuid: UUID, filename: str):
 
     # 构建文件的绝对路径
     # 假设 DATA_DIR 是 pathlib.Path 对象
+    # 旧代码: file_path = DATA_DIR / filename
+    # filename 现在不包含 UUID 目录，所以需要手动加上
     file_path = DATA_DIR / task_uuid_str / filename
 
     # --- 重要的安全检查：确保文件路径在预期的 DATA_DIR/{task_uuid} 目录下 ---
+    resolved_file_path = None
+    expected_task_dir = None
     try:
-        # resolve() 会处理 '..' 等路径，并返回绝对路径
-        # common_path() 用于检查解析后的路径是否仍在 DATA_DIR / task_uuid_str 之下
+        logger.debug(f"Attempting to resolve expected_task_dir: {DATA_DIR / task_uuid_str}")
         expected_task_dir = (DATA_DIR / task_uuid_str).resolve(strict=True) # 确保任务目录存在
+        logger.debug(f"Successfully resolved expected_task_dir: {expected_task_dir}")
+        
+        logger.debug(f"Attempting to resolve file_path: {file_path}")
         resolved_file_path = file_path.resolve(strict=True) # 确保文件实际存在
+        logger.debug(f"Successfully resolved file_path: {resolved_file_path}")
 
         # 检查解析后的文件路径是否是预期任务目录的子路径
         # os.path.commonpath 在 python 3.9+ 可用，或者可以用 Path.is_relative_to (3.9+)
         # 为了兼容性，我们用 startswith
         if not str(resolved_file_path).startswith(str(expected_task_dir)):
-             logger.warning(f"检测到目录遍历尝试或文件不在任务目录内: 请求路径 {file_path}, 解析后 {resolved_file_path}, 预期目录 {expected_task_dir}")
+             logger.warning(f"Path Traversal Check Failed: Resolved path {resolved_file_path} does not start with expected directory {expected_task_dir}")
              raise HTTPException(status_code=404, detail="文件未找到或不在允许的目录下")
+        else:
+            logger.debug("Path Traversal Check Passed.")
 
-    except FileNotFoundError:
-        logger.warning(f"文件未找到: {file_path}")
-        raise HTTPException(status_code=404, detail=f"文件未找到: {filename}")
+    except FileNotFoundError as fnf_error:
+        logger.warning(f"FileNotFoundError during path resolution for {file_path}. Error: {fnf_error}")
+        logger.warning(f"  Attempted to resolve expected_task_dir: {DATA_DIR / task_uuid_str} -> Result: {expected_task_dir}")
+        logger.warning(f"  Attempted to resolve file_path: {file_path} -> Result: {resolved_file_path}") # Log resolved path even on error
+        raise HTTPException(status_code=404, detail=f"文件未找到(路径解析失败): {filename}")
     except Exception as e: # 捕获 resolve 可能的其他错误 (如权限问题)
          logger.error(f"检查文件路径时出错: {file_path} - {e}", exc_info=True)
          raise HTTPException(status_code=500, detail="服务器内部错误")
     # -----------------------------------------------------------------------
 
     # 检查路径是否确实是一个文件
-    if not file_path.is_file():
-        logger.warning(f"请求的路径不是一个文件: {file_path}")
+    logger.debug(f"Checking if path is a file: {file_path}")
+    is_a_file = False
+    try:
+        is_a_file = file_path.is_file()
+        logger.debug(f"Path.is_file() result: {is_a_file}")
+    except Exception as e:
+        logger.error(f"Error calling is_file() on {file_path}: {e}", exc_info=True)
+        # Decide if we should raise 500 or treat as not found
+        raise HTTPException(status_code=500, detail="检查文件类型时出错")
+        
+    if not is_a_file:
+        logger.warning(f"Path is not a file: {file_path}")
         raise HTTPException(status_code=404, detail=f"请求的路径不是一个文件: {filename}")
 
     # 猜测文件的 MIME 类型 (例如 'video/mp4')
+    logger.debug(f"Guessing media type for: {file_path}")
     media_type, _ = mimetypes.guess_type(file_path)
     if media_type is None:
         media_type = 'application/octet-stream' # 如果无法猜测，使用通用二进制流类型
