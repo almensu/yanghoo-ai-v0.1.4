@@ -850,7 +850,7 @@ async def get_task_file(task_uuid: UUID, filename: str):
     """
     提供任务数据目录中指定文件的访问。
     进行了基本的安全检查，防止访问目录外的文件。
-    优先提供 ".fixed.vtt" 文件（如果存在）。
+    (不再需要优先提供 .fixed.vtt，因为文件在下载时已被规范化)
     """
     task_uuid_str = str(task_uuid)
     logger.info(f"请求获取任务 {task_uuid_str} 的文件: {filename}")
@@ -860,47 +860,23 @@ async def get_task_file(task_uuid: UUID, filename: str):
         logger.warning(f"检测到非法的文件名请求: {filename} (任务: {task_uuid_str})")
         raise HTTPException(status_code=400, detail="不允许的文件名")
 
-    # --- VTT 智能选择逻辑 --- 
-    file_path_to_serve = DATA_DIR / task_uuid_str / filename # 默认使用原始请求路径
-    is_vtt_request = filename.lower().endswith('.vtt')
-    
-    if is_vtt_request:
-        # 构建对应的 .fixed.vtt 文件路径
-        fixed_filename = filename[:-4] + ".fixed.vtt" # 替换扩展名
-        fixed_file_path = DATA_DIR / task_uuid_str / fixed_filename
-        logger.debug(f"检查是否存在修复后的 VTT 文件: {fixed_file_path}")
-        try:
-            # 检查 .fixed.vtt 是否存在且是文件
-            if await run_in_threadpool(fixed_file_path.is_file): # is_file 可能阻塞，放入线程池
-                logger.info(f"找到并优先提供修复后的 VTT 文件: {fixed_file_path}")
-                file_path_to_serve = fixed_file_path # 更新要提供的文件路径
-            else:
-                logger.info(f"未找到修复后的 VTT 文件 {fixed_file_path}，将提供原始文件: {file_path_to_serve}")
-        except Exception as e:
-            # 如果检查 .fixed.vtt 时出错，记录日志但继续尝试提供原始文件
-            logger.warning(f"检查 {fixed_file_path} 时出错: {e}，将尝试提供原始文件。")
-            # file_path_to_serve 保持为原始路径
-            
-    # --- END VTT 智能选择逻辑 ---
-
-    # 使用确定后的 file_path_to_serve 进行后续检查和返回
+    # 构建文件的绝对路径
+    file_path_to_serve = DATA_DIR / task_uuid_str / filename
     
     # --- 重要的安全检查：确保文件路径在预期的 DATA_DIR/{task_uuid} 目录下 ---
     resolved_file_path = None
     expected_task_dir = None
     try:
         logger.debug(f"Attempting to resolve expected_task_dir: {DATA_DIR / task_uuid_str}")
-        expected_task_dir = (DATA_DIR / task_uuid_str).resolve(strict=True) # 确保任务目录存在
+        expected_task_dir = (DATA_DIR / task_uuid_str).resolve(strict=True) 
         logger.debug(f"Successfully resolved expected_task_dir: {expected_task_dir}")
         
         logger.debug(f"Attempting to resolve file_path_to_serve: {file_path_to_serve}")
-        # 对最终要服务的文件路径进行解析和严格检查
         resolved_file_path = await run_in_threadpool(file_path_to_serve.resolve, strict=True) 
         logger.debug(f"Successfully resolved file_path_to_serve: {resolved_file_path}")
 
         if not str(resolved_file_path).startswith(str(expected_task_dir)):
              logger.warning(f"Path Traversal Check Failed: Resolved path {resolved_file_path} does not start with expected directory {expected_task_dir}")
-             # 返回 404 而不是 400，因为原始请求的文件名可能是合法的
              raise HTTPException(status_code=404, detail="文件未找到或不在允许的目录下")
         else:
             logger.debug("Path Traversal Check Passed.")
@@ -915,11 +891,11 @@ async def get_task_file(task_uuid: UUID, filename: str):
          raise HTTPException(status_code=500, detail="服务器内部错误")
     # -----------------------------------------------------------------------
 
-    # 检查路径是否确实是一个文件 (对最终要服务的文件进行检查)
+    # 检查路径是否确实是一个文件
     logger.debug(f"Checking if path is a file: {file_path_to_serve}")
     is_a_file = False
     try:
-        is_a_file = await run_in_threadpool(file_path_to_serve.is_file) # is_file 可能阻塞
+        is_a_file = await run_in_threadpool(file_path_to_serve.is_file) 
         logger.debug(f"Path.is_file() result: {is_a_file}")
     except Exception as e:
         logger.error(f"Error calling is_file() on {file_path_to_serve}: {e}", exc_info=True)
@@ -931,15 +907,15 @@ async def get_task_file(task_uuid: UUID, filename: str):
 
     # 猜测文件的 MIME 类型
     logger.debug(f"Guessing media type for: {file_path_to_serve}")
-    # 注意：如果提供的是 .fixed.vtt，我们仍然希望浏览器按 .vtt 处理
-    final_filename_for_response = filename # 浏览器下载时看到的文件名保持不变
-    media_type = 'text/vtt' if is_vtt_request else mimetypes.guess_type(file_path_to_serve)[0]
+    media_type, _ = mimetypes.guess_type(file_path_to_serve)
     if media_type is None:
         media_type = 'application/octet-stream' 
+    # 对于 .vtt 文件，强制使用 text/vtt
+    if filename.lower().endswith('.vtt'):
+        media_type = 'text/vtt'
 
     logger.info(f"正在提供文件: {file_path_to_serve} (类型: {media_type})，请求名: {filename}")
-    # 使用 FileResponse 返回文件，路径为 file_path_to_serve，但下载时的文件名仍用原始 filename
-    return FileResponse(path=str(file_path_to_serve), filename=final_filename_for_response, media_type=media_type)
+    return FileResponse(path=str(file_path_to_serve), filename=filename, media_type=media_type)
 # --- END: 新增 - 获取任务目录下的任意文件 ---
 
 

@@ -1,3 +1,5 @@
+# This file makes the 'utils' directory a Python package. 
+
 import re
 from typing import Optional
 
@@ -16,4 +18,6 @@ def extract_youtube_video_id(url: str) -> Optional[str]:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
-    return None 
+    return None
+
+# 可以将其他通用的工具函数也放在这里，或者放在其他文件中并通过 __init__.py 导出 
