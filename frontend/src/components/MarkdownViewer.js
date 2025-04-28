@@ -15,14 +15,14 @@ function MarkdownViewer({ markdownContent }) {
 
   if (!markdownContent) {
     return (
-      <div className={`${containerClasses} text-gray-500`}>
-        No content to display.
+      <div className={`${containerClasses} text-gray-500 italic flex items-center justify-center flex-grow`}>
+        No content to display or load.
       </div>
     );
   }
 
   return (
-    <div className={containerClasses}>
+    <div className={containerClasses + " flex-grow overflow-auto"}> {/* Added flex-grow and overflow */}
       <ReactMarkdown remarkPlugins={[remarkGfm]}> 
         {markdownContent}
       </ReactMarkdown>

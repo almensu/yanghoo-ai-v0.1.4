@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -11,6 +11,14 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
   const [fetchError, setFetchError] = useState(null);
   const ws = useRef(null);
   const navigate = useNavigate();
+
+  // New state for filtering archived tasks
+  const [showArchived, setShowArchived] = useState(false);
+
+  // Filter tasks based on the showArchived state
+  const filteredTasks = useMemo(() => {
+    return tasks.filter(task => showArchived || !task.archived);
+  }, [tasks, showArchived]);
 
   const fetchTasks = useCallback(async () => {
     setFetchLoading(true);
@@ -335,13 +343,13 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
   };
 
   return (
-    <div className="p-6 container mx-auto">
+    <div className="container mx-auto p-4 pt-8 flex flex-col h-full">
       <IngestForm
-        apiBaseUrl={apiBaseUrl}
+        API_BASE_URL={apiBaseUrl}
         onIngestComplete={fetchTasks}
       />
       <TaskList
-        tasks={tasks}
+        tasks={filteredTasks}
         isLoading={fetchLoading}
         error={fetchError}
         onDelete={handleDeleteTask}

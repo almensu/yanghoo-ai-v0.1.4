@@ -96,7 +96,7 @@ function VttPreviewer({ cues = [], videoRef }) {
 
   return (
     <div className="vtt-previewer bg-base-200 p-4 rounded-lg shadow max-h-[400px] flex flex-col">
-      <h3 className="text-lg font-semibold mb-2 border-b border-base-300 pb-2">字幕预览</h3>
+      {/* <h3 className="text-lg font-semibold mb-2 border-b border-base-300 pb-2">字幕预览</h3> */}
       {/* 如果没有字幕数据，显示提示信息 */}
       {(!cues || cues.length === 0) && (
          <p className="text-gray-500 italic flex-grow flex items-center justify-center">未加载字幕或无可用字幕。</p>

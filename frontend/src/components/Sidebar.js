@@ -11,9 +11,9 @@ function Sidebar() {
 
   // Define sidebar items
   const menuItems = [
-    { name: '视频列表', icon: <Video size={20} />, path: '/videos' }, // Example path
-    { name: '文档列表', icon: <FileText size={20} />, path: '/docs' },   // Example path
-    { name: 'Studio专区', icon: <Sparkles size={20} />, path: '/studio' }, // Example path
+    { name: '视频列表', icon: <Video size={20} />, path: '/' }, // Changed path to root for TaskListPage
+    { name: '文档列表', icon: <FileText size={20} />, path: '/docs' },   // Example path (keep or remove based on need)
+    // { name: 'Studio专区', icon: <Sparkles size={20} />, path: '/studio' }, // REMOVED - Should navigate from Task list
     { name: 'VideoPlayer 测试', icon: <Settings size={20} />, path: '/test/video-player' }, // Updated Test Page link
     { name: 'VTT Preview 测试', icon: <ListVideo size={20} />, path: '/test/vtt-previewer' }, // New VTT Test Page link
     { name: 'Markdown 测试', icon: <Settings size={20} />, path: '/test/markdown' }, // Added Markdown Test Page link

@@ -6,6 +6,65 @@ import VideoPlayer from './VideoPlayer';
 import VttPreviewer from './VttPreviewer';
 import MarkdownViewer from './MarkdownViewer';
 
+// --- 新增：前端 VTT 清洗辅助函数 ---
+
+/**
+ * 清洗单个 VTT cue 的文本内容。
+ * - 移除所有 <...> 标签 (包括时间戳和自定义标签)
+ * - 将换行符替换为空格
+ * @param {string} text 原始 cue 文本
+ * @returns {string} 清洗后的文本
+ */
+const cleanCueText = (text) => {
+  if (!text) return '';
+  // 移除所有 <...> 标签
+  let cleanedText = text.replace(/<[^>]+>/g, '');
+  // 将换行符替换为空格并去除首尾空格
+  cleanedText = cleanedText.replace(/\n+/g, ' ').trim();
+  return cleanedText;
+};
+
+/**
+ * 对已解析的 VTT cues 数组进行去重叠/冗余处理。
+ * 类似于 python 脚本中的 deduplicate_overlaps。
+ * @param {Array<{startTime: number, endTime: number, text: string}>} cues 原始 cues 数组
+ * @returns {Array<{startTime: number, endTime: number, text: string}>} 去重后的 cues 数组
+ */
+const deduplicateParsedCues = (cues) => {
+  if (!cues || cues.length === 0) {
+    return [];
+  }
+
+  const deduplicated = [cues[0]]; // 保留第一个 cue
+
+  for (let i = 1; i < cues.length; i++) {
+    const prevCue = deduplicated[deduplicated.length - 1];
+    const currentCue = cues[i];
+
+    // 检查文本是否有效以及是否以前一个文本开头（且不完全相同）
+    if (prevCue.text && currentCue.text && 
+        currentCue.text !== prevCue.text && 
+        currentCue.text.startsWith(prevCue.text)) {
+      // 移除重叠部分
+      const newText = currentCue.text.substring(prevCue.text.length).trim();
+      // 只有当移除重叠后仍有内容时才添加
+      if (newText) {
+        // 保留当前 cue 的时间戳，但使用新文本
+        deduplicated.push({ ...currentCue, text: newText });
+      } 
+      // 如果移除后为空，则跳过这个 cue
+    } else if (currentCue.text !== prevCue.text) {
+       // 如果不重叠，且与前一个文本不同，则添加
+      deduplicated.push(currentCue);
+    }
+    // 如果当前文本与前一个完全相同，则跳过
+  }
+
+  return deduplicated;
+};
+
+// --- End VTT 清洗辅助函数 ---
+
 // --- Robust VTT Parsing Logic (imported from TestPage_VttPreviewer) ---
 const parseVtt = (vttString, lang) => {
   if (!vttString || vttString.trim() === '') return { cues: [], error: null };
@@ -100,19 +159,32 @@ const parseVtt = (vttString, lang) => {
     }
 
     if (tree.cues.length > 0) {
-      const parsed = tree.cues
-        .filter(cue => cue && cue.startTime !== undefined && cue.endTime !== undefined && cue.startTime < cue.endTime)
-        .map(cue => ({ startTime: cue.startTime, endTime: cue.endTime, text: cleanText(cue.text) }))
-        .sort((a, b) => a.startTime - b.startTime);
-        
-      if (parsed.length > 0) {
-        console.log(`VTT (${lang}): Standard parse successful, ${parsed.length} valid cues found.`);
-        return { cues: parsed, error: parseError }; // Return successfully parsed cues, even with non-fatal errors
-      } else if (tree.cues.length > 0) {
-           const msg = 'Standard parser found cues, but they were filtered out (invalid times?).';
-           parseError = parseError ? `${parseError} ${msg}` : msg;
-           console.warn(`VTT (${lang}) Warning: ${msg}`);
+      // Step 1: Clean individual cue text (remove tags, normalize spaces)
+      const cleanedCues = tree.cues.map(cue => ({
+        ...cue,
+        text: cleanCueText(cue.text) // 使用新的清洗函数
+      }));
+      
+      // Step 2: Deduplicate cues (handle overlaps/redundancy)
+      const finalCues = deduplicateParsedCues(cleanedCues); // 使用新的去重函数
+      
+      // Filter out cues with empty text AFTER cleaning and deduplication
+      const parsed = finalCues.filter(cue => cue.text);
+      
+      console.log(`[parseVtt ${lang}] Parsed ${tree.cues.length} cues initially, ${cleanedCues.length} after cleaning, ${finalCues.length} after dedupe, ${parsed.length} final non-empty cues.`);
+      
+      // Check for common errors (e.g., all cues having identical timestamps - might indicate parsing failure)
+      if (parsed.length > 1) {
+          const firstStartTime = parsed[0].startTime;
+          const allSameStart = parsed.every(cue => cue.startTime === firstStartTime);
+          if (allSameStart) {
+              console.warn(`[parseVtt ${lang}] Warning: All ${parsed.length} parsed cues have the same start time (${firstStartTime}). This might indicate a VTT parsing issue.`);
+              // Optionally set parseError here if this is considered a critical error
+              // parseError = `All cues have the same start time (${firstStartTime}), indicating a potential parsing error.`;
+          }
       }
+
+      return { cues: parsed, error: parseError };
     } else {
          const msg = 'Standard parser returned zero cues.';
          parseError = parseError ? `${parseError} ${msg}` : msg;
@@ -571,7 +643,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
                ))}
              </div>
            </div>
-           {currentVttError && <p className="text-orange-600 text-sm px-4 pt-2">VTT Warning: {currentVttError}</p>}
            <div className="flex-grow overflow-y-auto p-4 pt-2"> 
              {displayedCues.length > 0 ? (
                  <VttPreviewer

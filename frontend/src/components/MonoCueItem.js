@@ -10,12 +10,12 @@ const MonoCueItem = ({ cue, isActive, onClick }) => {
   return (
     <li 
       className={`px-3 py-2 rounded cursor-pointer flex items-start ${ 
-        isActive ? 'bg-primary text-primary-content font-medium' : 'hover:bg-base-300' 
+        isActive ? 'bg-base-300 font-medium' : 'hover:bg-base-300'
       }`}
       onClick={() => onClick(cue.startTime)} // 调用传入的 onClick 处理函数
     >
       {/* 时间戳 */}
-      <span className="inline-block text-xs opacity-70 pt-1 w-16 min-w-16">
+      <span className="inline-block text-xs opacity-70 pt-1 w-20 min-w-20">
         {formatTime(cue.startTime)}
       </span>
       {/* 字幕文本 */}
