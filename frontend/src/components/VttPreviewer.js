@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // Use the installed webvtt-parser
 // import { WebVTT } from 'vtt.js'; 
 import { WebVTTParser } from 'webvtt-parser';
@@ -17,7 +17,30 @@ import BilingualCueItem from './BilingualCueItem';
 //   - 双语: { startTime, endTime, enText, zhText, isBilingual: true }
 // - videoRef: 指向 HTML <video> 元素的 React ref 对象
 
-function VttPreviewer({ cues = [], videoRef }) { 
+// --- Simple Throttle Implementation (简单的节流函数实现) ---
+// (Source: Simplified from common implementations)
+function throttle(func, limit) {
+  let lastFunc;
+  let lastRan;
+  return function(...args) {
+    const context = this;
+    if (!lastRan) {
+      func.apply(context, args);
+      lastRan = Date.now();
+    } else {
+      clearTimeout(lastFunc);
+      lastFunc = setTimeout(function() {
+        if ((Date.now() - lastRan) >= limit) {
+          func.apply(context, args);
+          lastRan = Date.now();
+        }
+      }, limit - (Date.now() - lastRan));
+    }
+  }
+}
+// ----------------------------------------------------------
+
+function VttPreviewer({ cues = [], videoRef, syncEnabled = true }) {
   // 状态：当前活动字幕的索引
   const [activeCueIndex, setActiveCueIndex] = useState(-1);
   // Ref: 指向字幕列表的滚动容器
@@ -25,73 +48,114 @@ function VttPreviewer({ cues = [], videoRef }) {
   // Ref: 存储上一个活动的索引，用于优化搜索
   const lastActiveIndexRef = useRef(0); 
   
-  // 回调：处理视频时间更新，查找当前活动字幕索引 (优化版)
-  const handleTimeUpdate = useCallback(() => {
+  // Original time update handler logic (原始的时间更新处理逻辑)
+  const timeUpdateLogic = useCallback(() => {
+    // Ensure sync is enabled before proceeding
+    if (!syncEnabled) {
+        // If sync gets disabled, reset active index? Or just stop updating?
+        // Let's reset to be clearer.
+        if (activeCueIndex !== -1) setActiveCueIndex(-1);
+        return;
+    }
+
     const video = videoRef.current;
-    if (!video || !cues || cues.length === 0) { 
-      setActiveCueIndex(-1);
+    if (!video || !cues || cues.length === 0) {
+      if (activeCueIndex !== -1) setActiveCueIndex(-1);
       return;
     }
     const currentTime = video.currentTime;
     let foundIndex = -1;
+
+    // 优化：使用二分搜索查找正确的字幕位置，更高效地处理大量字幕
+    let low = 0;
+    let high = cues.length - 1;
     
-    // --- Optimization: Start search near the last active index --- 
-    const searchStart = Math.max(0, lastActiveIndexRef.current - 2); // Start a bit before last known index
+    // 先进行快速检查 - 如果上次活跃的字幕仍然活跃，直接使用它
+    const lastActiveIndex = lastActiveIndexRef.current;
+    if (lastActiveIndex >= 0 && lastActiveIndex < cues.length) {
+      const cue = cues[lastActiveIndex];
+      if (currentTime >= cue.startTime && currentTime < cue.endTime) {
+        if (lastActiveIndex !== activeCueIndex) {
+          setActiveCueIndex(lastActiveIndex);
+        }
+        return;
+      }
+    }
     
-    for (let i = searchStart; i < cues.length; i++) {
-      if (currentTime >= cues[i].startTime && currentTime < cues[i].endTime) {
-        foundIndex = i;
+    // 二分搜索查找字幕
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const cue = cues[mid];
+      
+      if (currentTime < cue.startTime) {
+        high = mid - 1;
+      } else if (currentTime >= cue.endTime) {
+        low = mid + 1;
+      } else {
+        // 找到了正在活跃的字幕
+        foundIndex = mid;
         break;
       }
-      // Optimization: If current cue's start time is already way past current time, stop searching
-      if (cues[i].startTime > currentTime + 1) { // Add a small buffer (1 second)
-          break;
-      }
     }
     
-    // If not found in the forward search, maybe we jumped back or started mid-way
-    // Search backwards from the start point if needed (less common case)
-    if (foundIndex === -1) {
-        for (let i = searchStart -1; i >=0; i--) {
-             if (currentTime >= cues[i].startTime && currentTime < cues[i].endTime) {
-                foundIndex = i;
-                break;
-            }
-        }
+    // 如果二分搜索没找到，可能是在两个字幕之间
+    // 此时我们可以选择显示即将到来的字幕，或者不显示任何字幕
+    if (foundIndex === -1 && low < cues.length) {
+      // 检查是否即将到来的字幕（小于200ms）
+      const nextCue = cues[low];
+      if (nextCue && (nextCue.startTime - currentTime) < 0.2) {
+        foundIndex = low;
+      }
     }
-    // --- End Optimization ---
 
-    // 只有当活动索引实际发生变化时才更新状态
+    // Only update state if the index actually changed
     if (foundIndex !== activeCueIndex) {
       setActiveCueIndex(foundIndex);
       if (foundIndex !== -1) {
-         lastActiveIndexRef.current = foundIndex; // Update last known index
+         lastActiveIndexRef.current = foundIndex;
       }
     }
-  }, [videoRef, cues, activeCueIndex]); // Keep activeCueIndex dependency for correct comparison
+  // Depend on syncEnabled as well
+  }, [videoRef, cues, activeCueIndex, syncEnabled]);
 
-  // Effect: 添加和移除视频的 timeupdate 事件监听器
+  // --- Throttled version of the handler (节流后的处理函数) ---
+  // Use useMemo to ensure the throttled function is created only once
+  // or when its dependencies change (though throttle itself doesn't depend on them here)
+  const handleTimeUpdateThrottled = useMemo(() =>
+      // Throttle the core logic, e.g., update max 4 times per second (250ms)
+      // (对核心逻辑进行节流, 例如最多每秒更新4次)
+      throttle(timeUpdateLogic, 250), 
+      [timeUpdateLogic] // Depend on the memoized core logic function
+  );
+
+  // Effect: Add/Remove 'timeupdate' listener (添加/移除监听器)
   useEffect(() => {
-    const videoElement = videoRef?.current; 
+    const videoElement = videoRef?.current;
     if (videoElement) {
-      console.log("VttPreviewer: 添加 timeupdate 监听器于", videoElement);
-      videoElement.addEventListener('timeupdate', handleTimeUpdate);
-      handleTimeUpdate(); // 组件加载时立即调用一次，设置初始高亮
-      // 清理函数：组件卸载时移除监听器
+      console.log("VttPreviewer: Adding throttled timeupdate listener (添加节流后的 timeupdate 监听器).");
+      // Use the throttled handler
+      videoElement.addEventListener('timeupdate', handleTimeUpdateThrottled);
+      // Initial call still uses the original logic for immediate feedback
+      // (初始调用仍用原始逻辑以获得即时反馈)
+      timeUpdateLogic(); 
+
       return () => {
-        if (videoElement) { 
-            console.log("VttPreviewer: 移除 timeupdate 监听器于", videoElement);
-             videoElement.removeEventListener('timeupdate', handleTimeUpdate);
-        } else if (videoRef?.current) { // 备用检查
-            console.log("VttPreviewer: 移除 timeupdate 监听器 (备用检查) 于", videoRef.current);
-            videoRef.current.removeEventListener('timeupdate', handleTimeUpdate);
+        if (videoElement) {
+            console.log("VttPreviewer: Removing throttled timeupdate listener (移除节流后的 timeupdate 监听器).");
+            // Remove the throttled handler
+             videoElement.removeEventListener('timeupdate', handleTimeUpdateThrottled);
+        } 
+        // Cleanup for the throttle function itself (clear any pending timeout)
+        if (handleTimeUpdateThrottled && typeof handleTimeUpdateThrottled.cancel === 'function') { 
+             // Note: Our simple throttle doesn't have cancel, lodash does.
+             // If using lodash: handleTimeUpdateThrottled.cancel();
         }
       };
     } else {
-        console.log("VttPreviewer: 视频元素 ref 不可用，未添加监听器。");
+        console.log("VttPreviewer: Video element ref not available, listener not added (视频元素 ref 不可用, 未添加监听器).");
     }
-    // 依赖项：videoRef 及其 current 值的变化，以及 handleTimeUpdate 回调的变化
-  }, [videoRef, videoRef?.current, handleTimeUpdate]);
+  // Depend on the throttled handler instance and the original logic for initial call
+  }, [videoRef, videoRef?.current, handleTimeUpdateThrottled, timeUpdateLogic]); 
 
   // 回调：处理字幕项点击事件（传递给子组件）
   const handleCueClick = useCallback((startTime) => {
@@ -137,6 +201,13 @@ function VttPreviewer({ cues = [], videoRef }) {
     }
   }, [activeCueIndex]); // Dependency remains activeCueIndex
 
+  // Add conditional rendering based on syncEnabled for clarity?
+  if (!syncEnabled && activeCueIndex !== -1) {
+      // If sync is disabled but we have an active index, reset it.
+      // This might happen if syncEnabled changes while a cue is active.
+      setActiveCueIndex(-1);
+  }
+
   return (
     <div className="vtt-previewer bg-base-200 p-4 rounded-lg shadow max-h-[400px] flex flex-col">
       {/* <h3 className="text-lg font-semibold mb-2 border-b border-base-300 pb-2">字幕预览</h3> */}
@@ -149,24 +220,23 @@ function VttPreviewer({ cues = [], videoRef }) {
         <ul ref={cueListRef} className="space-y-1 overflow-y-auto flex-grow pr-2"> 
           {/* 遍历字幕数据，根据 isBilingual 渲染对应的子组件 */} 
           {cues.map((cue, index) => { 
-            const isActive = index === activeCueIndex; // 判断是否为活动字幕
-            // 生成唯一的 key
-            const key = `${index}-${cue.startTime}`;
+            // Pass isActive based on state (pass isActve 基于 state)
+            const isActive = syncEnabled && index === activeCueIndex; 
+            const key = `${index}-${cue.startTime}-${cue.isBilingual}`;
 
-            // 根据 isBilingual 标志分发到不同的子组件
             return cue.isBilingual ? (
               <BilingualCueItem 
                 key={key} 
-                cue={cue} // 传递双语字幕数据
-                isActive={isActive} // 传递活动状态
-                onClick={handleCueClick} // 传递点击处理函数
+                cue={cue} 
+                isActive={isActive} 
+                onClick={handleCueClick} 
               />
             ) : (
               <MonoCueItem 
                 key={key} 
-                cue={cue} // 传递单语字幕数据
-                isActive={isActive} // 传递活动状态
-                onClick={handleCueClick} // 传递点击处理函数
+                cue={cue} 
+                isActive={isActive} 
+                onClick={handleCueClick} 
               />
             );
           })} 
@@ -176,4 +246,5 @@ function VttPreviewer({ cues = [], videoRef }) {
   );
 }
 
-export default VttPreviewer; 
+// --- Wrap with React.memo for performance (使用 React.memo 优化性能) ---
+export default React.memo(VttPreviewer); 
