@@ -22,8 +22,10 @@ function VttPreviewer({ cues = [], videoRef }) {
   const [activeCueIndex, setActiveCueIndex] = useState(-1);
   // Ref: 指向字幕列表的滚动容器
   const cueListRef = useRef(null); 
+  // Ref: 存储上一个活动的索引，用于优化搜索
+  const lastActiveIndexRef = useRef(0); 
   
-  // 回调：处理视频时间更新，查找当前活动字幕索引
+  // 回调：处理视频时间更新，查找当前活动字幕索引 (优化版)
   const handleTimeUpdate = useCallback(() => {
     const video = videoRef.current;
     if (!video || !cues || cues.length === 0) { 
@@ -32,17 +34,41 @@ function VttPreviewer({ cues = [], videoRef }) {
     }
     const currentTime = video.currentTime;
     let foundIndex = -1;
-    for (let i = 0; i < cues.length; i++) {
+    
+    // --- Optimization: Start search near the last active index --- 
+    const searchStart = Math.max(0, lastActiveIndexRef.current - 2); // Start a bit before last known index
+    
+    for (let i = searchStart; i < cues.length; i++) {
       if (currentTime >= cues[i].startTime && currentTime < cues[i].endTime) {
         foundIndex = i;
         break;
       }
+      // Optimization: If current cue's start time is already way past current time, stop searching
+      if (cues[i].startTime > currentTime + 1) { // Add a small buffer (1 second)
+          break;
+      }
     }
-    // 只有当活动索引实际发生变化时才更新状态，避免不必要的重渲染
+    
+    // If not found in the forward search, maybe we jumped back or started mid-way
+    // Search backwards from the start point if needed (less common case)
+    if (foundIndex === -1) {
+        for (let i = searchStart -1; i >=0; i--) {
+             if (currentTime >= cues[i].startTime && currentTime < cues[i].endTime) {
+                foundIndex = i;
+                break;
+            }
+        }
+    }
+    // --- End Optimization ---
+
+    // 只有当活动索引实际发生变化时才更新状态
     if (foundIndex !== activeCueIndex) {
       setActiveCueIndex(foundIndex);
+      if (foundIndex !== -1) {
+         lastActiveIndexRef.current = foundIndex; // Update last known index
+      }
     }
-  }, [videoRef, cues, activeCueIndex]); // 依赖项：确保 videoRef, cues 或 activeCueIndex 变化时重新创建回调
+  }, [videoRef, cues, activeCueIndex]); // Keep activeCueIndex dependency for correct comparison
 
   // Effect: 添加和移除视频的 timeupdate 事件监听器
   useEffect(() => {
@@ -78,21 +104,38 @@ function VttPreviewer({ cues = [], videoRef }) {
     }
   }, [videoRef]); // 依赖项：仅 videoRef
 
-  // Effect: 将当前活动的字幕项滚动到视图中 (暂时注释掉)
+  // Effect: 将当前活动的字幕项滚动到视图中 (优化版)
   useEffect(() => {
-    // TODO: 实现将活动子项滚动到视图中央的逻辑
-    // 这需要更复杂的处理，比如将 ref 传递给活动的子项
-    // 或者基于 activeCueIndex 计算滚动位置。
-    /*
-    if (activeCueRef.current) { 
-      activeCueRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-        inline: 'nearest'
-      });
+    if (activeCueIndex >= 0 && cueListRef.current) {
+      const listElement = cueListRef.current;
+      const activeItemElement = listElement.children[activeCueIndex];
+
+      if (activeItemElement) {
+        // --- Optimization: Check if element is already reasonably centered --- 
+        const listRect = listElement.getBoundingClientRect();
+        const itemRect = activeItemElement.getBoundingClientRect();
+        
+        // Calculate midpoints relative to the viewport
+        const listMidY = listRect.top + listRect.height / 2;
+        const itemMidY = itemRect.top + itemRect.height / 2;
+        
+        // Define a tolerance (e.g., 1/6th of the list height)
+        const tolerance = listRect.height / 6;
+        
+        // Only scroll if the item midpoint is outside the tolerance range around the list midpoint
+        if (Math.abs(itemMidY - listMidY) > tolerance) {
+            // console.log(`Scrolling needed: Item ${activeCueIndex} mid ${itemMidY.toFixed(0)} vs List mid ${listMidY.toFixed(0)}, Tolerance ${tolerance.toFixed(0)}`);
+            activeItemElement.scrollIntoView({
+                behavior: 'smooth', 
+                block: 'center',
+            });
+        } else {
+            // console.log(`Skipping scroll: Item ${activeCueIndex} already centered.`);
+        }
+        // --- End Optimization ---
+      }
     }
-    */
-  }, [activeCueIndex]); 
+  }, [activeCueIndex]); // Dependency remains activeCueIndex
 
   return (
     <div className="vtt-previewer bg-base-200 p-4 rounded-lg shadow max-h-[400px] flex flex-col">
