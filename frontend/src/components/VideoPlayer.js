@@ -1,7 +1,8 @@
 import React, { useEffect, forwardRef, useRef, useImperativeHandle } from 'react';
 
-// Custom CSS for subtitles - Added to position subtitles higher from bottom
+// Custom CSS for subtitles - Updated to position subtitles at the red rectangle area with more specific selectors
 const subtitleStyles = `
+  video::cue,
   ::cue {
     background-color: rgba(0, 0, 0, 0.6);
     color: white;
@@ -9,33 +10,41 @@ const subtitleStyles = `
     border-radius: 2px;
     font-size: 16px;
     line-height: 1.5;
-    bottom: 20px !important; /* Position lower (closer to bottom) */
+    bottom: 60px !important; /* Moved higher from bottom */
     display: inline-block;
     max-width: 80%;
     white-space: pre-line;
+    position: relative !important;
   }
   
   /* Make sure subtitles have enough room */
   .custom-subtitle-video::cue {
     /* Adjust margin if needed, but primary positioning is via 'bottom' now */
-    /* margin-bottom: 80px; */ 
+    margin-bottom: 60px !important; 
   }
   
-  /* Enhancing visibility of subtitles */
-  video::-webkit-media-text-track-container {
-    transform: translateY(-20px); /* Reduce negative translate to move container down */
+  /* Enhancing visibility of subtitles - make stronger selector */
+  video::-webkit-media-text-track-container,
+  ::cue-region,
+  ::-webkit-media-text-track-container {
+    transform: translateY(-60px) !important; /* Increased negative translate to move container up */
     overflow: visible !important;
+    bottom: 60px !important;
   }
   
   /* Ensures text tracks have enough height for bilingual content */
-  video::-webkit-media-text-track-display {
+  video::-webkit-media-text-track-display,
+  ::-webkit-media-text-track-display {
     min-height: 6em;
     padding-top: 1em;
     padding-bottom: 3em;
+    position: relative !important;
+    bottom: 60px !important;
   }
   
   /* Ensures text is readable */
-  video::-webkit-media-text-track-display-backdrop {
+  video::-webkit-media-text-track-display-backdrop,
+  ::-webkit-media-text-track-display-backdrop {
     background: rgba(0, 0, 0, 0.5);
     border-radius: 5px;
     padding: 1em;
@@ -240,6 +249,41 @@ const VideoPlayer = forwardRef(({
     }
 
   }, [vttUrl, vttLang, shouldShowLocal, localVideoSrc, trackKey]);
+
+  // Debug track presence and status
+  useEffect(() => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    
+    console.log("VideoPlayer Debug: Video element present, checking tracks");
+    
+    if (videoElement.textTracks) {
+      console.log(`VideoPlayer Debug: textTracks.length=${videoElement.textTracks.length}`);
+      
+      for (let i = 0; i < videoElement.textTracks.length; i++) {
+        const track = videoElement.textTracks[i];
+        console.log(`VideoPlayer Debug: Track ${i}: mode=${track.mode}, label=${track.label}, language=${track.language}`);
+      }
+    } else {
+      console.log("VideoPlayer Debug: textTracks not available");
+    }
+    
+    // Force showing track if available
+    setTimeout(() => {
+      const video = videoRef.current;
+      if (video && video.textTracks && video.textTracks.length > 0) {
+        for (let i = 0; i < video.textTracks.length; i++) {
+          try {
+            // Force show the first track
+            video.textTracks[i].mode = "showing";
+            console.log(`VideoPlayer Debug: Force set track ${i} to showing mode`);
+          } catch (e) {
+            console.error("Error showing track:", e);
+          }
+        }
+      }
+    }, 1000);
+  }, [vttUrl, shouldShowLocal]);
 
   return (
     // Removed outer div wrapper, parent will handle layout
