@@ -5,6 +5,7 @@ import { WebVTTParser } from 'webvtt-parser';
 import VideoPlayer from './VideoPlayer';
 import VttPreviewer from './VttPreviewer';
 import MarkdownViewer from './MarkdownViewer';
+import StudioWorkSpace from './StudioWorkSpace';
 
 // --- 新增：前端 VTT 清洗辅助函数 ---
 
@@ -505,13 +506,14 @@ function Studio({ taskUuid, apiBaseUrl }) {
             // --- Process Markdown Result --- 
             const markdownResult = results[results.length - 1]; // Last result is markdown
             if (markdownResult.status === 'fulfilled' && markdownResult.value.status === 'fulfilled') {
+                console.log("Studio: Fetched Markdown Content:", markdownResult.value.data?.substring(0, 100) + "..."); // Log first 100 chars
                 setMarkdownContent(markdownResult.value.data);
                 console.log("Studio: Markdown content loaded.");
             } else {
                 const reason = markdownResult.status === 'fulfilled' ? markdownResult.value.reason : (markdownResult.reason || 'Unknown fetch error');
                 console.error("Studio: Failed to load Markdown:", reason);
                 setError(prev => prev ? `${prev} Failed to load Markdown.` : 'Failed to load Markdown.'); // Append or set error
-                setMarkdownContent('');
+                setMarkdownContent(''); // Explicitly set to empty string on error
             }
 
             // Set initial displayLang based on availability
@@ -855,17 +857,12 @@ function Studio({ taskUuid, apiBaseUrl }) {
         </div>
       </div>
 
-      {/* --- Right Column (Markdown Viewer) --- */}
-      <div className="flex flex-col w-1/4 flex-shrink-0 bg-white rounded-lg shadow overflow-hidden">
-         <h3 className="text-lg font-semibold p-4 pb-2 border-b border-gray-300 flex-shrink-0">Markdown Summary</h3>
-         <div className="flex-grow overflow-y-auto p-4 pt-2"> {/* Scrollable content area */}
-            {markdownContent ? (
-                <MarkdownViewer markdown={markdownContent} />
-            ) : (
-                 <p className="text-gray-500 text-sm">No Markdown summary loaded.</p>
-            )}
-         </div>
-      </div>
+      {/* --- Right Column (StudioWorkSpace) --- */}
+      <StudioWorkSpace 
+        taskUuid={taskUuid} 
+        apiBaseUrl={apiBaseUrl} 
+        markdownContent={markdownContent} // 传递 markdown 内容作为备用
+      />
 
     </div>
   );

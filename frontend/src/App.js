@@ -8,6 +8,7 @@ import StudioPage from './pages/StudioPage';
 import TestPage_VideoPlayer from './pages/TestPage_VideoPlayer'; // Updated import
 import TestPage_VttPreviewer from './pages/TestPage_VttPreviewer'; // Import new test page
 import TestPage_MarkdownViewer from './pages/TestPage_MarkdownViewer'; // Import Markdown test page
+import TestPage_MarkdownList from './pages/TestPage_MarkdownList'; // Import MarkdownList test page
 
 const API_BASE_URL = 'http://127.0.0.1:8000';
 const WS_BASE_URL = 'ws://127.0.0.1:8000';
@@ -46,6 +47,8 @@ function App() {
                <Route path="/test/vtt-previewer" element={<TestPage_VttPreviewer />} />
                {/* Add route for MarkdownViewer Test Page */}
                <Route path="/test/markdown" element={<TestPage_MarkdownViewer />} />
+               {/* Add route for MarkdownList Test Page */}
+               <Route path="/test/markdownlist" element={<TestPage_MarkdownList />} />
              </Routes>
            </main>
         </div>

@@ -1606,6 +1606,110 @@ async def open_task_folder_endpoint(task_uuid: UUID):
 
 # --- END NEW Endpoint --- 
 
+# --- END: New GET Markdown Endpoint ---
+
+# --- START: New List Markdown Files Endpoint ---
+class MarkdownFilesResponse(BaseModel):
+    files: List[str]
+
+# Restore response_model and original logic
+@app.get("/api/tasks/{task_uuid}/markdown/list", response_model=MarkdownFilesResponse) # Ensure path is /list
+async def list_markdown_files(task_uuid: UUID): # Use UUID type hint
+    """
+    Lists all markdown (.md) files within the specified task's 'markdown' subdirectory.
+    """
+    task_uuid_str = str(task_uuid) 
+    # Minimal logging
+
+    # Construct the path to the markdown subdirectory
+    markdown_dir = DATA_DIR / task_uuid_str / "markdown"
+
+    if not markdown_dir.exists():
+        # logger.warning(f"Markdown directory does not exist: {markdown_dir}") # Can be noisy
+        return MarkdownFilesResponse(files=[]) 
+    if not markdown_dir.is_dir():
+        logger.warning(f"Path exists but is not a directory: {markdown_dir}") # Keep warning
+        return MarkdownFilesResponse(files=[]) 
+        
+    # Confirmed exists and is directory
+
+    try:
+        markdown_files = []
+        # logger.info(f"Starting iteration over directory: {markdown_dir}") # Removed
+        for item in markdown_dir.iterdir():
+            # Keep intermediate variables from working version
+            is_file = item.is_file()
+            if is_file:
+                is_md = item.name.lower().endswith('.md')
+                if is_md:
+                    markdown_files.append(item.name)
+            # else:
+                 # logger.info(f"    Skipping (not a file).") # Removed
+        
+        logger.info(f"Found {len(markdown_files)} markdown files in {markdown_dir}") # Keep summary log
+        # Return the sorted list inside the response model
+        response_data = MarkdownFilesResponse(files=sorted(markdown_files))
+        # logger.info(f"Prepared response data: {response_data}") # Removed
+        return response_data
+
+    except Exception as e:
+        logger.error(f"Error listing files in directory {markdown_dir}: {e}", exc_info=True)
+        # Raise 500 for internal errors.
+        raise HTTPException(status_code=500, detail="Error listing markdown files")
+# --- END: New List Markdown Files Endpoint ---
+
+
+# --- START: Existing GET File Endpoint (for reference) ---
+# This endpoint is used by the frontend to fetch the content of a specific file
+@app.api_route("/api/tasks/{task_uuid}/files/{filename}", methods=["GET", "HEAD"], response_class=FileResponse)
+async def get_task_file(task_uuid: UUID, filename: str):
+    # ... existing implementation ...
+    pass # Keep existing code
+# --- END: Existing GET File Endpoint ---
+
+
+
+# --- START: New List Files Endpoint ---
+@app.get("/api/tasks/{task_uuid}/files/list", response_model=List[str])
+async def list_task_files(
+    task_uuid: UUID,
+    extension: Optional[str] = Query(None, description="Filter by file extension (e.g., .txt, .md)")
+):
+    """
+    Lists files within the specified task's data directory, optionally filtering by extension.
+    Only lists files, not directories.
+    """
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Request to list files for task {task_uuid_str} (extension filter: {extension})")
+
+    task_data_dir = DATA_DIR / task_uuid_str
+
+    if not task_data_dir.exists() or not task_data_dir.is_dir():
+        logger.warning(f"Task data directory not found: {task_data_dir}")
+        raise HTTPException(status_code=404, detail="Task data directory not found")
+
+    try:
+        all_files = []
+        for item in task_data_dir.iterdir():
+            if item.is_file():
+                # Apply extension filter if provided
+                if extension:
+                    # Ensure extension starts with a dot for consistent comparison
+                    filter_ext = extension if extension.startswith('.') else f".{extension}"
+                    if item.name.lower().endswith(filter_ext.lower()):
+                        all_files.append(item.name)
+                else:
+                    # No filter, add all files
+                    all_files.append(item.name)
+        
+        logger.info(f"Found {len(all_files)} files for task {task_uuid_str} matching filter '{extension}'")
+        return sorted(all_files) # Return sorted list
+
+    except Exception as e:
+        logger.error(f"Error listing files in directory {task_data_dir}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error listing files")
+# --- END: New List Files Endpoint ---
+
 if __name__ == "__main__":
     import uvicorn
     # from pydantic import ValidationError # Already imported earlier if needed
