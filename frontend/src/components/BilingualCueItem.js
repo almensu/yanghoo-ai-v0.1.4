@@ -15,13 +15,16 @@ const BilingualCueItem = ({ cue, isActive, onClick, onCueSelect, selectedCues })
   const isSelected = selectedCues && selectedCues.has(cue.id);
 
   // Handle click: either select or seek video
-  const handleClick = () => {
+  const handleClick = (event) => {
     if (onCueSelect) {
-      onCueSelect(cue.id);
+      onCueSelect(cue.id, event.shiftKey);
     } else if (onClick) {
       onClick(cue.startTime);
     }
   };
+
+  // Selection mode is active if onCueSelect is provided
+  const selectionModeActive = !!onCueSelect;
 
   // 处理 null 值并设置占位符
   const en = cue.enText ?? "[Missing EN]";
@@ -36,16 +39,29 @@ const BilingualCueItem = ({ cue, isActive, onClick, onCueSelect, selectedCues })
       // Combine styles: active, selected, and hover
       className={`
         px-3 py-2 rounded cursor-pointer flex items-start
-        transition-colors duration-150 ease-in-out
+        transition-all duration-150 ease-in-out
         ${isActive ? 'bg-primary text-primary-content font-medium' : ''}
         ${isSelected ?
-          (isActive ? 'border-2 border-secondary' : 'bg-secondary bg-opacity-30') :
+          (isActive ? 'border-2 border-accent shadow-sm' : 'border border-accent bg-accent bg-opacity-5 shadow-sm') :
           (isActive ? '' : 'hover:bg-base-300')
         }
         ${!isActive && !isSelected ? 'bg-base-100' : ''} // Default background if not active/selected
       `}
       onClick={handleClick} // Use the new handler
     >
+      {/* 选择指示器 (仅在选择模式下显示) */}
+      {selectionModeActive && (
+        <div className="mr-2 flex items-center">
+          <div className={`w-4 h-4 flex-shrink-0 rounded-sm border ${isSelected ? 'bg-accent border-accent' : 'border-gray-300'} flex items-center justify-center`}>
+            {isSelected && (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-3 h-3 text-white">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </div>
+        </div>
+      )}
+      
       {/* 时间戳 */}
       <span className="inline-block text-xs opacity-70 pt-1 w-20 min-w-20">
         {formatTime(cue.startTime)}

@@ -404,6 +404,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
 
   // --- NEW: State for selected cues --- 
   const [selectedCueIds, setSelectedCueIds] = useState(new Set());
+  const [lastSelectedCueId, setLastSelectedCueId] = useState(null); // For shift-click
 
   // --- NEW: State for cutting job --- 
   const [cuttingJobId, setCuttingJobId] = useState(null);
@@ -738,17 +739,100 @@ function Studio({ taskUuid, apiBaseUrl }) {
   }, [displayLang, parsedCuesByLang]);
 
   // --- NEW: Handler for selecting/deselecting cues ---
-  const handleCueSelect = useCallback((cueId) => {
+  const handleCueSelect = useCallback((cueId, isShiftClick = false) => {
     setSelectedCueIds(prevSelected => {
       const newSelection = new Set(prevSelected);
-      if (newSelection.has(cueId)) {
-        newSelection.delete(cueId);
+      const currentCues = displayedCues; // Get current cues for range selection
+
+      if (isShiftClick && lastSelectedCueId && currentCues.length > 0) {
+        const lastClickedIndex = currentCues.findIndex(cue => cue.id === lastSelectedCueId);
+        const currentClickedIndex = currentCues.findIndex(cue => cue.id === cueId);
+
+        if (lastClickedIndex !== -1 && currentClickedIndex !== -1) {
+          const start = Math.min(lastClickedIndex, currentClickedIndex);
+          const end = Math.max(lastClickedIndex, currentClickedIndex);
+          let selectionChanged = false;
+          // Determine if we are selecting or deselecting the range
+          // If the current item is already selected, and shift is held, we might be starting a new range select or deselecting part of a range.
+          // For simplicity, let's assume shift-click always aims to add to selection for now.
+          // A more complex logic could check if the anchor or current is selected to toggle the range.
+          const shouldSelectRange = true; // Simplified: always select the range with shift
+
+          for (let i = start; i <= end; i++) {
+            if (shouldSelectRange) {
+              if (!newSelection.has(currentCues[i].id)) {
+                newSelection.add(currentCues[i].id);
+                selectionChanged = true;
+              }
+            } else {
+              if (newSelection.has(currentCues[i].id)) {
+                newSelection.delete(currentCues[i].id);
+                selectionChanged = true;
+              }
+            }
+          }
+          // If no actual change to selection in the range (e.g. all were already selected),
+          // then toggle the current cueId to ensure a click always has an effect.
+          if (!selectionChanged) {
+            if (newSelection.has(cueId)) {
+              newSelection.delete(cueId);
+            } else {
+              newSelection.add(cueId);
+            }
+          }
+        } else {
+          // Fallback if indices not found (should not happen with valid IDs)
+          if (newSelection.has(cueId)) {
+            newSelection.delete(cueId);
+          } else {
+            newSelection.add(cueId);
+          }
+        }
       } else {
-        newSelection.add(cueId);
+        // Standard single click behavior
+        if (newSelection.has(cueId)) {
+          newSelection.delete(cueId);
+        } else {
+          newSelection.add(cueId);
+        }
       }
       return newSelection;
     });
-  }, []); // No dependencies needed
+
+    // Update lastSelectedCueId only on non-shift clicks, 
+    // or if it's the first click in a potential shift-click sequence.
+    if (!isShiftClick || !lastSelectedCueId) {
+      setLastSelectedCueId(cueId);
+    }
+    // If it IS a shift click, we don't change the anchor point (lastSelectedCueId)
+    // because the user might want to expand the selection from the same anchor.
+
+  }, [displayedCues, lastSelectedCueId]);
+
+  // --- NEW: Batch selection handlers ---
+  const handleSelectAll = useCallback(() => {
+    const allCueIds = displayedCues.map(cue => cue.id);
+    setSelectedCueIds(new Set(allCueIds));
+  }, [displayedCues]);
+
+  const handleSelectNone = useCallback(() => {
+    setSelectedCueIds(new Set());
+  }, []);
+
+  // --- NEW: Select range of cues (by time) ---
+  const handleSelectTimeRange = useCallback((startSeconds, endSeconds) => {
+    if (startSeconds >= endSeconds) return;
+    
+    const cuesInRange = displayedCues.filter(
+      cue => cue.startTime >= startSeconds && cue.endTime <= endSeconds
+    );
+    
+    setSelectedCueIds(prevSelected => {
+      const newSelection = new Set(prevSelected);
+      cuesInRange.forEach(cue => newSelection.add(cue.id));
+      return newSelection;
+    });
+  }, [displayedCues]);
 
   // --- Function to poll cut job status ---
   const pollCutStatus = useCallback((jobId, currentTaskUuid) => {
@@ -879,6 +963,12 @@ function Studio({ taskUuid, apiBaseUrl }) {
       logger.info("Switched to VTT Cut/Selection mode.");
     }
   };
+
+  // Reset selection and last clicked cue when language or VTT mode changes significantly
+  useEffect(() => {
+    setSelectedCueIds(new Set());
+    setLastSelectedCueId(null);
+  }, [displayLang, vttMode]);
 
   // --- Render Logic ---
   if (isLoading) {
@@ -1011,6 +1101,13 @@ function Studio({ taskUuid, apiBaseUrl }) {
                         剪辑
                     </button>
                 </div>
+                
+                {/* Cutting Mode Indicator */}
+                {vttMode === 'cut' && (
+                  <div className="ml-2 px-2 py-1 text-xs rounded-full bg-accent text-accent-content animate-pulse">
+                    选择模式
+                  </div>
+                )}
             </div>
             <div className="flex gap-2">
               {langOptions.map(lang => (
@@ -1025,6 +1122,27 @@ function Studio({ taskUuid, apiBaseUrl }) {
               ))}
             </div>
           </div>
+          
+          {/* Batch Selection Controls (only in cut mode) */}
+          {vttMode === 'cut' && displayedCues.length > 0 && (
+            <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-base-200/50">
+              <span className="text-xs text-gray-600">批量操作:</span>
+              <button 
+                className="btn btn-xs btn-ghost" 
+                onClick={handleSelectAll}>
+                全选
+              </button>
+              <button 
+                className="btn btn-xs btn-ghost" 
+                onClick={handleSelectNone}>
+                取消全选
+              </button>
+              <div className="ml-auto text-xs text-gray-600">
+                已选择: <span className="font-semibold text-accent">{selectedCueIds.size}</span> / {displayedCues.length}
+              </div>
+            </div>
+          )}
+          
           <div className="flex-grow overflow-y-auto p-4 pt-2">
             {/* Conditionally render VttPreviewer or message */}
             {preferLocalVideo ? (
@@ -1067,33 +1185,40 @@ function Studio({ taskUuid, apiBaseUrl }) {
           {/* --- Show Cut Button and Status only in 'cut' mode --- */}
           {vttMode === 'cut' && displayedCues.length > 0 && (
             <div className="p-4 border-t border-gray-200 flex-shrink-0 space-y-3">
-              <button
-                className={`btn btn-primary w-full ${cuttingStatus === 'processing' ? 'loading' : ''}`}
-                onClick={handleCutVideoClick}
-                disabled={selectedCueIds.size === 0 || cuttingStatus === 'processing'}
-              >
-                {cuttingStatus === 'processing' ? '正在处理剪辑...' : `剪辑选中的 ${selectedCueIds.size} 个片段`}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  className={`btn btn-primary flex-grow ${cuttingStatus === 'processing' ? 'loading' : ''}`}
+                  onClick={handleCutVideoClick}
+                  disabled={selectedCueIds.size === 0 || cuttingStatus === 'processing'}
+                >
+                  {cuttingStatus === 'processing' ? '正在处理...' : `剪辑选中的 ${selectedCueIds.size} 个片段`}
+                </button>
+                
+                {selectedCueIds.size > 0 && cuttingStatus !== 'processing' && (
+                  <div className="text-xs text-gray-500 animate-pulse">
+                    点击按钮开始剪辑
+                  </div>
+                )}
+              </div>
 
               {/* Display Cutting Job Status */}
               {cuttingJobId && (
-                <div className={`text-sm text-center p-2 rounded-md 
-                  ${cuttingStatus === 'completed' ? 'bg-success text-success-content' : ''}
-                  ${cuttingStatus === 'failed' ? 'bg-error text-error-content' : ''}
-                  ${cuttingStatus === 'processing' ? 'bg-info text-info-content' : ''}
+                <div className={`text-sm p-3 rounded-md transition-all duration-200
+                  ${cuttingStatus === 'completed' ? 'bg-success/20 text-success' : ''}
+                  ${cuttingStatus === 'failed' ? 'bg-error/20 text-error' : ''}
+                  ${cuttingStatus === 'processing' ? 'bg-info/20 text-info' : ''}
                 `}>
-                  <p><strong>任务状态:</strong> {cuttingMessage || cuttingStatus}</p>
+                  <p className="font-medium">{cuttingMessage || cuttingStatus}</p>
                   {cuttingStatus === 'completed' && cutOutputPath && (
-                    <p>
-                      剪辑完成: 
+                    <p className="mt-1">
                       <a 
                         href={`${apiBaseUrl}/files/${taskUuid}/${cutOutputPath}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="link link-hover"
+                        className="btn btn-sm btn-success mt-1"
                         download
                       >
-                        下载文件 ({cutOutputPath.split('/').pop()})
+                        下载剪辑结果 ({cutOutputPath.split('/').pop()})
                       </a>
                     </p>
                   )}
