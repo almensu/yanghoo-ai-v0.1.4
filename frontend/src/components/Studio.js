@@ -170,7 +170,14 @@ const parseVtt = (vttString, lang) => {
       const finalCues = deduplicateParsedCues(cleanedCues); // 使用新的去重函数
       
       // Filter out cues with empty text AFTER cleaning and deduplication
-      const parsed = finalCues.filter(cue => cue.text);
+      const parsedWithoutIds = finalCues.filter(cue => cue.text);
+      
+      // --- ADD ID to each cue --- 
+      const parsed = parsedWithoutIds.map((cue, index) => ({
+          ...cue,
+          id: `${lang}-cue-${index}` // Generate unique ID using lang and index
+      }));
+      // ------------------------
       
       console.log(`[parseVtt ${lang}] Parsed ${tree.cues.length} cues initially, ${cleanedCues.length} after cleaning, ${finalCues.length} after dedupe, ${parsed.length} final non-empty cues.`);
       
@@ -212,12 +219,18 @@ const parseVtt = (vttString, lang) => {
 
     const fallbackTree = parser.parse(simplifiedVtt, 'metadata');
     if (fallbackTree.cues.length > 0) {
-      const fallbackParsed = fallbackTree.cues
+      let fallbackParsed = fallbackTree.cues
         .filter(cue => cue && cue.startTime !== undefined && cue.endTime !== undefined && cue.startTime < cue.endTime)
         .map(cue => ({ startTime: cue.startTime, endTime: cue.endTime, text: cleanText(cue.text) }))
         .sort((a, b) => a.startTime - b.startTime);
 
       if (fallbackParsed.length > 0) {
+        // Add ID to fallback cues
+        fallbackParsed = fallbackParsed.map((cue, index) => ({
+            ...cue,
+            id: `${lang}-fallback-cue-${index}`
+        }));
+
         const msg = `Fallback parsing successful, ${fallbackParsed.length} valid cues recovered.`;
         parseError = parseError ? `${parseError} ${msg}` : msg;
         console.log(`VTT (${lang}): ${msg}`);
@@ -241,7 +254,7 @@ const parseVtt = (vttString, lang) => {
   // --- Step 4: Manual Extraction (Last Resort) ---
   try {
     console.warn(`VTT (${lang}): Attempting manual extraction...`);
-    const manualCues = [];
+    let manualCues = [];
     const lines = vttString.split(/[\r\n]+/);
     let currentCue = null;
     const timestampRegex = /(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})/; // Capture groups
@@ -272,12 +285,18 @@ const parseVtt = (vttString, lang) => {
     if (currentCue) manualCues.push(currentCue); // Add the last cue
 
     if (manualCues.length > 0) {
+      // Sort and Add ID to manually extracted cues
+      manualCues.sort((a,b) => a.startTime - b.startTime);
+      manualCues = manualCues.map((cue, index) => ({
+          ...cue,
+          text: cleanText(cue.text), // Clean text one last time
+          id: `${lang}-manual-cue-${index}`
+      }));
+
       const msg = `Manual extraction successful, ${manualCues.length} cues recovered.`;
       parseError = parseError ? `${parseError} ${msg}` : msg;
       console.log(`VTT (${lang}): ${msg}`);
-      // Clean text one last time
-      manualCues.forEach(cue => cue.text = cleanText(cue.text));
-      return { cues: manualCues.sort((a,b) => a.startTime - b.startTime), error: parseError };
+      return { cues: manualCues, error: parseError };
     }
      const msg = 'Manual extraction failed to find any cues.';
      parseError = parseError ? `${parseError} ${msg}` : msg;
@@ -344,6 +363,14 @@ const formatCuesToVttString = (cues) => {
 };
 // -------------------------------------
 
+// --- NEW: Define a simple logger for the component (can be replaced with a more robust solution) ---
+const logger = {
+  info: (...args) => console.log("[Studio]", ...args),
+  warn: (...args) => console.warn("[Studio]", ...args),
+  error: (...args) => console.error("[Studio]", ...args),
+};
+// --------------------------------------------------------------------------------------------
+
 // Props:
 // - taskUuid: The UUID of the task to display in the studio.
 // - apiBaseUrl: The base URL for the API.
@@ -374,6 +401,19 @@ function Studio({ taskUuid, apiBaseUrl }) {
   // --- NEW State for the VTT Blob URL (用于原生字幕轨的 Blob URL 状态) ---
   const [vttBlobUrl, setVttBlobUrl] = useState(null);
   const currentBlobUrlRef = useRef(null); // 用于管理清理
+
+  // --- NEW: State for selected cues --- 
+  const [selectedCueIds, setSelectedCueIds] = useState(new Set());
+
+  // --- NEW: State for cutting job --- 
+  const [cuttingJobId, setCuttingJobId] = useState(null);
+  const [cuttingStatus, setCuttingStatus] = useState('idle'); // idle, processing, completed, failed
+  const [cuttingMessage, setCuttingMessage] = useState('');
+  const [cutOutputPath, setCutOutputPath] = useState(null);
+  const pollingIntervalRef = useRef(null); // To store interval ID for cleanup
+
+  // --- NEW: State for VTT Previewer mode --- 
+  const [vttMode, setVttMode] = useState('preview'); // 'preview' or 'cut'
 
   // --- Data Fetching Effect (数据获取 Effect - 修改以重置 Blob URL) ---
   useEffect(() => {
@@ -648,26 +688,28 @@ function Studio({ taskUuid, apiBaseUrl }) {
   }, [parsedCuesByLang, displayLang, availableLangs]); // Dependencies
 
 
-  // --- Compute displayed cues for VttPreviewer (为 VttPreviewer 计算要显示的 cues - 保持不变) ---
+  // --- Compute displayed cues for VttPreviewer (修改以确保 cue 有 ID) ---
   const displayedCues = useMemo(() => {
-    console.log("Studio Debug: Computing displayed cues for lang (计算 VttPreviewer cues):", displayLang, "Raw parsed cues:", parsedCuesByLang); // Added log
+    console.log("Studio Debug: Computing displayed cues for lang (计算 VttPreviewer cues):", displayLang, "Raw parsed cues:", parsedCuesByLang);
+    let cuesForDisplay = [];
     if (displayLang === 'bilingual') {
         const enCues = parsedCuesByLang['en'] || [];
         const zhCues = parsedCuesByLang['zh-Hans'] || [];
         if (!enCues.length && !zhCues.length) return [];
 
-        // Simple bilingual merge: Pair by index.
         const maxLength = Math.max(enCues.length, zhCues.length);
         const mergedCues = [];
         for (let i = 0; i < maxLength; i++) {
-            const enCue = enCues[i];
-            const zhCue = zhCues[i];
-            // Prioritize zh timing if available, else en
+            const enCue = enCues.find(c => c.id === `en-cue-${i}` || c.id === `en-fallback-cue-${i}` || c.id === `en-manual-cue-${i}`); // Find by potential ID
+            const zhCue = zhCues.find(c => c.id === `zh-Hans-cue-${i}` || c.id === `zh-Hans-fallback-cue-${i}` || c.id === `zh-Hans-manual-cue-${i}`);
+
             const startTime = zhCue?.startTime ?? enCue?.startTime;
             const endTime = zhCue?.endTime ?? enCue?.endTime;
+            const baseId = zhCue?.id ?? enCue?.id ?? `bilingual-cue-${i}`; // Use existing ID or generate one
 
             if (startTime !== undefined && endTime !== undefined && startTime < endTime) {
                 mergedCues.push({
+                    id: baseId, // Ensure bilingual cues also have an ID
                     startTime,
                     endTime,
                     enText: enCue?.text || null,
@@ -676,17 +718,167 @@ function Studio({ taskUuid, apiBaseUrl }) {
                 });
             }
         }
-        return mergedCues.sort((a, b) => a.startTime - b.startTime);
+        cuesForDisplay = mergedCues.sort((a, b) => a.startTime - b.startTime);
 
     } else if (parsedCuesByLang[displayLang]) {
-        return parsedCuesByLang[displayLang].map(cue => ({ ...cue, isBilingual: false }));
+        // Ensure cues have IDs (should already be there from parseVtt)
+        cuesForDisplay = parsedCuesByLang[displayLang].map((cue, index) => ({
+             ...cue, 
+             id: cue.id || `${displayLang}-cue-${index}`, // Fallback ID generation if missing
+             isBilingual: false 
+        }));
     } else {
-        return [];
+        cuesForDisplay = [];
     }
-  }, [displayLang, parsedCuesByLang]); // 添加依赖项
+    // Reset selection if displayed cues change significantly (e.g., language change)
+    // Note: This might be too aggressive, consider if selection should persist across langs
+    setSelectedCueIds(new Set()); 
+    return cuesForDisplay;
 
-  console.log("Studio Debug: Computed displayedCues for VttPreviewer (计算得到的 VttPreviewer cues, length:", displayedCues.length, "):", displayedCues.slice(0, 5)); // Log first 5 cues
+  }, [displayLang, parsedCuesByLang]);
 
+  // --- NEW: Handler for selecting/deselecting cues ---
+  const handleCueSelect = useCallback((cueId) => {
+    setSelectedCueIds(prevSelected => {
+      const newSelection = new Set(prevSelected);
+      if (newSelection.has(cueId)) {
+        newSelection.delete(cueId);
+      } else {
+        newSelection.add(cueId);
+      }
+      return newSelection;
+    });
+  }, []); // No dependencies needed
+
+  // --- Function to poll cut job status ---
+  const pollCutStatus = useCallback((jobId, currentTaskUuid) => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await axios.get(`${apiBaseUrl}/api/tasks/${currentTaskUuid}/cut/${jobId}/status`);
+        const { status, message, output_path } = response.data;
+        
+        setCuttingStatus(status);
+        setCuttingMessage(message || '');
+
+        if (status === 'completed') {
+          setCutOutputPath(output_path);
+          setCuttingMessage(message || '剪辑完成！');
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+          logger.info(`Cut job ${jobId} completed. Output: ${output_path}`);
+        } else if (status === 'failed') {
+          setCutOutputPath(null);
+          setCuttingMessage(message || '剪辑失败。');
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+          logger.error(`Cut job ${jobId} failed: ${message}`);
+        } else {
+          // Still processing or pending
+          setCuttingMessage(message || '任务处理中...');
+        }
+      } catch (error) {
+        logger.error(`Error polling cut status for job ${jobId}:`, error);
+        setCuttingStatus('failed');
+        setCuttingMessage('轮询剪辑状态失败: ' + (error.response?.data?.detail || error.message));
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    }, 3000); // Poll every 3 seconds
+  }, [apiBaseUrl]);
+
+  // --- Cleanup polling on component unmount or when taskUuid changes ---
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+        logger.info("Cleared cutting job polling interval on unmount/task change.");
+      }
+    };
+  }, [taskUuid]); // Rerun cleanup if taskUuid changes
+
+  // --- MODIFIED: Handler for the 'Cut Video' button ---
+  const handleCutVideoClick = useCallback(async () => {
+    if (selectedCueIds.size === 0) {
+      alert("请先在下方字幕预览中点击选择要保留的片段。");
+      return;
+    }
+    if (cuttingStatus === 'processing') {
+      alert("当前有剪辑任务正在处理中，请稍候。");
+      return;
+    }
+
+    // Clear previous polling and job state before starting a new one
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    setCuttingJobId(null);
+    setCuttingStatus('idle');
+    setCuttingMessage('');
+    setCutOutputPath(null);
+
+    const segmentsToKeep = displayedCues
+      .filter(cue => selectedCueIds.has(cue.id))
+      .map(cue => ({ start: cue.startTime, end: cue.endTime }))
+      .sort((a, b) => a.start - b.start);
+
+    logger.info("--- Initiating Video Cut ---");
+    logger.info("Task UUID:", taskUuid);
+    logger.info("Video Identifier (for backend):", videoRelativePath);
+    logger.info("Selected Segments (sec):", segmentsToKeep);
+
+    setCuttingStatus('processing');
+    setCuttingMessage('正在提交剪辑任务...');
+
+    try {
+      const response = await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/cut`, {
+        media_identifier: videoRelativePath, 
+        segments: segmentsToKeep,
+      });
+
+      const { job_id, message } = response.data;
+      setCuttingJobId(job_id);
+      setCuttingMessage(message || '剪辑任务已提交，正在处理...');
+      logger.info(`Cut job submitted. Job ID: ${job_id}, Message: ${message}`);
+      
+      // Start polling for status
+      pollCutStatus(job_id, taskUuid);
+
+    } catch (error) {
+      logger.error("Error sending cut request:", error.response?.data || error.message);
+      setCuttingStatus('failed');
+      setCuttingMessage('提交剪辑请求失败: ' + (error.response?.data?.detail || error.message));
+      setCutOutputPath(null);
+    }
+  }, [selectedCueIds, displayedCues, taskUuid, videoRelativePath, apiBaseUrl, cuttingStatus, pollCutStatus]);
+
+  // --- Handler to toggle VTT mode ---
+  const toggleVttMode = (newMode) => {
+    if (vttMode === newMode) return; // No change
+    setVttMode(newMode);
+    if (newMode === 'preview') {
+      // Optionally reset selection and cutting status when switching to preview
+      setSelectedCueIds(new Set());
+      // If a cut job is active and user switches mode, what should happen?
+      // For now, let's not reset cuttingJobId/Status, user might want to see it.
+      // setCuttingJobId(null);
+      // setCuttingStatus('idle');
+      // setCuttingMessage('');
+      // setCutOutputPath(null);
+      // if (pollingIntervalRef.current) {
+      //   clearInterval(pollingIntervalRef.current);
+      //   pollingIntervalRef.current = null;
+      // }
+      logger.info("Switched to VTT Preview mode.");
+    } else {
+      logger.info("Switched to VTT Cut/Selection mode.");
+    }
+  };
 
   // --- Render Logic ---
   if (isLoading) {
@@ -797,55 +989,118 @@ function Studio({ taskUuid, apiBaseUrl }) {
           )}
         </div>
 
-        {/* VTT Previewer Section (保留 VttPreviewer) */}
+        {/* VTT Previewer Section */}
         <div className="flex flex-col flex-grow overflow-hidden bg-white rounded shadow-md">
-           <div className="flex justify-between items-center p-4 pb-2 border-b border-gray-200 flex-shrink-0">
-             <h3 className="font-semibold">VTT Subtitles (Scrollable Preview)</h3>
-             <div className="flex gap-2">
-               {langOptions.map(lang => (
-                 <button
-                   key={lang}
-                   onClick={() => handleLanguageChange(lang)}
-                   className={`btn btn-xs ${displayLang === lang ? 'btn-active btn-primary' : 'btn-outline'}`}
-                   disabled={!parsedCuesByLang[lang] && lang !== 'bilingual'} // Disable if single lang cues failed to load
-                 >
-                   {getLangButtonLabel(lang)}
-                 </button>
-               ))}
-             </div>
-           </div>
-           <div className="flex-grow overflow-y-auto p-4 pt-2">
-             {/* Conditionally render VttPreviewer or message */}
-             {preferLocalVideo ? (
-                displayedCues.length > 0 ? (
-                  <VttPreviewer
-                    cues={displayedCues} 
-                    videoRef={videoElementRef} 
-                    syncEnabled={true} // <-- Pass syncEnabled as true when local
-                  />
-                ) : (
-                  <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
-                    {availableLangs.length === 0
-                      ? 'No VTT files found for this task.'
-                      : `No subtitles loaded or available for ${getLangButtonLabel(displayLang)}.`}
-                  </p>
-                )
-             ) : (
-                // If showing embed, still render VttPreviewer but disable sync
-                displayedCues.length > 0 ? (
-                     <VttPreviewer
-                        cues={displayedCues} 
-                        videoRef={videoElementRef} 
-                        syncEnabled={false} // <-- Pass syncEnabled as false when embed
-                      />
-                ) : (
-                  // Message when embed AND no cues
-                   <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
-                       No subtitles loaded or available for {getLangButtonLabel(displayLang)}.
-                   </p>
-                )
-             )}
-           </div>
+          <div className="flex justify-between items-center p-4 pb-2 border-b border-gray-200 flex-shrink-0">
+            <div className="flex items-center gap-2">
+                <h3 className="font-semibold">
+                    {vttMode === 'cut' ? '字幕选择 (剪辑模式)' : '字幕预览'}
+                </h3>
+                 {/* Mode Toggle Buttons */} 
+                <div className="btn-group">
+                    <button 
+                        className={`btn btn-xs ${vttMode === 'preview' ? 'btn-active btn-ghost' : 'btn-ghost'}`}
+                        onClick={() => toggleVttMode('preview')}
+                    >
+                        预览
+                    </button>
+                    <button 
+                        className={`btn btn-xs ${vttMode === 'cut' ? 'btn-active btn-ghost' : 'btn-ghost'}`}
+                        onClick={() => toggleVttMode('cut')}
+                    >
+                        剪辑
+                    </button>
+                </div>
+            </div>
+            <div className="flex gap-2">
+              {langOptions.map(lang => (
+                <button
+                  key={lang}
+                  onClick={() => handleLanguageChange(lang)}
+                  className={`btn btn-xs ${displayLang === lang ? 'btn-active btn-primary' : 'btn-outline'}`}
+                  disabled={!parsedCuesByLang[lang] && lang !== 'bilingual'}
+                >
+                  {getLangButtonLabel(lang)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex-grow overflow-y-auto p-4 pt-2">
+            {/* Conditionally render VttPreviewer or message */}
+            {preferLocalVideo ? (
+              displayedCues.length > 0 ? (
+                <VttPreviewer
+                  cues={displayedCues}
+                  videoRef={videoElementRef}
+                  syncEnabled={true} 
+                  // --- Pass selection props only in 'cut' mode ---
+                  onCueSelect={vttMode === 'cut' ? handleCueSelect : undefined}
+                  selectedCues={vttMode === 'cut' ? selectedCueIds : undefined}
+                  // --------------------------------------------------
+                />
+              ) : (
+                <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
+                  {availableLangs.length === 0
+                    ? 'No VTT files found for this task.'
+                    : `No subtitles loaded or available for ${getLangButtonLabel(displayLang)}.`}
+                </p>
+              )
+            ) : (
+              displayedCues.length > 0 ? (
+                <VttPreviewer
+                  cues={displayedCues}
+                  videoRef={videoElementRef}
+                  syncEnabled={false}
+                  // --- Pass selection props only in 'cut' mode ---
+                  onCueSelect={vttMode === 'cut' ? handleCueSelect : undefined}
+                  selectedCues={vttMode === 'cut' ? selectedCueIds : undefined}
+                  // --------------------------------------------------
+                />
+              ) : (
+                <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
+                  No subtitles loaded or available for {getLangButtonLabel(displayLang)}.
+                </p>
+              )
+            )}
+          </div>
+          
+          {/* --- Show Cut Button and Status only in 'cut' mode --- */}
+          {vttMode === 'cut' && displayedCues.length > 0 && (
+            <div className="p-4 border-t border-gray-200 flex-shrink-0 space-y-3">
+              <button
+                className={`btn btn-primary w-full ${cuttingStatus === 'processing' ? 'loading' : ''}`}
+                onClick={handleCutVideoClick}
+                disabled={selectedCueIds.size === 0 || cuttingStatus === 'processing'}
+              >
+                {cuttingStatus === 'processing' ? '正在处理剪辑...' : `剪辑选中的 ${selectedCueIds.size} 个片段`}
+              </button>
+
+              {/* Display Cutting Job Status */}
+              {cuttingJobId && (
+                <div className={`text-sm text-center p-2 rounded-md 
+                  ${cuttingStatus === 'completed' ? 'bg-success text-success-content' : ''}
+                  ${cuttingStatus === 'failed' ? 'bg-error text-error-content' : ''}
+                  ${cuttingStatus === 'processing' ? 'bg-info text-info-content' : ''}
+                `}>
+                  <p><strong>任务状态:</strong> {cuttingMessage || cuttingStatus}</p>
+                  {cuttingStatus === 'completed' && cutOutputPath && (
+                    <p>
+                      剪辑完成: 
+                      <a 
+                        href={`${apiBaseUrl}/files/${taskUuid}/${cutOutputPath}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="link link-hover"
+                        download
+                      >
+                        下载文件 ({cutOutputPath.split('/').pop()})
+                      </a>
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

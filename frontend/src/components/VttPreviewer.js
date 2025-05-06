@@ -16,6 +16,10 @@ import BilingualCueItem from './BilingualCueItem';
 //   - 单语: { startTime, endTime, text, isBilingual: false }
 //   - 双语: { startTime, endTime, enText, zhText, isBilingual: true }
 // - videoRef: 指向 HTML <video> 元素的 React ref 对象
+// - syncEnabled: 是否启用视频同步 (boolean)
+// NEW Props for Selection:
+// - onCueSelect: 可选的回调函数，用于处理 cue 选择 (function)，接收 cueId 作为参数
+// - selectedCues: 可选的 Set，包含当前选中的 cue ID
 
 // --- Simple Throttle Implementation (简单的节流函数实现) ---
 // (Source: Simplified from common implementations)
@@ -40,7 +44,7 @@ function throttle(func, limit) {
 }
 // ----------------------------------------------------------
 
-function VttPreviewer({ cues = [], videoRef, syncEnabled = true }) {
+function VttPreviewer({ cues = [], videoRef, syncEnabled = true, onCueSelect, selectedCues }) {
   // 状态：当前活动字幕的索引
   const [activeCueIndex, setActiveCueIndex] = useState(-1);
   // Ref: 指向字幕列表的滚动容器
@@ -157,16 +161,20 @@ function VttPreviewer({ cues = [], videoRef, syncEnabled = true }) {
   // Depend on the throttled handler instance and the original logic for initial call
   }, [videoRef, videoRef?.current, handleTimeUpdateThrottled, timeUpdateLogic]); 
 
-  // 回调：处理字幕项点击事件（传递给子组件）
-  const handleCueClick = useCallback((startTime) => {
-    const video = videoRef?.current;
-    if (video) {
-      video.currentTime = startTime; // 设置视频播放时间
-      if (video.paused) { // 如果视频是暂停的，则开始播放
-        video.play().catch(e => console.error("点击字幕播放视频时出错:", e));
+  // 回调：处理字幕项点击事件（仅在非选择模式下用于跳转）
+  const handleCueClickForSeek = useCallback((startTime) => {
+    // Only seek if onCueSelect is NOT provided (i.e., not in selection mode)
+    if (!onCueSelect) {
+      const video = videoRef?.current;
+      if (video) {
+        video.currentTime = startTime; // 设置视频播放时间
+        if (video.paused) { 
+          video.play().catch(e => console.error("点击字幕播放视频时出错:", e));
+        }
       }
     }
-  }, [videoRef]); // 依赖项：仅 videoRef
+    // If onCueSelect is provided, the click is handled by the item itself calling onCueSelect
+  }, [videoRef, onCueSelect]); // Added onCueSelect dependency
 
   // Effect: 将当前活动的字幕项滚动到视图中 (优化版)
   useEffect(() => {
@@ -222,21 +230,26 @@ function VttPreviewer({ cues = [], videoRef, syncEnabled = true }) {
           {cues.map((cue, index) => { 
             // Pass isActive based on state (pass isActve 基于 state)
             const isActive = syncEnabled && index === activeCueIndex; 
-            const key = `${index}-${cue.startTime}-${cue.isBilingual}`;
+            // Ensure cue has an ID, fallback if necessary (though parser should provide it)
+            const key = cue.id || `${index}-${cue.startTime}`;
 
             return cue.isBilingual ? (
               <BilingualCueItem 
                 key={key} 
                 cue={cue} 
                 isActive={isActive} 
-                onClick={handleCueClick} 
+                onClick={handleCueClickForSeek}
+                onCueSelect={onCueSelect}
+                selectedCues={selectedCues}
               />
             ) : (
               <MonoCueItem 
                 key={key} 
                 cue={cue} 
                 isActive={isActive} 
-                onClick={handleCueClick} 
+                onClick={handleCueClickForSeek}
+                onCueSelect={onCueSelect}
+                selectedCues={selectedCues}
               />
             );
           })} 

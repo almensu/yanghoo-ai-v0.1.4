@@ -13,6 +13,11 @@ import subprocess
 import sys
 import asyncio
 import mimetypes # 添加 mimetypes 导入
+import uuid
+import shlex
+from fastapi import BackgroundTasks # Import BackgroundTasks
+from pydantic import BaseModel, Field # Import BaseModel and Field
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -1709,6 +1714,217 @@ async def list_task_files(
         logger.error(f"Error listing files in directory {task_data_dir}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error listing files")
 # --- END: New List Files Endpoint ---
+
+# --- Pydantic Models for Cut API --- 
+
+class Segment(BaseModel):
+    start: float = Field(..., description="Start time in seconds")
+    end: float = Field(..., description="End time in seconds")
+
+class CutRequest(BaseModel):
+    media_identifier: str = Field(..., description="Identifier for the media file (e.g., relative path)")
+    segments: List[Segment] = Field(..., description="List of time segments to keep")
+
+class CutResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+class CutStatusResponse(BaseModel):
+    job_id: str
+    status: str # e.g., "processing", "completed", "failed"
+    message: Optional[str] = None
+    output_path: Optional[str] = None # Relative path to the output file if completed
+
+# --- In-memory storage for job statuses (Replace with Redis/DB in production) --- 
+cut_job_statuses: Dict[str, Dict[str, Any]] = {}
+
+# --- Background Task Function for FFMPEG --- 
+
+def run_ffmpeg_cut(task_uuid_str: str, input_path: Path, output_path: Path, segments: List[Dict], job_id: str):
+    """Runs the ffmpeg cut command in the background."""
+    global cut_job_statuses
+    logger.info(f"[Job {job_id}] Starting ffmpeg cut for {task_uuid_str}")
+    cut_job_statuses[job_id]["status"] = "processing"
+
+    try:
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+        if not segments:
+            raise ValueError("No segments provided for cutting.")
+
+        # Ensure output directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Build the complex filter graph parts
+        select_filters = []
+        for i, seg in enumerate(segments):
+            start = seg['start']
+            end = seg['end']
+            if start >= end:
+                logger.warning(f"[Job {job_id}] Skipping invalid segment: start={start}, end={end}")
+                continue
+            # Escape special characters for ffmpeg filter syntax if needed (though less common for numbers)
+            # Using f-string directly is usually safe for numeric inputs
+            select_filters.append(f"between(t,{start},{end})")
+
+        if not select_filters:
+             raise ValueError("No valid segments found after filtering.")
+
+        select_statement = "+".join(select_filters)
+
+        # Build the full filter_complex string
+        # [0:v] refers to the first input's video stream, [0:a] to audio
+        # setpts=N/FRAME_RATE/TB and asetpts=N/SR/TB reset timestamps for concatenated segments
+        filter_complex = (
+            f"[0:v]select='{select_statement}',setpts=N/FRAME_RATE/TB[v]; "
+            f"[0:a]aselect='{select_statement}',asetpts=N/SR/TB[a]"
+        )
+
+        # Construct the ffmpeg command
+        command = [
+            "ffmpeg",
+            "-i", str(input_path),
+            "-filter_complex", filter_complex,
+            "-map", "[v]",
+            "-map", "[a]",
+            "-c:v", "libx264", # Specify codecs, adjust as needed
+            "-preset", "fast",  # Encoding speed/quality tradeoff
+            "-crf", "22",       # Constant Rate Factor (lower means better quality, larger file)
+            "-c:a", "aac",       # Audio codec
+            "-b:a", "128k",      # Audio bitrate
+            "-movflags", "+faststart", # Optimize for web streaming
+            "-y",              # Overwrite output file if it exists
+            str(output_path)
+        ]
+
+        logger.info(f"[Job {job_id}] Running ffmpeg command: {' '.join(shlex.quote(str(c)) for c in command)}")
+
+        # Execute the command
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False, # Don't raise exception on non-zero exit code
+            encoding='utf-8'
+        )
+
+        if process.returncode == 0:
+            logger.info(f"[Job {job_id}] Ffmpeg cut completed successfully. Output: {output_path}")
+            cut_job_statuses[job_id]["status"] = "completed"
+            # Store relative path for frontend access
+            cut_job_statuses[job_id]["output_path"] = str(output_path.relative_to(DATA_DIR))
+            cut_job_statuses[job_id]["message"] = "Video cut successfully."
+        else:
+            error_message = f"Ffmpeg failed with code {process.returncode}. Stderr: {process.stderr[:1000]}"
+            logger.error(f"[Job {job_id}] {error_message}")
+            cut_job_statuses[job_id]["status"] = "failed"
+            cut_job_statuses[job_id]["message"] = error_message
+            # Attempt to delete partial output file
+            if output_path.exists():
+                try:
+                    output_path.unlink()
+                    logger.info(f"[Job {job_id}] Deleted partial output file: {output_path}")
+                except OSError as e:
+                    logger.error(f"[Job {job_id}] Failed to delete partial output file {output_path}: {e}")
+
+    except Exception as e:
+        error_msg = f"Error during ffmpeg cut task: {e}"
+        logger.error(f"[Job {job_id}] {error_msg}", exc_info=True)
+        cut_job_statuses[job_id]["status"] = "failed"
+        cut_job_statuses[job_id]["message"] = error_msg
+        # Ensure output path isn't lingering in status if error occurred before completion
+        cut_job_statuses[job_id].pop("output_path", None) 
+
+# --- API Endpoints for Cutting --- 
+
+@app.post("/api/tasks/{task_uuid}/cut", response_model=CutResponse, status_code=202)
+async def start_video_cut(
+    task_uuid: UUID,
+    request: CutRequest,
+    background_tasks: BackgroundTasks
+):
+    """Starts an asynchronous video cutting job."""
+    global cut_job_statuses
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received cut request for task {task_uuid_str} with {len(request.segments)} segments.")
+
+    # 1. Load Metadata
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(task_uuid_str)
+    if not task_meta:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # 2. Validate Media Identifier and Find Input Path
+    #    (Assuming media_identifier is the relative path within the task dir)
+    input_rel_path_str = request.media_identifier
+    if not input_rel_path_str: # Basic check
+         raise HTTPException(status_code=400, detail="media_identifier is required.")
+    
+    input_abs_path = DATA_DIR / input_rel_path_str # Assume media_identifier is relative to DATA_DIR
+    if not input_abs_path.is_file(): # Check if it exists and is a file
+        logger.error(f"Input media file not found at expected path: {input_abs_path}")
+        raise HTTPException(status_code=404, detail=f"Media file not found at path: {input_rel_path_str}")
+
+    # 3. Generate Job ID and Output Path
+    job_id = str(uuid.uuid4())
+    input_path_obj = Path(input_rel_path_str)
+    output_filename = f"{input_path_obj.stem}_cut_{job_id}{input_path_obj.suffix}"
+    output_abs_path = DATA_DIR / task_uuid_str / output_filename
+
+    # 4. Initialize Job Status
+    cut_job_statuses[job_id] = {
+        "status": "pending",
+        "message": "Job queued for processing.",
+        "task_uuid": task_uuid_str,
+        "output_path": None # Will be filled upon completion
+    }
+
+    # 5. Add FFMPEG task to background
+    background_tasks.add_task(
+        run_ffmpeg_cut,
+        task_uuid_str=task_uuid_str,
+        input_path=input_abs_path,
+        output_path=output_abs_path,
+        segments=[seg.dict() for seg in request.segments], # Pass segment data
+        job_id=job_id
+    )
+
+    logger.info(f"Queued cut job {job_id} for task {task_uuid_str}. Output target: {output_abs_path}")
+
+    # 6. Return Accepted response
+    return CutResponse(
+        job_id=job_id,
+        status="processing", # Inform client it's started (or about to start)
+        message="Video cutting job started in background."
+    )
+
+@app.get("/api/tasks/{task_uuid}/cut/{job_id}/status", response_model=CutStatusResponse)
+async def get_cut_job_status(task_uuid: UUID, job_id: str):
+    """Gets the status of a specific cutting job."""
+    global cut_job_statuses
+    task_uuid_str = str(task_uuid)
+    logger.debug(f"Checking status for cut job {job_id} (Task: {task_uuid_str})")
+
+    job_info = cut_job_statuses.get(job_id)
+
+    if not job_info:
+        logger.warning(f"Cut job {job_id} not found.")
+        raise HTTPException(status_code=404, detail="Cut job not found")
+
+    # Optional: Check if the job belongs to the requested task_uuid
+    if job_info.get("task_uuid") != task_uuid_str:
+        logger.warning(f"Cut job {job_id} belongs to task {job_info.get('task_uuid')}, not requested task {task_uuid_str}.")
+        raise HTTPException(status_code=404, detail="Cut job not found for this task") # Treat as not found for security
+
+    return CutStatusResponse(
+        job_id=job_id,
+        status=job_info.get("status", "unknown"),
+        message=job_info.get("message"),
+        output_path=job_info.get("output_path") # Will be None unless status is "completed"
+    )
+
+# <<< Add New Endpoints Here >>> (Place the new endpoints above this marker if it exists)
 
 if __name__ == "__main__":
     import uvicorn
