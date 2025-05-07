@@ -416,6 +416,9 @@ function Studio({ taskUuid, apiBaseUrl }) {
   // --- NEW: State for VTT Previewer mode --- 
   const [vttMode, setVttMode] = useState('preview'); // 'preview' or 'cut'
 
+  // Define subtitleLangToEmbed at the component scope level
+  const [embeddingSubtitleLang, setEmbeddingSubtitleLang] = useState('none');
+
   // --- Data Fetching Effect (数据获取 Effect - 修改以重置 Blob URL) ---
   useEffect(() => {
     // Reset state when UUID changes
@@ -911,10 +914,46 @@ function Studio({ taskUuid, apiBaseUrl }) {
       .map(cue => ({ start: cue.startTime, end: cue.endTime }))
       .sort((a, b) => a.start - b.start);
 
+    // Determine subtitle embedding language based on current displayLang in 'cut' mode
+    let subtitleLangToEmbed = 'none'; // Default to no subtitles
+    if (vttMode === 'cut') {
+      // 优先使用当前显示的语言，使字幕嵌入选择变得更自然
+      if (displayLang === 'bilingual') {
+        // 若选择双语，检查是否有足够的字幕数据
+        if (parsedCuesByLang['en']?.length > 0 && parsedCuesByLang['zh-Hans']?.length > 0) {
+          subtitleLangToEmbed = 'bilingual';
+        } 
+        // 降级到任一可用语言
+        else if (parsedCuesByLang['zh-Hans']?.length > 0) {
+          subtitleLangToEmbed = 'zh-Hans';
+        }
+        else if (parsedCuesByLang['en']?.length > 0) {
+          subtitleLangToEmbed = 'en';
+        }
+      } else if (displayLang === 'en' && parsedCuesByLang['en']?.length > 0) {
+        subtitleLangToEmbed = 'en';
+      } else if (displayLang === 'zh-Hans' && parsedCuesByLang['zh-Hans']?.length > 0) {
+        subtitleLangToEmbed = 'zh-Hans';
+      }
+      
+      // 如果没有找到匹配的字幕，尝试选择任何可用的字幕
+      if (subtitleLangToEmbed === 'none') {
+        if (parsedCuesByLang['zh-Hans']?.length > 0) {
+          subtitleLangToEmbed = 'zh-Hans';
+        } else if (parsedCuesByLang['en']?.length > 0) {
+          subtitleLangToEmbed = 'en';
+        }
+      }
+    }
+    
+    // Update state for the UI indicator
+    setEmbeddingSubtitleLang(subtitleLangToEmbed);
+    
     logger.info("--- Initiating Video Cut ---");
     logger.info("Task UUID:", taskUuid);
     logger.info("Video Identifier (for backend):", videoRelativePath);
     logger.info("Selected Segments (sec):", segmentsToKeep);
+    logger.info("Subtitle Embedding Language:", subtitleLangToEmbed);
 
     setCuttingStatus('processing');
     setCuttingMessage('正在提交剪辑任务...');
@@ -923,6 +962,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
       const response = await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/cut`, {
         media_identifier: videoRelativePath, 
         segments: segmentsToKeep,
+        embed_subtitle_lang: subtitleLangToEmbed, // New parameter for backend
       });
 
       const { job_id, message } = response.data;
@@ -939,7 +979,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
       setCuttingMessage('提交剪辑请求失败: ' + (error.response?.data?.detail || error.message));
       setCutOutputPath(null);
     }
-  }, [selectedCueIds, displayedCues, taskUuid, videoRelativePath, apiBaseUrl, cuttingStatus, pollCutStatus]);
+  }, [selectedCueIds, displayedCues, taskUuid, videoRelativePath, apiBaseUrl, cuttingStatus, pollCutStatus, vttMode, displayLang, parsedCuesByLang]);
 
   // --- Handler to toggle VTT mode ---
   const toggleVttMode = (newMode) => {
@@ -969,6 +1009,16 @@ function Studio({ taskUuid, apiBaseUrl }) {
     setSelectedCueIds(new Set());
     setLastSelectedCueId(null);
   }, [displayLang, vttMode]);
+
+  // Add this in the UI section where the cut button is
+  const getSubtitleLangLabel = (lang) => {
+    switch(lang) {
+      case 'bilingual': return '中英双语';
+      case 'en': return 'English';
+      case 'zh-Hans': return '中文';
+      default: return '无字幕';
+    }
+  };
 
   // --- Render Logic ---
   if (isLoading) {
@@ -1193,37 +1243,47 @@ function Studio({ taskUuid, apiBaseUrl }) {
                 >
                   {cuttingStatus === 'processing' ? '正在处理...' : `剪辑选中的 ${selectedCueIds.size} 个片段`}
                 </button>
-                
-                {selectedCueIds.size > 0 && cuttingStatus !== 'processing' && (
-                  <div className="text-xs text-gray-500 animate-pulse">
-                    点击按钮开始剪辑
-                  </div>
-                )}
               </div>
 
-              {/* Display Cutting Job Status */}
-              {cuttingJobId && (
-                <div className={`text-sm p-3 rounded-md transition-all duration-200
-                  ${cuttingStatus === 'completed' ? 'bg-success/20 text-success' : ''}
-                  ${cuttingStatus === 'failed' ? 'bg-error/20 text-error' : ''}
-                  ${cuttingStatus === 'processing' ? 'bg-info/20 text-info' : ''}
-                `}>
-                  <p className="font-medium">{cuttingMessage || cuttingStatus}</p>
-                  {cuttingStatus === 'completed' && cutOutputPath && (
-                    <p className="mt-1">
-                      <a 
-                        href={`${apiBaseUrl}/files/${taskUuid}/${cutOutputPath}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-sm btn-success mt-1"
-                        download
-                      >
-                        下载剪辑结果 ({cutOutputPath.split('/').pop()})
-                      </a>
-                    </p>
-                  )}
+              {/* 简化状态显示 */}
+              {cuttingJobId && cuttingStatus === 'completed' && cutOutputPath && (
+                <div className="mt-2">
+                  <a 
+                    href={`${apiBaseUrl}/files/${cutOutputPath}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-sm btn-success w-full"
+                    download
+                  >
+                    下载剪辑结果
+                  </a>
                 </div>
               )}
+              
+              {/* 只显示失败状态的消息 */}
+              {cuttingJobId && cuttingStatus === 'failed' && (
+                <div className="text-sm p-2 rounded-md bg-error/20 text-error mt-2">
+                  {cuttingMessage || '剪辑失败'}
+                </div>
+              )}
+            </div>
+          )}
+
+          {vttMode === 'cut' && selectedCueIds.size > 0 && (
+            <div className="flex flex-col w-full mt-4">
+              <div className="flex items-center gap-2 my-2">
+                <span className="text-sm font-medium">将嵌入字幕:</span>
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                  embeddingSubtitleLang !== 'none' 
+                    ? 'bg-success text-success-content' 
+                    : 'bg-error text-error-content'
+                }`}>
+                  {getSubtitleLangLabel(embeddingSubtitleLang)}
+                </span>
+                <span className="text-xs text-gray-500">
+                  (取决于当前选择的字幕语言)
+                </span>
+              </div>
             </div>
           )}
         </div>

@@ -1724,6 +1724,10 @@ class Segment(BaseModel):
 class CutRequest(BaseModel):
     media_identifier: str = Field(..., description="Identifier for the media file (e.g., relative path)")
     segments: List[Segment] = Field(..., description="List of time segments to keep")
+    embed_subtitle_lang: Optional[Literal['en', 'zh-Hans', 'bilingual', 'none']] = Field(
+        default='none', 
+        description="Language of subtitles to embed/burn into the video. 'none' for no subtitles."
+    )
 
 class CutResponse(BaseModel):
     job_id: str
@@ -1741,11 +1745,90 @@ cut_job_statuses: Dict[str, Dict[str, Any]] = {}
 
 # --- Background Task Function for FFMPEG --- 
 
-def run_ffmpeg_cut(task_uuid_str: str, input_path: Path, output_path: Path, segments: List[Dict], job_id: str):
-    """Runs the ffmpeg cut command in the background."""
+# Helper function for escaping paths for ffmpeg filter
+def escape_ffmpeg_filter_path(path_str: str) -> str:
+    # Escape characters problematic in ffmpeg filters: \, ', :, [, ], ;, ,, =, space
+    escaped = path_str.replace('\\', '\\\\')
+    escaped = escaped.replace("'", "\\'")
+    escaped = escaped.replace(":", "\\:")
+    escaped = escaped.replace("[", "\\[")
+    escaped = escaped.replace("]", "\\]")
+    escaped = escaped.replace(";", "\\;")
+    escaped = escaped.replace(",", "\\,")
+    escaped = escaped.replace("=", "\\=")
+    escaped = escaped.replace(" ", "\\ ")
+    return escaped
+
+# 将VTT转换为ASS格式的函数 - 更可靠的字幕烧录格式
+def convert_vtt_to_ass(vtt_file_path, output_ass_path):
+    try:
+        import webvtt
+        from pathlib import Path
+        
+        # 确保输出目录存在
+        Path(output_ass_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        # 读取VTT文件
+        vtt = webvtt.read(str(vtt_file_path))
+        
+        # ASS文件头
+        ass_header = '''[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,PingFang SC,36,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,20,20,45,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+'''
+        
+        # 将VTT转换为ASS格式
+        with open(output_ass_path, 'w', encoding='utf-8') as f:
+            f.write(ass_header)
+            
+            for i, caption in enumerate(vtt):
+                # 将时间戳从秒转换为ASS格式 (h:mm:ss.cc)
+                def format_time(seconds):
+                    h = int(seconds / 3600)
+                    m = int((seconds % 3600) / 60)
+                    s = int(seconds % 60)
+                    cs = int((seconds - int(seconds)) * 100)  # ASS使用厘秒(centiseconds)
+                    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+                
+                start = format_time(caption.start_in_seconds)
+                end = format_time(caption.end_in_seconds)
+                
+                # 清理文本（替换换行符为ASS换行标记 \N）
+                text = caption.text.replace('\n', '\\N')
+                
+                # 写入ASS事件行
+                f.write(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n")
+        
+        return True
+    except Exception as e:
+        logger.error(f"转换VTT到ASS失败: {e}", exc_info=True)
+        return False
+
+def run_ffmpeg_cut(
+    task_uuid_str: str, 
+    input_path: Path, 
+    output_path: Path, 
+    segments: List[Dict], 
+    job_id: str, 
+    embed_subtitle_lang: Optional[str],
+    vtt_files: Dict[str, Optional[str]] # Pass the task's vtt_files dict
+):
+    """Runs the ffmpeg cut command in the background, potentially embedding subtitles."""
     global cut_job_statuses
-    logger.info(f"[Job {job_id}] Starting ffmpeg cut for {task_uuid_str}")
+    logger.info(f"[Job {job_id}] Starting ffmpeg cut for {task_uuid_str} (Embed: {embed_subtitle_lang})")
     cut_job_statuses[job_id]["status"] = "processing"
+
+    # 临时文件列表，用于后续清理
+    temp_files_to_clean = []
 
     try:
         if not input_path.exists():
@@ -1756,71 +1839,206 @@ def run_ffmpeg_cut(task_uuid_str: str, input_path: Path, output_path: Path, segm
         # Ensure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Build the complex filter graph parts
+        # --- Subtitle Setup --- 
+        subtitle_filter = None
+        # ass_file_path = None # Removed unused variable
+        
+        if embed_subtitle_lang and embed_subtitle_lang != 'none':
+            logger.info(f"[Job {job_id}] Attempting to embed subtitles: {embed_subtitle_lang}")
+            
+            en_vtt_rel = vtt_files.get('en')
+            zh_vtt_rel = vtt_files.get('zh-Hans')
+            
+            en_vtt_abs = DATA_DIR / en_vtt_rel if en_vtt_rel and (DATA_DIR / en_vtt_rel).exists() else None
+            zh_vtt_abs = DATA_DIR / zh_vtt_rel if zh_vtt_rel and (DATA_DIR / zh_vtt_rel).exists() else None
+            
+            source_vtt_path_for_conversion = None
+
+            if embed_subtitle_lang == 'en' and en_vtt_abs:
+                source_vtt_path_for_conversion = en_vtt_abs
+                logger.info(f"[Job {job_id}] Selected English VTT for conversion: {source_vtt_path_for_conversion}")
+            elif embed_subtitle_lang == 'zh-Hans' and zh_vtt_abs:
+                source_vtt_path_for_conversion = zh_vtt_abs
+                logger.info(f"[Job {job_id}] Selected Chinese VTT for conversion: {source_vtt_path_for_conversion}")
+            elif embed_subtitle_lang == 'bilingual' and en_vtt_abs and zh_vtt_abs:
+                logger.info(f"[Job {job_id}] Found both VTTs for bilingual embedding. Generating combined VTT first.")
+                try:
+                    from webvtt import WebVTT # Keep import inside try for this specific feature
+                    
+                    vtt_en = WebVTT().read(str(en_vtt_abs))
+                    vtt_zh = WebVTT().read(str(zh_vtt_abs))
+
+                    def format_bilingual_vtt_time(seconds_val):
+                        hours = int(seconds_val // 3600)
+                        minutes = int((seconds_val % 3600) // 60)
+                        secs_val = int(seconds_val % 60)
+                        millis = int((seconds_val - int(seconds_val)) * 1000)
+                        return f"{hours:02}:{minutes:02}:{secs_val:02}.{millis:03}"
+
+                    max_len = max(len(vtt_en.captions), len(vtt_zh.captions))
+                    combined_vtt_content = "WEBVTT\n\n"
+                    
+                    for i in range(max_len):
+                        caption_en = vtt_en.captions[i] if i < len(vtt_en.captions) else None
+                        caption_zh = vtt_zh.captions[i] if i < len(vtt_zh.captions) else None
+                        
+                        current_start_s = None
+                        current_end_s = None
+                        
+                        if caption_zh and caption_zh.start_in_seconds is not None and caption_zh.end_in_seconds is not None:
+                            current_start_s = caption_zh.start_in_seconds
+                            current_end_s = caption_zh.end_in_seconds
+                        elif caption_en and caption_en.start_in_seconds is not None and caption_en.end_in_seconds is not None:
+                            current_start_s = caption_en.start_in_seconds
+                            current_end_s = caption_en.end_in_seconds
+                        
+                        if current_start_s is None or current_end_s is None:
+                            logger.debug(f"[Job {job_id}] Index {i}: Skipping combined caption due to missing timing data.")
+                            continue
+
+                        text_en = caption_en.text.replace('\\n', ' ').strip() if caption_en and caption_en.text else ""
+                        text_zh = caption_zh.text.replace('\\n', ' ').strip() if caption_zh and caption_zh.text else ""
+                        
+                        combined_text = ""
+                        if text_zh and text_en:
+                            combined_text = f"{text_zh}\\n{text_en}"
+                        elif text_zh:
+                            combined_text = text_zh
+                        elif text_en:
+                            combined_text = text_en
+                        
+                        if combined_text.strip() and current_end_s > current_start_s:
+                            start_formatted = format_bilingual_vtt_time(current_start_s)
+                            end_formatted = format_bilingual_vtt_time(current_end_s)
+                            combined_vtt_content += f"{start_formatted} --> {end_formatted}\\n{combined_text}\\n\\n"
+                        else:
+                            if not combined_text.strip():
+                                logger.debug(f"[Job {job_id}] Index {i} ({current_start_s:.2f}s-{current_end_s:.2f}s): Skipping - no combined text.")
+                            elif not (current_end_s > current_start_s):
+                                logger.debug(f"[Job {job_id}] Index {i} ('{combined_text[:30]}...'): Skipping - invalid duration {current_start_s:.2f}s-{current_end_s:.2f}s.")
+                    
+                    temp_bilingual_vtt_path = output_path.parent / f"temp_bilingual_{job_id}.vtt"
+                    with open(temp_bilingual_vtt_path, 'w', encoding='utf-8') as f:
+                        f.write(combined_vtt_content)
+                    source_vtt_path_for_conversion = temp_bilingual_vtt_path
+                    temp_files_to_clean.append(temp_bilingual_vtt_path)
+                    logger.info(f"[Job {job_id}] Generated temporary bilingual VTT for conversion: {source_vtt_path_for_conversion}")
+
+                except ImportError:
+                    logger.warning(f"[Job {job_id}] 'webvtt-py' library not installed. Cannot generate combined bilingual VTT. Skipping embed.")
+                    source_vtt_path_for_conversion = None 
+                except Exception as e:
+                    logger.error(f"[Job {job_id}] Error generating temporary bilingual VTT: {e}", exc_info=True)
+                    source_vtt_path_for_conversion = None 
+
+            # --- Convert the selected/generated VTT to ASS --- 
+            if source_vtt_path_for_conversion and source_vtt_path_for_conversion.exists():
+                temp_ass_path = output_path.parent / f"temp_subtitle_{job_id}.ass"
+                temp_files_to_clean.append(temp_ass_path)
+                
+                conversion_success = convert_vtt_to_ass(str(source_vtt_path_for_conversion), str(temp_ass_path))
+                
+                if conversion_success:
+                    logger.info(f"[Job {job_id}] Successfully converted VTT to ASS: {temp_ass_path}")
+                    # Use the ASS file for subtitles. No force_style needed as ASS has styles.
+                    # Ensure path is correctly escaped for ffmpeg filter if it contains special characters.
+                    # pathlib.Path string representation on POSIX is usually fine.
+                    escaped_ass_path = str(temp_ass_path).replace('\\\\', '\\\\\\\\').replace("'", "\\\\'") # Basic escaping for filter context
+                    subtitle_filter = f"subtitles='{escaped_ass_path}'" 
+                    # Consider adding :fontsdir='/path/to/fonts' if fonts are not system-wide
+                    # e.g., subtitle_filter = f"subtitles='{escaped_ass_path}':fontsdir='/usr/share/fonts/truetype/noto'"
+                    logger.info(f"[Job {job_id}] Using ASS for embedding. Filter: {subtitle_filter}")
+                else:
+                    logger.error(f"[Job {job_id}] Failed to convert VTT to ASS. No subtitles will be embedded.")
+                    subtitle_filter = None
+            else:
+                logger.warning(f"[Job {job_id}] No source VTT file available for ASS conversion ('{embed_subtitle_lang}'). Proceeding without embedding subtitles.")
+                subtitle_filter = None
+
+        # --- Prepare segments logic ---
         select_filters = []
         for i, seg in enumerate(segments):
-            start = seg['start']
-            end = seg['end']
-            if start >= end:
-                logger.warning(f"[Job {job_id}] Skipping invalid segment: start={start}, end={end}")
+            start_time = seg['start']
+            end_time = seg['end']
+            if start_time >= end_time:
+                logger.warning(f"[Job {job_id}] Skipping invalid segment: start={start_time}, end={end_time}")
                 continue
-            # Escape special characters for ffmpeg filter syntax if needed (though less common for numbers)
-            # Using f-string directly is usually safe for numeric inputs
-            select_filters.append(f"between(t,{start},{end})")
+            select_filters.append(f"between(t,{start_time},{end_time})")
 
         if not select_filters:
              raise ValueError("No valid segments found after filtering.")
 
         select_statement = "+".join(select_filters)
 
-        # Build the full filter_complex string
-        # [0:v] refers to the first input's video stream, [0:a] to audio
-        # setpts=N/FRAME_RATE/TB and asetpts=N/SR/TB reset timestamps for concatenated segments
-        filter_complex = (
-            f"[0:v]select='{select_statement}',setpts=N/FRAME_RATE/TB[v]; "
-            f"[0:a]aselect='{select_statement}',asetpts=N/SR/TB[a]"
-        )
+        # --- Build filter_complex string ---
+        audio_filter = f"aselect='{select_statement}',asetpts=N/SR/TB"
+        filter_complex_parts = []
+        
+        # Video base processing (select segments)
+        filter_complex_parts.append(f"[0:v]select='{select_statement}',setpts=N/FRAME_RATE/TB[filtered_v]")
+        
+        # Add subtitle filter (if available) - now using ass filter
+        if subtitle_filter:
+            filter_complex_parts.append(f"[filtered_v]{subtitle_filter}[v]")
+        else:
+            filter_complex_parts.append("[filtered_v]copy[v]")
+        
+        # Audio processing
+        filter_complex_parts.append(f"[0:a]{audio_filter}[a]")
+        
+        # Combine into the final filter_complex string
+        filter_complex_str = ";".join(filter_complex_parts)
+        logger.info(f"[Job {job_id}] Final filter_complex: {filter_complex_str}")
 
-        # Construct the ffmpeg command
+        # --- Construct and run ffmpeg command ---
         command = [
             "ffmpeg",
             "-i", str(input_path),
-            "-filter_complex", filter_complex,
+            "-filter_complex", filter_complex_str,
             "-map", "[v]",
             "-map", "[a]",
-            "-c:v", "libx264", # Specify codecs, adjust as needed
-            "-preset", "fast",  # Encoding speed/quality tradeoff
-            "-crf", "22",       # Constant Rate Factor (lower means better quality, larger file)
-            "-c:a", "aac",       # Audio codec
-            "-b:a", "128k",      # Audio bitrate
-            "-movflags", "+faststart", # Optimize for web streaming
-            "-y",              # Overwrite output file if it exists
+            "-c:v", "libx264", 
+            "-preset", "fast",  
+            "-crf", "22",       
+            "-c:a", "aac",       
+            "-b:a", "128k",      
+            "-movflags", "+faststart", 
+            "-y",              
             str(output_path)
         ]
 
         logger.info(f"[Job {job_id}] Running ffmpeg command: {' '.join(shlex.quote(str(c)) for c in command)}")
 
-        # Execute the command
         process = subprocess.run(
             command,
             capture_output=True,
             text=True,
-            check=False, # Don't raise exception on non-zero exit code
+            check=False,
             encoding='utf-8'
         )
 
+        # --- 清理临时文件 ---
+        for temp_file in temp_files_to_clean:
+            if temp_file.exists():
+                try:
+                    temp_file.unlink()
+                    logger.info(f"[Job {job_id}] Cleaned up temporary file: {temp_file}")
+                except OSError as e:
+                    logger.error(f"[Job {job_id}] Failed to cleanup temporary file {temp_file}: {e}")
+
+        # --- 处理ffmpeg命令执行结果 ---
         if process.returncode == 0:
             logger.info(f"[Job {job_id}] Ffmpeg cut completed successfully. Output: {output_path}")
             cut_job_statuses[job_id]["status"] = "completed"
-            # Store relative path for frontend access
             cut_job_statuses[job_id]["output_path"] = str(output_path.relative_to(DATA_DIR))
             cut_job_statuses[job_id]["message"] = "Video cut successfully."
         else:
-            error_message = f"Ffmpeg failed with code {process.returncode}. Stderr: {process.stderr[:1000]}"
+            error_message = f"Ffmpeg failed with code {process.returncode}. Stderr: {process.stderr}"
             logger.error(f"[Job {job_id}] {error_message}")
             cut_job_statuses[job_id]["status"] = "failed"
             cut_job_statuses[job_id]["message"] = error_message
-            # Attempt to delete partial output file
+            
+            # 尝试删除可能不完整的输出文件
             if output_path.exists():
                 try:
                     output_path.unlink()
@@ -1833,21 +2051,29 @@ def run_ffmpeg_cut(task_uuid_str: str, input_path: Path, output_path: Path, segm
         logger.error(f"[Job {job_id}] {error_msg}", exc_info=True)
         cut_job_statuses[job_id]["status"] = "failed"
         cut_job_statuses[job_id]["message"] = error_msg
-        # Ensure output path isn't lingering in status if error occurred before completion
-        cut_job_statuses[job_id].pop("output_path", None) 
+        cut_job_statuses[job_id].pop("output_path", None)
+        
+        # 确保在出现异常时也清理临时文件
+        for temp_file in temp_files_to_clean:
+            if temp_file and temp_file.exists():
+                try:
+                    temp_file.unlink()
+                    logger.info(f"[Job {job_id}] Cleaned up temporary file on error: {temp_file}")
+                except OSError as e_clean:
+                    logger.error(f"[Job {job_id}] Failed to cleanup temporary file on error: {e_clean}")
 
-# --- API Endpoints for Cutting --- 
+# --- API Endpoints for Cutting ---
 
 @app.post("/api/tasks/{task_uuid}/cut", response_model=CutResponse, status_code=202)
 async def start_video_cut(
     task_uuid: UUID,
-    request: CutRequest,
+    request: CutRequest, # Updated to use the modified CutRequest model
     background_tasks: BackgroundTasks
 ):
     """Starts an asynchronous video cutting job."""
     global cut_job_statuses
     task_uuid_str = str(task_uuid)
-    logger.info(f"Received cut request for task {task_uuid_str} with {len(request.segments)} segments.")
+    logger.info(f"Received cut request for task {task_uuid_str} with {len(request.segments)} segments. Embed: {request.embed_subtitle_lang}")
 
     # 1. Load Metadata
     all_metadata = await load_metadata()
@@ -1855,6 +2081,10 @@ async def start_video_cut(
     if not task_meta:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    # --- Get VTT files info needed for background task --- 
+    task_vtt_files = task_meta.vtt_files if task_meta.vtt_files else {}
+    # -----------------------------------------------------
+    
     # 2. Validate Media Identifier and Find Input Path
     #    (Assuming media_identifier is the relative path within the task dir)
     input_rel_path_str = request.media_identifier
@@ -1877,7 +2107,8 @@ async def start_video_cut(
         "status": "pending",
         "message": "Job queued for processing.",
         "task_uuid": task_uuid_str,
-        "output_path": None # Will be filled upon completion
+        "output_path": None, # Will be filled upon completion
+        "embed_lang_requested": request.embed_subtitle_lang # Store requested lang for info
     }
 
     # 5. Add FFMPEG task to background
@@ -1887,7 +2118,9 @@ async def start_video_cut(
         input_path=input_abs_path,
         output_path=output_abs_path,
         segments=[seg.dict() for seg in request.segments], # Pass segment data
-        job_id=job_id
+        job_id=job_id,
+        embed_subtitle_lang=request.embed_subtitle_lang, # Pass the lang preference
+        vtt_files=task_vtt_files # Pass VTT file info
     )
 
     logger.info(f"Queued cut job {job_id} for task {task_uuid_str}. Output target: {output_abs_path}")
