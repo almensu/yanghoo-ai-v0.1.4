@@ -17,6 +17,7 @@ import uuid
 import shlex
 from fastapi import BackgroundTasks # Import BackgroundTasks
 from pydantic import BaseModel, Field # Import BaseModel and Field
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -1760,18 +1761,20 @@ def escape_ffmpeg_filter_path(path_str: str) -> str:
     return escaped
 
 # 将VTT转换为ASS格式的函数 - 更可靠的字幕烧录格式
-def convert_vtt_to_ass(vtt_file_path, output_ass_path):
+def convert_vtt_to_ass(vtt_file_path, output_ass_path, is_bilingual=False, time_offset=0.0):
     try:
         import webvtt
         from pathlib import Path
+        import re
         
         # 确保输出目录存在
         Path(output_ass_path).parent.mkdir(parents=True, exist_ok=True)
         
         # 读取VTT文件
         vtt = webvtt.read(str(vtt_file_path))
+        logger.info(f"转换VTT到ASS: 读取到{len(vtt.captions)}个字幕条目，time_offset={time_offset}s")
         
-        # ASS文件头
+        # ASS文件头 - 添加双语样式
         ass_header = '''[Script Info]
 ScriptType: v4.00+
 PlayResX: 1280
@@ -1781,6 +1784,10 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,PingFang SC,36,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,20,20,45,1
+Style: Chinese,PingFang SC,42,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3.5,1.2,8,20,20,20,1
+Style: English,Arial,34,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2.5,0.8,2,20,20,80,1
+Style: Chinese-Only,PingFang SC,40,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,20,20,45,1
+Style: English-Only,Arial,36,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2.8,1,2,20,20,45,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1790,24 +1797,96 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         with open(output_ass_path, 'w', encoding='utf-8') as f:
             f.write(ass_header)
             
+            processed_count = 0
+            skipped_count = 0
             for i, caption in enumerate(vtt):
                 # 将时间戳从秒转换为ASS格式 (h:mm:ss.cc)
                 def format_time(seconds):
-                    h = int(seconds / 3600)
-                    m = int((seconds % 3600) / 60)
-                    s = int(seconds % 60)
-                    cs = int((seconds - int(seconds)) * 100)  # ASS使用厘秒(centiseconds)
+                    # 应用时间偏移，从切割开始处调整字幕时间
+                    adjusted_seconds = max(0, seconds - time_offset)
+                    h = int(adjusted_seconds / 3600)
+                    m = int((adjusted_seconds % 3600) / 60)
+                    s = int(adjusted_seconds % 60)
+                    cs = int((adjusted_seconds - int(adjusted_seconds)) * 100)  # ASS使用厘秒(centiseconds)
                     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
                 
+                # 删除跳过字幕的条件判断，处理所有字幕
+                # 即使字幕在偏移时间之前结束，也不要跳过
+                # 只做时间调整，让所有字幕从0开始
+                
+                # 调整时间并格式化
                 start = format_time(caption.start_in_seconds)
                 end = format_time(caption.end_in_seconds)
                 
-                # 清理文本（替换换行符为ASS换行标记 \N）
-                text = caption.text.replace('\n', '\\N')
+                # 添加额外的调试信息
+                if i < 5:  # 只记录前几个，避免日志过多
+                    logger.debug(f"字幕 #{i}: 原始时间 {caption.start_in_seconds:.2f}s-{caption.end_in_seconds:.2f}s, 调整为 {start}-{end}")
                 
-                # 写入ASS事件行
-                f.write(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n")
+                # 清理文本（不需要过度替换，我们要处理分行情况）
+                text = caption.text
+                
+                # 打印原始文本内容用于调试
+                if i < 5:
+                    logger.debug(f"字幕 #{i} 原始文本: '{text}'")
+                
+                # 改进字幕文本处理逻辑
+                if is_bilingual and '\\n' in text or '\n' in text:
+                    # 处理可能的换行符，包括转义和非转义的
+                    split_char = '\\n' if '\\n' in text else '\n'
+                    lines = text.split(split_char, 1)  # 最多分割一次
+                    
+                    # 简单检测中文：如果包含中文字符则认为是中文行
+                    has_chinese_first = bool(re.search(r'[\u4e00-\u9fff]', lines[0]))
+                    has_chinese_second = bool(re.search(r'[\u4e00-\u9fff]', lines[1])) if len(lines) > 1 else False
+                    
+                    if len(lines) > 1:
+                        if has_chinese_first and not has_chinese_second:
+                            # 中文在上，英文在下
+                            chinese_line = lines[0]
+                            english_line = lines[1]
+                            
+                            # 写入ASS事件行 - 分别为中英文使用不同样式
+                            f.write(f"Dialogue: 0,{start},{end},Chinese,,0,0,0,,{chinese_line}\n")
+                            f.write(f"Dialogue: 0,{start},{end},English,,0,0,0,,{english_line}\n")
+                            if i < 5:
+                                logger.debug(f"字幕 #{i} 分离为中英文: 中文='{chinese_line}', 英文='{english_line}'")
+                            processed_count += 1
+                            continue
+                        elif has_chinese_second and not has_chinese_first:
+                            # 英文在上，中文在下
+                            english_line = lines[0]
+                            chinese_line = lines[1]
+                            
+                            # 写入ASS事件行 - 调换顺序，中文在上
+                            f.write(f"Dialogue: 0,{start},{end},Chinese,,0,0,0,,{chinese_line}\n")
+                            f.write(f"Dialogue: 0,{start},{end},English,,0,0,0,,{english_line}\n")
+                            if i < 5:
+                                logger.debug(f"字幕 #{i} 分离为英中文: 英文='{english_line}', 中文='{chinese_line}', 调整顺序为中文在上")
+                            processed_count += 1
+                            continue
+                        elif has_chinese_first and has_chinese_second:
+                            # 两行都有中文，可能是中文内容太多需要换行
+                            if i < 5:
+                                logger.debug(f"字幕 #{i} 两行都有中文: '{lines[0]}' 和 '{lines[1]}'")
+                
+                # 对于非双语字幕或无法识别的格式，使用默认处理
+                text = text.replace('\n', '\\N')
+                
+                # 检测单一语言，并使用对应样式
+                style = "Default"
+                if is_bilingual:
+                    has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
+                    if has_chinese:
+                        style = "Chinese-Only"
+                    else:
+                        style = "English-Only"
+                    if i < 5:
+                        logger.debug(f"字幕 #{i} 语言检测: {'中文' if has_chinese else '英文'}, 使用样式: {style}")
+                
+                f.write(f"Dialogue: 0,{start},{end},{style},,0,0,0,,{text}\n")
+                processed_count += 1
         
+        logger.info(f"VTT到ASS转换完成：处理了{processed_count}条字幕，跳过了{skipped_count}条字幕")
         return True
     except Exception as e:
         logger.error(f"转换VTT到ASS失败: {e}", exc_info=True)
@@ -1878,6 +1957,10 @@ def run_ffmpeg_cut(
                     max_len = max(len(vtt_en.captions), len(vtt_zh.captions))
                     combined_vtt_content = "WEBVTT\n\n"
                     
+                    # 添加调试日志，看看有多少字幕项
+                    logger.info(f"[Job {job_id}] 读取到英文字幕 {len(vtt_en.captions)} 条，中文字幕 {len(vtt_zh.captions)} 条")
+                    
+                    included_caption_count = 0
                     for i in range(max_len):
                         caption_en = vtt_en.captions[i] if i < len(vtt_en.captions) else None
                         caption_zh = vtt_zh.captions[i] if i < len(vtt_zh.captions) else None
@@ -1893,29 +1976,35 @@ def run_ffmpeg_cut(
                             current_end_s = caption_en.end_in_seconds
                         
                         if current_start_s is None or current_end_s is None:
-                            logger.debug(f"[Job {job_id}] Index {i}: Skipping combined caption due to missing timing data.")
+                            logger.debug(f"[Job {job_id}] Index {i}: 跳过合并字幕，缺少时间数据")
                             continue
 
-                        text_en = caption_en.text.replace('\\n', ' ').strip() if caption_en and caption_en.text else ""
-                        text_zh = caption_zh.text.replace('\\n', ' ').strip() if caption_zh and caption_zh.text else ""
+                        # 尝试保留原始文本格式
+                        text_en = caption_en.text if caption_en and caption_en.text else ""
+                        text_zh = caption_zh.text if caption_zh and caption_zh.text else ""
                         
                         combined_text = ""
                         if text_zh and text_en:
-                            combined_text = f"{text_zh}\\n{text_en}"
+                            # 确保始终将中文放在前面（上面），英文放在后面（下面）
+                            combined_text = f"{text_zh}\n{text_en}"
                         elif text_zh:
                             combined_text = text_zh
                         elif text_en:
                             combined_text = text_en
                         
-                        if combined_text.strip() and current_end_s > current_start_s:
+                        # 移除时间有效性检查，包含所有字幕
+                        if combined_text:
                             start_formatted = format_bilingual_vtt_time(current_start_s)
                             end_formatted = format_bilingual_vtt_time(current_end_s)
-                            combined_vtt_content += f"{start_formatted} --> {end_formatted}\\n{combined_text}\\n\\n"
+                            # 确保正确的换行符格式
+                            combined_vtt_content += f"{start_formatted} --> {end_formatted}\n{combined_text}\n\n"
+                            included_caption_count += 1
+                            if i < 3 or i == max_len - 1:  # 记录前三个和最后一个
+                                logger.debug(f"[Job {job_id}] 包含字幕 #{i}: {start_formatted} --> {end_formatted}, 文本: {combined_text[:30]}...")
                         else:
-                            if not combined_text.strip():
-                                logger.debug(f"[Job {job_id}] Index {i} ({current_start_s:.2f}s-{current_end_s:.2f}s): Skipping - no combined text.")
-                            elif not (current_end_s > current_start_s):
-                                logger.debug(f"[Job {job_id}] Index {i} ('{combined_text[:30]}...'): Skipping - invalid duration {current_start_s:.2f}s-{current_end_s:.2f}s.")
+                            logger.debug(f"[Job {job_id}] Index {i}: 跳过 - 没有文本内容")
+                    
+                    logger.info(f"[Job {job_id}] 合并生成了 {included_caption_count} 条双语字幕")
                     
                     temp_bilingual_vtt_path = output_path.parent / f"temp_bilingual_{job_id}.vtt"
                     with open(temp_bilingual_vtt_path, 'w', encoding='utf-8') as f:
@@ -1936,17 +2025,54 @@ def run_ffmpeg_cut(
                 temp_ass_path = output_path.parent / f"temp_subtitle_{job_id}.ass"
                 temp_files_to_clean.append(temp_ass_path)
                 
-                conversion_success = convert_vtt_to_ass(str(source_vtt_path_for_conversion), str(temp_ass_path))
+                # 计算时间偏移量：使用第一个有效片段的开始时间
+                first_segment = segments[0] if segments else None
+                time_offset = first_segment['start'] if first_segment else 0
+                
+                # 为双语字幕传递is_bilingual参数和时间偏移参数
+                conversion_success = convert_vtt_to_ass(
+                    str(source_vtt_path_for_conversion), 
+                    str(temp_ass_path),
+                    is_bilingual=(embed_subtitle_lang == 'bilingual'),
+                    time_offset=time_offset
+                )
                 
                 if conversion_success:
                     logger.info(f"[Job {job_id}] Successfully converted VTT to ASS: {temp_ass_path}")
+                    
+                    # 处理ASS文件，使其适应视频切割
+                    # 我们已经在convert_vtt_to_ass函数中应用了时间偏移，这里不需要重复处理
+                    
+                    # 添加一些额外的调试信息
+                    logger.info(f"[Job {job_id}] Using segments: {segments}")
+                    logger.info(f"[Job {job_id}] Applied time offset: {time_offset}s")
+                    
                     # Use the ASS file for subtitles. No force_style needed as ASS has styles.
                     # Ensure path is correctly escaped for ffmpeg filter if it contains special characters.
                     # pathlib.Path string representation on POSIX is usually fine.
                     escaped_ass_path = str(temp_ass_path).replace('\\\\', '\\\\\\\\').replace("'", "\\\\'") # Basic escaping for filter context
-                    subtitle_filter = f"subtitles='{escaped_ass_path}'" 
-                    # Consider adding :fontsdir='/path/to/fonts' if fonts are not system-wide
-                    # e.g., subtitle_filter = f"subtitles='{escaped_ass_path}':fontsdir='/usr/share/fonts/truetype/noto'"
+                    
+                    # 添加系统字体目录，确保正确渲染中英文
+                    # macOS字体目录
+                    font_dirs = [
+                        "/System/Library/Fonts",
+                        "/Library/Fonts",
+                        f"{os.path.expanduser('~')}/Library/Fonts"
+                    ]
+                    
+                    # 检查字体目录存在性
+                    valid_font_dirs = [d for d in font_dirs if os.path.exists(d)]
+                    
+                    if valid_font_dirs:
+                        # 使用第一个有效的字体目录，并添加subttitle_timestamps参数以处理非连续视频段中的字幕同步
+                        fontsdir_option = f":fontsdir='{valid_font_dirs[0]}'"
+                        subtitle_filter = f"subtitles='{escaped_ass_path}'{fontsdir_option}" 
+                        logger.info(f"[Job {job_id}] Using ASS with font directory: {valid_font_dirs[0]}")
+                    else:
+                        # 如果找不到字体目录，则不使用fontsdir选项
+                        subtitle_filter = f"subtitles='{escaped_ass_path}'" 
+                        logger.info(f"[Job {job_id}] Using ASS without font directory (no valid font dirs found)")
+                    
                     logger.info(f"[Job {job_id}] Using ASS for embedding. Filter: {subtitle_filter}")
                 else:
                     logger.error(f"[Job {job_id}] Failed to convert VTT to ASS. No subtitles will be embedded.")
@@ -1974,25 +2100,28 @@ def run_ffmpeg_cut(
         audio_filter = f"aselect='{select_statement}',asetpts=N/SR/TB"
         filter_complex_parts = []
         
-        # Video base processing (select segments)
-        filter_complex_parts.append(f"[0:v]select='{select_statement}',setpts=N/FRAME_RATE/TB[filtered_v]")
-        
-        # Add subtitle filter (if available) - now using ass filter
+        # 修改过滤器链，改变字幕应用方式
         if subtitle_filter:
-            filter_complex_parts.append(f"[filtered_v]{subtitle_filter}[v]")
+            # 首先选择视频片段并调整PTS
+            filter_complex_parts.append(f"[0:v]select='{select_statement}',setpts=N/FRAME_RATE/TB[v_selected]")
+            
+            # 然后应用字幕滤镜，注意字幕时间已经在ASS文件中被调整
+            filter_complex_parts.append(f"[v_selected]{subtitle_filter}[v]")
         else:
-            filter_complex_parts.append("[filtered_v]copy[v]")
+            # 没有字幕的情况，保持原有处理
+            filter_complex_parts.append(f"[0:v]select='{select_statement}',setpts=N/FRAME_RATE/TB[v]")
         
-        # Audio processing
+        # 音频处理保持不变
         filter_complex_parts.append(f"[0:a]{audio_filter}[a]")
         
-        # Combine into the final filter_complex string
+        # 组合成最终的filter_complex字符串
         filter_complex_str = ";".join(filter_complex_parts)
-        logger.info(f"[Job {job_id}] Final filter_complex: {filter_complex_str}")
+        logger.info(f"[Job {job_id}] 最终filter_complex: {filter_complex_str}")
 
-        # --- Construct and run ffmpeg command ---
+        # --- 构建并运行ffmpeg命令 ---
         command = [
             "ffmpeg",
+            "-v", "verbose",  # 使用详细日志级别，帮助调试
             "-i", str(input_path),
             "-filter_complex", filter_complex_str,
             "-map", "[v]",
