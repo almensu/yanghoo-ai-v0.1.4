@@ -2044,6 +2044,20 @@ def run_ffmpeg_cut(
     # 输出文件列表，用于跟踪生成的文件
     output_files = {"video": str(output_path.relative_to(DATA_DIR))}
 
+    # 确保在任何情况下都清理临时文件的函数
+    def cleanup_temp_files():
+        if not temp_files_to_clean:
+            return
+            
+        logger.info(f"[Job {job_id}] Cleaning up {len(temp_files_to_clean)} temporary files")
+        for temp_file in temp_files_to_clean:
+            if temp_file and temp_file.exists():
+                try:
+                    temp_file.unlink()
+                    logger.debug(f"[Job {job_id}] Removed temporary file: {temp_file}")
+                except Exception as e:
+                    logger.error(f"[Job {job_id}] Failed to remove temporary file {temp_file}: {e}")
+
     try:
         if not input_path.exists():
             raise FileNotFoundError(f"Input file not found: {input_path}")
@@ -2142,7 +2156,11 @@ def run_ffmpeg_cut(
                     
                     logger.info(f"[Job {job_id}] 合并生成了 {included_caption_count} 条双语字幕")
                     
-                    temp_bilingual_vtt_path = output_path.parent / f"temp_bilingual_{job_id}.vtt"
+                    # 使用任务UUID+jobId创建一个唯一的临时文件路径，存储在隐藏目录中
+                    temp_dir = output_path.parent / ".temp"
+                    temp_dir.mkdir(exist_ok=True)
+                    temp_bilingual_vtt_path = temp_dir / f"bilingual_{job_id}.vtt"
+                    
                     with open(temp_bilingual_vtt_path, 'w', encoding='utf-8') as f:
                         f.write(combined_vtt_content)
                     source_vtt_path_for_conversion = temp_bilingual_vtt_path
@@ -2156,12 +2174,16 @@ def run_ffmpeg_cut(
                     logger.error(f"[Job {job_id}] Error generating temporary bilingual VTT: {e}", exc_info=True)
                     source_vtt_path_for_conversion = None 
 
-            # --- 新增：准备调整后的VTT文件，用于与视频一起提供 ---
-            # --- NEW: Prepare adjusted VTT for video playback with segments ---
+            # --- 准备调整后的VTT文件，用于与视频一起提供 ---
             if source_vtt_path_for_conversion and source_vtt_path_for_conversion.exists():
+                # 创建隐藏目录存放所有文件
+                temp_dir = output_path.parent / ".temp"
+                temp_dir.mkdir(exist_ok=True)
+                
+                # 修改.vtt输出路径到隐藏目录
                 output_vtt_filename = f"{output_path.stem}.vtt"
-                output_vtt_path = output_path.parent / output_vtt_filename
-
+                output_vtt_path = temp_dir / output_vtt_filename
+                
                 # 1. 创建调整后的VTT文件 - 使用映射后的时间
                 adjusted_vtt_content = ""
                 try:
@@ -2252,6 +2274,9 @@ def run_ffmpeg_cut(
                     # 保存调整后的VTT
                     with open(output_vtt_path, 'w', encoding='utf-8') as vtt_file:
                         vtt_file.write(adjusted_vtt_content)
+                    
+                    # 添加到临时文件列表中进行清理
+                    temp_files_to_clean.append(output_vtt_path)
                         
                     logger.info(f"[Job {job_id}] Created adjusted VTT file with {processed_count} captions: {output_vtt_path}")
                     
@@ -2263,7 +2288,10 @@ def run_ffmpeg_cut(
                     logger.error(f"[Job {job_id}] Error creating adjusted VTT file: {e}", exc_info=True)
                 
                 # 2. 生成ASS文件用于可选的烧录过程
-                temp_ass_path = output_path.parent / f"temp_subtitle_{job_id}.ass"
+                # 使用隐藏目录存储所有临时文件
+                temp_dir = output_path.parent / ".temp"
+                temp_dir.mkdir(exist_ok=True)
+                temp_ass_path = temp_dir / f"subtitle_{job_id}.ass"
                 temp_files_to_clean.append(temp_ass_path)
                 
                 conversion_success = convert_vtt_to_ass(
@@ -2276,15 +2304,18 @@ def run_ffmpeg_cut(
                 if conversion_success:
                     logger.info(f"[Job {job_id}] Successfully converted VTT to ASS: {temp_ass_path}")
                     
-                    # 保存ASS文件作为最终输出
+                    # 保存ASS文件到.temp目录中，而不是最终输出目录
                     output_ass_filename = f"{output_path.stem}.ass"
-                    output_ass_path = output_path.parent / output_ass_filename
+                    output_ass_path = temp_dir / output_ass_filename
                     import shutil
                     shutil.copy2(temp_ass_path, output_ass_path)
                     
+                    # 添加到临时文件列表中进行清理
+                    temp_files_to_clean.append(output_ass_path)
+                    
                     subtitle_ass_path = str(output_ass_path.relative_to(DATA_DIR))
                     output_files["subtitle_ass"] = subtitle_ass_path
-                    logger.info(f"[Job {job_id}] Copied ASS file to final location: {output_ass_path}")
+                    logger.info(f"[Job {job_id}] Saved final ASS file to .temp directory: {output_ass_path}")
                     
                     # 为烧录字幕准备filter
                     escaped_ass_path = str(temp_ass_path).replace(':', '\\:').replace('\\', '\\\\')
@@ -2315,7 +2346,13 @@ def run_ffmpeg_cut(
         # --- 准备视频剪切过程 - 更平滑的解决方案 ---
         # 使用简化的concat方式，避免复杂的filter_complex问题
         temp_segment_files = []
-        segments_file_path = output_path.parent / f"segments_{job_id}.txt"
+        
+        # 创建隐藏的临时目录
+        temp_dir = output_path.parent / ".temp"
+        temp_dir.mkdir(exist_ok=True)
+        temp_files_to_clean.append(temp_dir)
+        
+        segments_file_path = temp_dir / f"segments_{job_id}.txt"
         temp_files_to_clean.append(segments_file_path)
         
         # 创建片段列表文件
@@ -2331,7 +2368,7 @@ def run_ffmpeg_cut(
                 duration = end_time - start_time
                 
                 # 切出单个片段到临时文件
-                temp_file = output_path.parent / f"temp_segment_{job_id}_{i}.mp4"
+                temp_file = temp_dir / f"segment_{job_id}_{i}.mp4"
                 temp_segment_files.append(temp_file)
                 temp_files_to_clean.append(temp_file)
                 
@@ -2378,21 +2415,13 @@ def run_ffmpeg_cut(
             logger.error(f"[Job {job_id}] {error_message}")
             cut_job_statuses[job_id]["status"] = "failed"
             cut_job_statuses[job_id]["message"] = error_message
-            
-            # 清理临时文件
-            for temp_file in temp_files_to_clean:
-                if temp_file.exists():
-                    try:
-                        temp_file.unlink()
-                    except Exception as e:
-                        logger.error(f"[Job {job_id}] Failed to clean temp file {temp_file}: {e}")
             return
         
         # 拼接所有片段
         logger.info(f"[Job {job_id}] Concatenating segments using segments file")
         
         # 首先创建无字幕版本
-        temp_concat_file = output_path.parent / f"temp_concat_{job_id}.mp4"
+        temp_concat_file = temp_dir / f"concat_{job_id}.mp4"
         temp_files_to_clean.append(temp_concat_file)
         
         concat_cmd = [
@@ -2421,14 +2450,6 @@ def run_ffmpeg_cut(
             logger.error(f"[Job {job_id}] {error_message}")
             cut_job_statuses[job_id]["status"] = "failed"
             cut_job_statuses[job_id]["message"] = error_message
-            
-            # 清理临时文件
-            for temp_file in temp_files_to_clean:
-                if temp_file.exists():
-                    try:
-                        temp_file.unlink()
-                    except Exception as e:
-                        logger.error(f"[Job {job_id}] Failed to clean temp file {temp_file}: {e}")
             return
         
         # 如果需要添加字幕，处理拼接好的视频
@@ -2522,15 +2543,10 @@ def run_ffmpeg_cut(
         cut_job_statuses[job_id]["status"] = "failed"
         cut_job_statuses[job_id]["message"] = error_msg
         cut_job_statuses[job_id].pop("output_path", None)
-        
-        # 确保在出现异常时也清理临时文件
-        for temp_file in temp_files_to_clean:
-            if temp_file and temp_file.exists():
-                try:
-                    temp_file.unlink()
-                    logger.info(f"[Job {job_id}] Cleaned up temporary file on error: {temp_file}")
-                except OSError as e_clean:
-                    logger.error(f"[Job {job_id}] Failed to cleanup temporary file on error: {e_clean}")
+    
+    finally:
+        # 确保在所有情况下都执行清理
+        cleanup_temp_files()
 
 # --- API Endpoints for Cutting ---
 
