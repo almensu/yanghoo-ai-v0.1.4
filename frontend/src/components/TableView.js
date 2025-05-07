@@ -72,7 +72,7 @@ function TableView({
   const canMergeVtt = (task) => {
     const vttEnExists = hasVtt(task.vtt_files, 'en');
     const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans');
-    return task.platform === 'youtube' && (vttEnExists || vttZhExists) && !task.merged_vtt_md_path && !task.archived;
+    return task.platform === 'youtube' && (vttEnExists || vttZhExists) && !task.merged_vtt_md_path;
   };
 
   const getSelectedWhisperXModel = (uuid) => whisperxModels[uuid] || 'medium.en';
@@ -150,7 +150,7 @@ function TableView({
                     <span className={cn(!videoExists && 'text-base-content/60', 'flex-shrink-0')}>{videoExists ? "有" : "无"}</span>
                     <div className="flex gap-1 ml-auto">
                        <div className="dropdown dropdown-bottom dropdown-end">
-                         <button tabIndex={0} className="btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200" data-tip="下载视频" disabled={task.archived}>
+                         <button tabIndex={0} className="btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200" data-tip="下载视频">
                            <IconWrapper icon={Download} className="text-base-content/70"/>
                          </button>
                          <ul tabIndex={0} className="dropdown-content menu p-1 shadow bg-base-200 rounded-box w-24 z-[1]">
@@ -162,7 +162,7 @@ function TableView({
                        <button 
                          className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", !videoExists && "btn-disabled")} 
                          onClick={() => onDeleteVideo(task.uuid)}
-                         disabled={!videoExists || task.archived}
+                         disabled={!videoExists}
                          data-tip="删除视频文件"
                        >
                          <IconWrapper icon={Trash2} className="text-error/70"/>
@@ -190,16 +190,18 @@ function TableView({
                               className="btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200" 
                               onClick={() => onCreateVideo(task.uuid)}
                               data-tip="制作视频"
-                              disabled={task.archived}
                             >
                               <IconWrapper icon={Tv} className="text-secondary" />
                            </button>
                         )}
                         {canDirectDownloadAudio && (
                            <button 
-                              className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (audioDownloaded || !task.info_json_path || task.archived) && "btn-disabled")} 
+                              className={cn(
+                                "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
+                                (audioDownloaded || !task.info_json_path) && "btn-disabled"
+                              )} 
                               onClick={() => onDownloadAudio(task.uuid)}
-                              disabled={audioDownloaded || !task.info_json_path || task.archived}
+                              disabled={audioDownloaded || !task.info_json_path}
                               data-tip={audioDownloaded ? "音频已下载" : (!task.info_json_path ? "需获取 Info JSON" : "下载源音频")}
                             >
                               <IconWrapper icon={DownloadCloud} className={cn((audioDownloaded || !task.info_json_path) ? 'text-base-content/40' : 'text-primary')} />
@@ -236,12 +238,15 @@ function TableView({
                              {(vttEnExists || vttZhExists) ? (isMerged ? '已合并' : '可用') : '无'}
                          </span>
                          <button 
-                            className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200 ml-1", (!canMerge || task.archived) && "btn-disabled")} 
+                            className={cn(
+                                "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200 ml-1", 
+                                (!canMerge || isMerged) && "btn-disabled"
+                            )} 
                             onClick={() => onMergeVtt(task.uuid)}
-                            disabled={!canMerge || task.archived}
-                            data-tip={isMerged ? "字幕已合并" : (!(vttEnExists || vttZhExists) ? "缺少字幕" : "合并字幕 (MD)")}
+                            disabled={!canMerge || isMerged}
+                            data-tip={isMerged ? "字幕已合并" : (!canMerge ? (vttEnExists || vttZhExists ? "可以合并" : "缺少VTT文件") : "合并字幕 (MD)")}
                           >
-                            <IconWrapper icon={Combine} className={cn(!canMerge ? 'text-base-content/40' : 'text-secondary')} /> 
+                            <IconWrapper icon={Combine} className={cn(isMerged ? 'text-success' : (!canMerge ? 'text-base-content/40' : 'text-secondary'))} /> 
                          </button>
                          <button 
                             className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (!task.info_json_path || task.archived) && "btn-disabled")} 
@@ -337,10 +342,9 @@ function TableView({
                 <td className="p-3 text-xs">
                   <div className="flex items-center gap-1">
                     <button 
-                      className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", task.archived && "btn-disabled")} 
+                      className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200")} 
                       onClick={() => onArchive(task.uuid)}
-                      disabled={task.archived}
-                      data-tip="归档任务"
+                      data-tip="归档/取消归档任务"
                     >
                       <IconWrapper icon={Archive} className="text-base-content/60"/>
                     </button>

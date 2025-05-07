@@ -71,7 +71,7 @@ function CardView({
   const canMergeVtt = (task) => {
     const vttEnExists = hasVtt(task.vtt_files, 'en');
     const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans');
-    return task.platform === 'youtube' && (vttEnExists || vttZhExists) && !task.merged_vtt_md_path && !task.archived;
+    return task.platform === 'youtube' && (vttEnExists || vttZhExists) && !task.merged_vtt_md_path;
   };
 
   const getSelectedWhisperXModel = (uuid) => whisperxModels[uuid] || 'medium.en';
@@ -111,10 +111,8 @@ function CardView({
                      <button 
                          className={cn(
                            "btn btn-square btn-xs btn-ghost text-base-content/60 hover:bg-base-200",
-                           task.archived && "btn-disabled"
                          )}
-                         onClick={() => !task.archived && onArchive(task.uuid)}
-                         disabled={task.archived}
+                         onClick={() => onArchive(task.uuid)}
                      >
                        <IconWrapper icon={Archive}/>
                      </button>
@@ -132,7 +130,6 @@ function CardView({
                      <button
                          className="btn btn-square btn-xs btn-ghost text-secondary/70 hover:bg-secondary hover:text-secondary-content"
                          onClick={() => onGoToStudio(task.uuid)}
-                         disabled={task.archived}
                      >
                        <IconWrapper icon={PlaySquare}/>
                      </button>
@@ -183,7 +180,7 @@ function CardView({
                     </div>
                     <div className="flex gap-1">
                       <div className="dropdown dropdown-end">
-                        <button tabIndex={0} className="btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200" data-tip="下载视频" disabled={task.archived}>
+                        <button tabIndex={0} className="btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200" data-tip="下载视频">
                           <IconWrapper icon={Download} className="text-base-content/70"/>
                         </button>
                         <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-32 z-[1]">
@@ -198,7 +195,7 @@ function CardView({
                           !videoExists && "btn-disabled"
                         )} 
                         onClick={() => onDeleteVideo(task.uuid)}
-                        disabled={!videoExists || task.archived}
+                        disabled={!videoExists}
                         data-tip="删除视频文件"
                       >
                         <IconWrapper icon={Trash2} className="text-error/70"/> 
@@ -225,7 +222,6 @@ function CardView({
                                 className="btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200" 
                                 onClick={() => onCreateVideo(task.uuid)}
                                 data-tip="制作视频"
-                                disabled={task.archived}
                             >
                                 <IconWrapper icon={Tv} className="text-secondary" />
                             </button>
@@ -234,10 +230,10 @@ function CardView({
                             <button 
                                 className={cn(
                                     "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
-                                    (audioDownloaded || !task.info_json_path || task.archived) && "btn-disabled"
+                                    (audioDownloaded || !task.info_json_path) && "btn-disabled"
                                 )} 
                                 onClick={() => onDownloadAudio(task.uuid)}
-                                disabled={audioDownloaded || !task.info_json_path || task.archived}
+                                disabled={audioDownloaded || !task.info_json_path}
                                 data-tip={audioDownloaded ? "音频已下载" : (!task.info_json_path ? "需获取 Info JSON" : "下载源音频")}
                             >
                                 <IconWrapper icon={DownloadCloud} className={cn((audioDownloaded || !task.info_json_path) ? 'text-base-content/40' : 'text-primary')} />
@@ -246,10 +242,10 @@ function CardView({
                         <button 
                            className={cn(
                                "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
-                               (!videoExists || task.archived) && "btn-disabled"
+                               (!videoExists) && "btn-disabled"
                            )} 
                            onClick={() => onExtractAudio(task.uuid)}
-                           disabled={!videoExists || task.archived}
+                           disabled={!videoExists}
                            data-tip="提取音频"
                          >
                            <IconWrapper icon={AudioWaveform} className={cn(!videoExists ? 'text-base-content/40' : 'text-accent')}/>
@@ -257,10 +253,10 @@ function CardView({
                          <button 
                            className={cn(
                                "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
-                               (!(audioExists || audioDownloaded) || task.archived) && "btn-disabled"
+                               (!(audioExists || audioDownloaded)) && "btn-disabled"
                            )} 
                            onClick={() => onDeleteAudio(task.uuid)}
-                           disabled={!(audioExists || audioDownloaded) || task.archived}
+                           disabled={!(audioExists || audioDownloaded)}
                            data-tip="删除音频文件"
                          >
                            <IconWrapper icon={Trash2} className="text-error/70"/>
@@ -282,21 +278,21 @@ function CardView({
                                 <button 
                                    className={cn(
                                        "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
-                                       (!canMerge || task.archived) && "btn-disabled"
+                                       (!canMerge || isMerged) && 'btn-disabled'
                                     )} 
                                    onClick={() => onMergeVtt(task.uuid)}
-                                   disabled={!canMerge || task.archived}
-                                   data-tip={isMerged ? "字幕已合并" : (!(vttEnExists || vttZhExists) ? "缺少字幕" : "合并字幕 (MD)")}
+                                   disabled={!canMerge || isMerged}
+                                   data-tip={isMerged ? "字幕已合并" : (!canMerge ? (vttEnExists || vttZhExists ? "可以合并" : "缺少VTT文件") : "合并字幕 (MD)")}
                                 >
-                                   <IconWrapper icon={Combine} className={cn(!canMerge ? 'text-base-content/40' : 'text-secondary')} /> 
+                                   <IconWrapper icon={Combine} className={cn(isMerged ? 'text-success' : (!canMerge ? 'text-base-content/40' : 'text-secondary'))} /> 
                                 </button>
                                 <button 
                                    className={cn(
                                        "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
-                                       (!task.info_json_path || task.archived) && "btn-disabled"
+                                       (!task.info_json_path) && "btn-disabled"
                                    )} 
                                    onClick={() => onDownloadVtt(task.uuid)}
-                                   disabled={!task.info_json_path || task.archived}
+                                   disabled={!task.info_json_path}
                                    data-tip="下载 VTT"
                                 >
                                    <IconWrapper icon={DownloadCloud} className={cn(!task.info_json_path ? 'text-base-content/40' : 'text-info')} />
@@ -313,10 +309,10 @@ function CardView({
                                <button 
                                    className={cn(
                                        "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
-                                       (!vttEnExists || task.archived) && 'btn-disabled'
+                                       (!vttEnExists) && 'btn-disabled'
                                    )} 
                                    onClick={() => onDeleteVtt(task.uuid, 'en')}
-                                   disabled={!vttEnExists || task.archived}
+                                   disabled={!vttEnExists}
                                    data-tip="删除英文 VTT"
                                >
                                    <IconWrapper icon={Trash} className="w-3 h-3 text-error/70" /> 
@@ -330,10 +326,10 @@ function CardView({
                                <button 
                                    className={cn(
                                        "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
-                                       (!vttZhExists || task.archived) && 'btn-disabled'
+                                       (!vttZhExists) && 'btn-disabled'
                                    )} 
                                    onClick={() => onDeleteVtt(task.uuid, 'zh-Hans')}
-                                   disabled={!vttZhExists || task.archived}
+                                   disabled={!vttZhExists}
                                    data-tip="删除中文 VTT"
                                >
                                    <IconWrapper icon={Trash} className="w-3 h-3 text-error/70" />
@@ -359,13 +355,12 @@ function CardView({
                           <select
                              className={cn(
                                  "select select-bordered select-xs w-full font-normal",
-                                 (!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived) && 'select-disabled opacity-60'
+                                 (!hasAudioForTranscription || whisperXJsonExists || isTranscribing) && 'select-disabled opacity-60'
                              )}
                              value={selectedWhisperXModel}
                              onChange={(e) => handleWhisperXModelChange(task.uuid, e.target.value)}
-                             disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived}
+                             disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing}
                              title={
-                                task.archived ? "任务已归档" :
                                 !hasAudioForTranscription ? "需要先下载或提取音频" :
                                 whisperXJsonExists ? "已转录，请先删除" :
                                 isTranscribing ? "正在转录中..." : "选择 WhisperX 模型"
@@ -380,15 +375,14 @@ function CardView({
                                  className={cn(
                                      "btn btn-outline btn-xs", 
                                      whisperXJsonExists ? "btn-success" : "btn-primary",
-                                     (!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived) && 'btn-disabled'
+                                     (!hasAudioForTranscription || whisperXJsonExists || isTranscribing) && 'btn-disabled'
                                  )}
                                  onClick={() => onTranscribeWhisperX(task.uuid, selectedWhisperXModel)}
-                                 disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived}
+                                 disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing}
                                  title={
-                                     task.archived ? "任务已归档" :
-                                     !hasAudioForTranscription ? "需要音频文件" :
-                                     whisperXJsonExists ? `已转录 (${task.transcription_model})` :
-                                     isTranscribing ? "正在转录..." : `使用 ${selectedWhisperXModel} 模型转录`
+                                    !hasAudioForTranscription ? "需要音频文件" :
+                                    whisperXJsonExists ? `已转录 (${task.transcription_model})` :
+                                    isTranscribing ? "正在转录..." : `使用 ${selectedWhisperXModel} 模型转录`
                                  }
                              >
                                 {isTranscribing ? "转录中..." : (whisperXJsonExists ? "已完成" : "开始转录")}
@@ -396,10 +390,10 @@ function CardView({
                              <button
                                  className={cn(
                                      "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", 
-                                     (!whisperXJsonExists || isTranscribing || task.archived) && 'btn-disabled'
+                                     (!whisperXJsonExists || isTranscribing) && 'btn-disabled'
                                  )}
                                  onClick={() => onDeleteWhisperX(task.uuid)}
-                                 disabled={!whisperXJsonExists || isTranscribing || task.archived}
+                                 disabled={!whisperXJsonExists || isTranscribing}
                                  data-tip="删除转录文件"
                              >
                                 <IconWrapper icon={Trash2} className="text-error/70"/>

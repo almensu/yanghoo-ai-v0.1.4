@@ -701,30 +701,39 @@ function Studio({ taskUuid, apiBaseUrl }) {
         const zhCues = parsedCuesByLang['zh-Hans'] || [];
         if (!enCues.length && !zhCues.length) return [];
 
-        const maxLength = Math.max(enCues.length, zhCues.length);
+        // Create a unified timeline of all unique start and end times
+        const timePoints = new Set();
+        [...enCues, ...zhCues].forEach(cue => {
+            timePoints.add(cue.startTime);
+            timePoints.add(cue.endTime);
+        });
+        const sortedTimePoints = Array.from(timePoints).sort((a, b) => a - b);
+
         const mergedCues = [];
-        for (let i = 0; i < maxLength; i++) {
-            const enCue = enCues.find(c => c.id === `en-cue-${i}` || c.id === `en-fallback-cue-${i}` || c.id === `en-manual-cue-${i}`); // Find by potential ID
-            const zhCue = zhCues.find(c => c.id === `zh-Hans-cue-${i}` || c.id === `zh-Hans-fallback-cue-${i}` || c.id === `zh-Hans-manual-cue-${i}`);
+        for (let i = 0; i < sortedTimePoints.length - 1; i++) {
+            const segmentStart = sortedTimePoints[i];
+            const segmentEnd = sortedTimePoints[i+1];
+            const midPoint = segmentStart + (segmentEnd - segmentStart) / 2;
 
-            const startTime = zhCue?.startTime ?? enCue?.startTime;
-            const endTime = zhCue?.endTime ?? enCue?.endTime;
-            const baseId = zhCue?.id ?? enCue?.id ?? `bilingual-cue-${i}`; // Use existing ID or generate one
+            if (segmentStart >= segmentEnd) continue; // Skip zero-duration segments
 
-            if (startTime !== undefined && endTime !== undefined && startTime < endTime) {
+            const activeEnCue = enCues.find(cue => midPoint >= cue.startTime && midPoint < cue.endTime);
+            const activeZhCue = zhCues.find(cue => midPoint >= cue.startTime && midPoint < cue.endTime);
+
+            if (activeEnCue || activeZhCue) {
                 mergedCues.push({
-                    id: baseId, // Ensure bilingual cues also have an ID
-                    startTime,
-                    endTime,
-                    enText: enCue?.text || null,
-                    zhText: zhCue?.text || null,
+                    id: `bilingual-merged-${segmentStart}-${segmentEnd}`,
+                    startTime: segmentStart,
+                    endTime: segmentEnd,
+                    enText: activeEnCue?.text || null,
+                    zhText: activeZhCue?.text || null,
                     isBilingual: true
                 });
             }
         }
-        cuesForDisplay = mergedCues.sort((a, b) => a.startTime - b.startTime);
+        cuesForDisplay = mergedCues;
 
-    } else if (parsedCuesByLang[displayLang]) {
+    } else if (parsedCuesByLang[displayLang]?.length > 0) {
         // Ensure cues have IDs (should already be there from parseVtt)
         cuesForDisplay = parsedCuesByLang[displayLang].map((cue, index) => ({
              ...cue, 

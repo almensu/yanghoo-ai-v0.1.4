@@ -12,13 +12,19 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
   const ws = useRef(null);
   const navigate = useNavigate();
 
-  // New state for filtering archived tasks
-  const [showArchived, setShowArchived] = useState(false);
-
-  // Filter tasks based on the showArchived state
+  // Modified: Ensure all tasks are included, archiving status is handled by backend/display only
   const filteredTasks = useMemo(() => {
-    return tasks.filter(task => showArchived || !task.archived);
-  }, [tasks, showArchived]);
+    // The sorting logic based on 'archived' can remain if you want archived tasks
+    // to appear at the bottom, but they will still be visible and interactable.
+    // If you want no visual distinction in order, remove the sort or adjust.
+    // For now, keeping the sort as it doesn't filter out.
+    return tasks.sort((a, b) => {
+      if (a.archived !== b.archived) {
+        return a.archived ? 1 : -1; // Archived tasks sort to the bottom
+      }
+      return 0; // Maintain original order for tasks with same archive status
+    });
+  }, [tasks]);
 
   const fetchTasks = useCallback(async () => {
     setFetchLoading(true);
@@ -26,10 +32,13 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
     try {
       const response = await axios.get(`${apiBaseUrl}/api/tasks`);
       const sortedTasks = response.data.sort((a, b) => {
+        // This initial sort from fetch can also be simplified if the useMemo sort handles it,
+        // or if the backend already provides a preferred order.
+        // For now, let's match the useMemo sort for consistency.
         if (a.archived !== b.archived) {
           return a.archived ? 1 : -1;
         }
-        return 0;
+        return 0; 
       });
       setTasks(sortedTasks);
       setFetchError(null);

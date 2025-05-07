@@ -27,17 +27,14 @@ function TaskList({
 }) {
   const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
   const [searchTerm, setSearchTerm] = useState(''); // State for search term (if you add search input later)
-  const [filterArchived, setFilterArchived] = useState(false); // State for filtering archived tasks (if you add filter control later)
 
-  // Filter tasks based on search term and archive status
-  // Add search/filter inputs later if needed
-  const filteredTasks = tasks.filter(task => {
+  // Filter tasks based on search term. Archive filtering is now handled by the parent.
+  const processedTasks = tasks.filter(task => {
     // Example filtering logic (can be expanded)
     const matchesSearch = searchTerm === '' || 
                           (task.title && task.title.toLowerCase().includes(searchTerm.toLowerCase())) ||
                           (task.url && task.url.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesArchive = !filterArchived || !task.archived;
-    return matchesSearch && matchesArchive;
+    return matchesSearch;
   });
 
   return (
@@ -72,7 +69,7 @@ function TaskList({
           {/* You might want to add search/filter inputs here later */} 
           {viewMode === 'card' ? (
             <CardView 
-              tasks={filteredTasks} 
+              tasks={processedTasks}
               onDelete={onDelete} 
               onArchive={onArchive}
               onDownloadRequest={onDownloadRequest} 
@@ -87,11 +84,11 @@ function TaskList({
               onDeleteWhisperX={onDeleteWhisperX}
               onCreateVideo={onCreateVideo}
               onOpenFolder={onOpenFolder}
-              onGoToStudio={onGoToStudio} // Pass it down
+              onGoToStudio={onGoToStudio}
             />
           ) : (
             <TableView 
-              tasks={filteredTasks} 
+              tasks={processedTasks}
               onDelete={onDelete} 
               onArchive={onArchive}
               onDownloadRequest={onDownloadRequest} 
@@ -105,7 +102,6 @@ function TaskList({
               onTranscribeWhisperX={onTranscribeWhisperX}
               onDeleteWhisperX={onDeleteWhisperX}
               onCreateVideo={onCreateVideo}
-              // Note: TableView doesn't have onOpenFolder prop in the original App.js
             />
           )}
           {tasks.length === 0 && !isLoading && <p className="text-center text-gray-500 mt-4">No tasks ingested yet.</p>}
