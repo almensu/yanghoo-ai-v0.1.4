@@ -2312,58 +2312,69 @@ def run_ffmpeg_cut(
                 logger.warning(f"[Job {job_id}] No source VTT file available for conversion ('{embed_subtitle_lang}'). Proceeding without subtitles.")
                 subtitle_filter = None
 
-        # --- 准备视频剪切过程 - Prepare video cutting process ---
-        # 先创建切分后的临时无字幕视频
-        temp_cut_video = output_path.parent / f"temp_cut_video_{job_id}.mp4"
-        temp_files_to_clean.append(temp_cut_video)
+        # --- 准备视频剪切过程 - 更平滑的解决方案 ---
+        # 使用简化的concat方式，避免复杂的filter_complex问题
+        temp_segment_files = []
+        segments_file_path = output_path.parent / f"segments_{job_id}.txt"
+        temp_files_to_clean.append(segments_file_path)
         
-        # 准备切分选择器
-        select_filters = []
-        for i, seg in enumerate(segments):
-            start_time = seg['start']
-            end_time = seg['end']
-            if start_time >= end_time:
-                logger.warning(f"[Job {job_id}] Skipping invalid segment: start={start_time}, end={end_time}")
-                continue
-            select_filters.append(f"between(t,{start_time},{end_time})")
-        
-        if not select_filters:
+        # 创建片段列表文件
+        valid_segments = [seg for seg in segments if seg['end'] > seg['start']]
+        if not valid_segments:
             raise ValueError("No valid segments found after filtering.")
-        
-        select_statement = "+".join(select_filters)
-        audio_filter = f"aselect='{select_statement}',asetpts=N/SR/TB"
-        video_filter = f"select='{select_statement}',setpts=N/FRAME_RATE/TB"
-        
-        # 切分视频的命令
-        cut_command = [
-            "ffmpeg",
-            "-v", "info",
-            "-i", str(input_path),
-            "-vf", video_filter,
-            "-af", audio_filter,
-            "-c:v", "libx264", 
-            "-preset", "fast",  
-            "-crf", "22",       
-            "-c:a", "aac",       
-            "-b:a", "128k",      
-            "-movflags", "+faststart", 
-            "-y",              
-            str(temp_cut_video)
-        ]
-        
-        logger.info(f"[Job {job_id}] Running cut video command: {' '.join(shlex.quote(str(c)) for c in cut_command)}")
-        
-        # 执行剪切视频
-        process1 = subprocess.run(
-            cut_command,
-            capture_output=True,
-            text=True,
-            check=False,
-            encoding='utf-8'
-        )
-        
-        if process1.returncode != 0:
-            error_message = f"Cut video failed with code {process1.returncode}. Stderr: {process1.stderr}"
+            
+        # 为每个片段创建临时文件
+        with open(segments_file_path, 'w') as f:
+            for i, seg in enumerate(valid_segments):
+                start_time = seg['start']
+                end_time = seg['end']
+                duration = end_time - start_time
+                
+                # 切出单个片段到临时文件
+                temp_file = output_path.parent / f"temp_segment_{job_id}_{i}.mp4"
+                temp_segment_files.append(temp_file)
+                temp_files_to_clean.append(temp_file)
+                
+                # 使用简单的-ss和-t参数切分
+                segment_cmd = [
+                    "ffmpeg", "-v", "error",
+                    "-ss", str(start_time),
+                    "-t", str(duration),
+                    "-i", str(input_path),
+                    "-c:v", "libx264", "-preset", "fast",
+                    "-c:a", "aac",
+                    "-avoid_negative_ts", "1",
+                    "-y", str(temp_file)
+                ]
+                
+                logger.info(f"[Job {job_id}] Extracting segment {i}: {' '.join(shlex.quote(str(c)) for c in segment_cmd)}")
+                
+                # 执行片段切分
+                try:
+                    seg_process = subprocess.run(
+                        segment_cmd,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        encoding='utf-8'
+                    )
+                    
+                    if seg_process.returncode != 0:
+                        logger.error(f"[Job {job_id}] Failed to extract segment {i}. Error: {seg_process.stderr}")
+                        continue
+                        
+                    # 如果成功创建了片段，添加到列表文件
+                    if temp_file.exists() and temp_file.stat().st_size > 1024:
+                        f.write(f"file '{temp_file.resolve()}'\n")
+                    else:
+                        logger.warning(f"[Job {job_id}] Segment {i} file missing or too small, skipping")
+                        
+                except Exception as e:
+                    logger.error(f"[Job {job_id}] Error extracting segment {i}: {e}", exc_info=True)
+                    
+        # 检查是否有有效片段
+        if not temp_segment_files or not segments_file_path.exists() or segments_file_path.stat().st_size == 0:
+            error_message = "Failed to extract any valid segments"
             logger.error(f"[Job {job_id}] {error_message}")
             cut_job_statuses[job_id]["status"] = "failed"
             cut_job_statuses[job_id]["message"] = error_message
@@ -2373,79 +2384,131 @@ def run_ffmpeg_cut(
                 if temp_file.exists():
                     try:
                         temp_file.unlink()
-                    except OSError as e:
-                        logger.error(f"[Job {job_id}] Failed to cleanup temp file {temp_file}: {e}")
+                    except Exception as e:
+                        logger.error(f"[Job {job_id}] Failed to clean temp file {temp_file}: {e}")
             return
         
-        # 确定是输出带字幕的视频还是无字幕的视频 - Determine whether to output with or without burned-in subtitles
+        # 拼接所有片段
+        logger.info(f"[Job {job_id}] Concatenating segments using segments file")
+        
+        # 首先创建无字幕版本
+        temp_concat_file = output_path.parent / f"temp_concat_{job_id}.mp4"
+        temp_files_to_clean.append(temp_concat_file)
+        
+        concat_cmd = [
+            "ffmpeg", "-v", "info",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(segments_file_path),
+            "-c", "copy",
+            "-movflags", "+faststart",
+            "-y", str(temp_concat_file)
+        ]
+        
+        logger.info(f"[Job {job_id}] Running concat command: {' '.join(shlex.quote(str(c)) for c in concat_cmd)}")
+        
+        # 执行拼接
+        concat_process = subprocess.run(
+            concat_cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            encoding='utf-8'
+        )
+        
+        if concat_process.returncode != 0:
+            error_message = f"Failed to concatenate segments. Error: {concat_process.stderr}"
+            logger.error(f"[Job {job_id}] {error_message}")
+            cut_job_statuses[job_id]["status"] = "failed"
+            cut_job_statuses[job_id]["message"] = error_message
+            
+            # 清理临时文件
+            for temp_file in temp_files_to_clean:
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink()
+                    except Exception as e:
+                        logger.error(f"[Job {job_id}] Failed to clean temp file {temp_file}: {e}")
+            return
+        
+        # 如果需要添加字幕，处理拼接好的视频
         if subtitle_filter:
-            # 烧录字幕到视频 - Burn subtitles into video
-            burn_command = [
-                "ffmpeg",
-                "-v", "info", 
-                "-i", str(temp_cut_video),
+            logger.info(f"[Job {job_id}] Adding subtitles to concatenated video")
+            
+            burn_cmd = [
+                "ffmpeg", "-v", "info",
+                "-i", str(temp_concat_file),
                 "-vf", subtitle_filter,
-                "-c:v", "libx264", 
-                "-preset", "fast",  
-                "-crf", "22",       
+                "-c:v", "libx264", "-preset", "fast",
                 "-c:a", "copy",
-                "-movflags", "+faststart", 
-                "-y",              
-                str(output_path)
+                "-movflags", "+faststart",
+                "-y", str(output_path)
             ]
             
-            logger.info(f"[Job {job_id}] Running burn subtitles command: {' '.join(shlex.quote(str(c)) for c in burn_command)}")
+            logger.info(f"[Job {job_id}] Running subtitle burn command: {' '.join(shlex.quote(str(c)) for c in burn_cmd)}")
             
-            # 执行烧录字幕
-            process2 = subprocess.run(
-                burn_command,
+            # 执行字幕烧录
+            burn_process = subprocess.run(
+                burn_cmd,
                 capture_output=True,
                 text=True,
                 check=False,
                 encoding='utf-8'
             )
             
-            if process2.returncode == 0:
-                logger.info(f"[Job {job_id}] Successfully burned subtitles into video: {output_path}")
+            if burn_process.returncode == 0:
+                logger.info(f"[Job {job_id}] Successfully added subtitles to video")
                 output_files["has_burned_subtitles"] = True
             else:
-                error_message = f"Subtitle burning failed with code {process2.returncode}. Stderr: {process2.stderr}"
-                logger.error(f"[Job {job_id}] {error_message}")
+                logger.error(f"[Job {job_id}] Failed to add subtitles. Error: {burn_process.stderr}")
+                logger.info(f"[Job {job_id}] Using concatenated video without subtitles")
                 
-                # 如果字幕烧录失败，使用无字幕视频作为备用
-                logger.info(f"[Job {job_id}] Using cut video without subtitles as fallback")
-                import shutil
+                # 使用无字幕版本
                 try:
-                    shutil.copy2(temp_cut_video, output_path)
-                    logger.info(f"[Job {job_id}] Successfully copied cut video without subtitles to {output_path}")
+                    import shutil
+                    shutil.copy2(temp_concat_file, output_path)
                     output_files["has_burned_subtitles"] = False
+                    logger.info(f"[Job {job_id}] Copied non-subtitled video to output")
                 except Exception as e:
-                    logger.error(f"[Job {job_id}] Failed to copy cut video as fallback: {e}", exc_info=True)
+                    error_message = f"Failed to copy concatenated video: {e}"
+                    logger.error(f"[Job {job_id}] {error_message}")
                     cut_job_statuses[job_id]["status"] = "failed"
-                    cut_job_statuses[job_id]["message"] = f"Subtitle burning failed and fallback copy also failed: {e}"
+                    cut_job_statuses[job_id]["message"] = error_message
                     return
         else:
-            # 直接使用无字幕视频作为输出 - Use cut video without subtitles as output
-            import shutil
+            # 直接使用拼接好的无字幕视频
             try:
-                shutil.copy2(temp_cut_video, output_path)
-                logger.info(f"[Job {job_id}] Successfully copied cut video to {output_path}")
+                import shutil
+                shutil.copy2(temp_concat_file, output_path)
                 output_files["has_burned_subtitles"] = False
+                logger.info(f"[Job {job_id}] Copied concatenated video to output (no subtitles)")
             except Exception as e:
-                logger.error(f"[Job {job_id}] Failed to copy cut video to final location: {e}", exc_info=True)
+                error_message = f"Failed to copy concatenated video: {e}"
+                logger.error(f"[Job {job_id}] {error_message}")
                 cut_job_statuses[job_id]["status"] = "failed"
-                cut_job_statuses[job_id]["message"] = f"Failed to copy cut video to final location: {e}"
+                cut_job_statuses[job_id]["message"] = error_message
                 return
-
-        # --- 清理临时文件 ---
-        for temp_file in temp_files_to_clean:
-            if temp_file.exists():
-                try:
-                    temp_file.unlink()
-                    logger.info(f"[Job {job_id}] Cleaned up temporary file: {temp_file}")
-                except OSError as e:
-                    logger.error(f"[Job {job_id}] Failed to cleanup temporary file {temp_file}: {e}")
-
+                
+        # 检查输出文件
+        if not output_path.exists():
+            error_message = "Output file was not created"
+            logger.error(f"[Job {job_id}] {error_message}")
+            cut_job_statuses[job_id]["status"] = "failed"
+            cut_job_statuses[job_id]["message"] = error_message
+            return
+            
+        file_size = output_path.stat().st_size
+        if file_size < 1024:  # 文件小于1KB，可能是空文件
+            error_message = f"Output file is too small ({file_size} bytes). Possible error."
+            logger.error(f"[Job {job_id}] {error_message}")
+            cut_job_statuses[job_id]["status"] = "failed"
+            cut_job_statuses[job_id]["message"] = error_message
+            try:
+                output_path.unlink()
+            except OSError:
+                pass
+            return
+        
         # 更新任务状态为完成
         cut_job_statuses[job_id]["status"] = "completed"
         cut_job_statuses[job_id]["output_path"] = str(output_path.relative_to(DATA_DIR))
