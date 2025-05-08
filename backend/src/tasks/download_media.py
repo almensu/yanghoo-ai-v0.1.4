@@ -68,6 +68,8 @@ async def run_download_media(task_metadata: TaskMetadata, quality: str, base_dir
         'no_warnings': True,
         'ignoreerrors': False,
         'merge_output_format': 'mp4',
+        # 'external_downloader': 'aria2c', # Removed as per user request
+        # 'external_downloader_args': ['-x', '16', '-s', '16', '-k', '1M'], # Removed for HLS compatibility
     }
 
     loop = asyncio.get_event_loop()

@@ -6,6 +6,7 @@ import VideoPlayer from './VideoPlayer';
 import VttPreviewer from './VttPreviewer';
 import MarkdownViewer from './MarkdownViewer';
 import StudioWorkSpace from './StudioWorkSpace';
+import AIChat from './AIChat';
 
 // --- 新增：前端 VTT 清洗辅助函数 ---
 
@@ -1315,8 +1316,11 @@ function Studio({ taskUuid, apiBaseUrl }) {
             />
           </div>
         ) : (
-          <div className="flex-grow flex items-center justify-center">
-            <p className="text-gray-400 italic">(AI Chat Interface Placeholder)</p>
+          <div className="flex-grow h-full">
+            <AIChat 
+              markdownContent={markdownContent}
+              apiBaseUrl={apiBaseUrl}
+            />
           </div>
         )}
       </div>

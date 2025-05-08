@@ -7,4 +7,9 @@ aiofiles>=0.8.0
 ffmpeg-python>=0.2.0
 whisperx>=3.1.1
 aiohttp>=3.9.0
-webvtt-py>=0.4.6 
+webvtt-py>=0.4.6
+openai
+librosa
+markdown2
+requests>=2.28.0
+# Add other dependencies below as needed 

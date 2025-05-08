@@ -2645,6 +2645,9 @@ async def get_cut_job_status(task_uuid: UUID, job_id: str):
 
 # <<< Add New Endpoints Here >>> (Place the new endpoints above this marker if it exists)
 
+from .routes import chat
+app.include_router(chat.router)
+
 if __name__ == "__main__":
     import uvicorn
     # from pydantic import ValidationError # Already imported earlier if needed
