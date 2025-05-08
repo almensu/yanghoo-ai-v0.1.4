@@ -6,6 +6,8 @@ function AIChat({ markdownContent, apiBaseUrl }) {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [currentStreamedContent, setCurrentStreamedContent] = useState('');
   const chatContainerRef = useRef(null);
   const [selectedModel, setSelectedModel] = useState('deepseek');
   const [availableModels, setAvailableModels] = useState([
@@ -15,7 +17,9 @@ function AIChat({ markdownContent, apiBaseUrl }) {
     //{ id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
   ]);
   const [debugInfo, setDebugInfo] = useState(null);
+  const [showDebug, setShowDebug] = useState(false);
   const [rawResponse, setRawResponse] = useState(null);
+  const [thoughtOpacity] = useState(0.5);
 
   useEffect(() => {
     setMessages([
@@ -31,7 +35,82 @@ function AIChat({ markdownContent, apiBaseUrl }) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, currentStreamedContent]);
+
+  // 处理思考标签，将内容分为思考部分和正式回复部分
+  const processThinking = (content) => {
+    if (!content) return { thinkingBlocks: [], reply: null };
+    
+    // 改进：匹配多个<think>...</think>标签
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+    const thinkMatches = Array.from(content.matchAll(thinkRegex));
+    
+    if (thinkMatches.length > 0) {
+      // 提取所有思考内容
+      const thinkingBlocks = thinkMatches.map(match => match[1].trim());
+      
+      // 替换所有思考标签获取纯回复内容
+      let reply = content;
+      thinkMatches.forEach(match => {
+        reply = reply.replace(match[0], '');
+      });
+      reply = reply.trim();
+      
+      return { thinkingBlocks, reply };
+    }
+    
+    // 如果没有匹配到思考标签，则全部内容视为正式回复
+    return { thinkingBlocks: [], reply: content };
+  };
+
+  // 模拟流式接收响应
+  const streamResponse = async (content) => {
+    setIsStreaming(true);
+    setCurrentStreamedContent('');
+    
+    // 处理思考标签
+    const { thinkingBlocks, reply } = processThinking(content);
+    let contentToStream = content;
+    
+    // 流式显示的步长和延迟
+    const chunkSize = 3; // 每次添加的字符数
+    const delay = 15; // 毫秒
+    
+    // 流式显示内容
+    let currentPosition = 0;
+    while (currentPosition < contentToStream.length) {
+      const nextChunk = contentToStream.substring(
+        currentPosition, 
+        Math.min(currentPosition + chunkSize, contentToStream.length)
+      );
+      
+      currentPosition += chunkSize;
+      
+      setCurrentStreamedContent(prev => prev + nextChunk);
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    
+    // 流式显示结束，更新消息
+    setMessages(prev => {
+      // 找到最后一条消息并更新内容
+      const newMessages = [...prev];
+      if (newMessages.length > 0) {
+        const lastMsg = newMessages[newMessages.length - 1];
+        if (lastMsg.role === 'assistant') {
+          lastMsg.content = content;
+          if (thinkingBlocks.length > 0) {
+            lastMsg.thinkingBlocks = thinkingBlocks;
+            lastMsg.reply = reply;
+          }
+        }
+      }
+      return newMessages;
+    });
+    
+    setIsStreaming(false);
+    setCurrentStreamedContent('');
+  };
 
   const sendMessage = async () => {
     if (!inputText.trim()) return;
@@ -42,6 +121,9 @@ function AIChat({ markdownContent, apiBaseUrl }) {
     setIsLoading(true);
     setDebugInfo(null);
     setRawResponse(null);
+    
+    // 添加占位的AI回复消息
+    setMessages(prev => [...prev, { role: 'assistant', content: '', isPlaceholder: true }]);
     
     try {
       const chatApiUrl = `${apiBaseUrl}/api/chat`;
@@ -63,32 +145,40 @@ function AIChat({ markdownContent, apiBaseUrl }) {
       
       if (response.data && response.data.content) {
         console.log("Content received:", response.data.content);
-        console.log("Content type:", typeof response.data.content);
-        console.log("Content preview:", response.data.content.substring(0, 50));
         
-        const assistantMessage = { 
-          role: 'assistant', 
-          content: response.data.content 
-        };
+        // 处理思考标签
+        const { thinkingBlocks, reply } = processThinking(response.data.content);
+        const content = response.data.content;
         
-        setMessages(prev => {
-          const newMessages = [...prev, assistantMessage];
-          console.log("Updated messages state:", newMessages);
-          return newMessages;
-        });
-        
+        // 更新调试信息
         setDebugInfo({
           status: 'success',
           model: response.data.model_used,
-          contentLength: response.data.content.length,
-          contentPreview: response.data.content.substring(0, 50) + '...'
+          contentLength: content.length,
+          hasThinking: thinkingBlocks.length > 0,
+          thinkingBlocksCount: thinkingBlocks.length,
+          contentPreview: content.substring(0, 50) + '...'
         });
+        
+        // 开始流式显示
+        await streamResponse(content);
+        
       } else {
         console.error('Response is missing content:', response.data);
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: '抱歉，服务器返回了空响应。请检查您的请求和服务器日志。' 
-        }]);
+        
+        // 更新错误消息
+        setMessages(prev => {
+          const newMessages = [...prev];
+          // 替换最后一条占位消息
+          if (newMessages.length > 0 && newMessages[newMessages.length - 1].isPlaceholder) {
+            newMessages[newMessages.length - 1] = { 
+              role: 'assistant', 
+              content: '抱歉，服务器返回了空响应。请检查您的请求和服务器日志。'
+            };
+          }
+          return newMessages;
+        });
+        
         setDebugInfo({
           status: 'error',
           error: 'Empty response content',
@@ -124,13 +214,135 @@ function AIChat({ markdownContent, apiBaseUrl }) {
         });
       }
       
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: errorMessage
-      }]);
+      // 更新错误消息
+      setMessages(prev => {
+        const newMessages = [...prev];
+        // 替换最后一条占位消息
+        if (newMessages.length > 0 && newMessages[newMessages.length - 1].isPlaceholder) {
+          newMessages[newMessages.length - 1] = { 
+            role: 'assistant', 
+            content: errorMessage
+          };
+        }
+        return newMessages;
+      });
     } finally {
       setIsLoading(false);
       setTimeout(scrollToBottom, 100);
+    }
+  };
+
+  // 渲染消息内容
+  const renderMessageContent = (msg, isUserMessage) => {
+    const content = msg.content;
+    if (!content && !isStreaming) return <div className="text-red-500 italic">无内容显示或加载。</div>;
+    
+    if (isUserMessage) {
+      // 用户消息直接渲染
+      return (
+        <div className="text-white">
+          <div className="whitespace-pre-wrap">
+            {content.split('\n').map((line, i) => (
+              <React.Fragment key={i}>
+                {line}
+                {i < content.split('\n').length - 1 && <br />}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      );
+    } else {
+      // AI助手消息 - 检查是否有思考内容
+      const hasThinking = msg.thinkingBlocks?.length > 0 || (isStreaming && content.includes('<think>'));
+      
+      // 如果是流式显示中，使用当前流式内容
+      const displayContent = isStreaming && msg.isPlaceholder ? currentStreamedContent : content;
+      
+      // 如果消息有思考和回复部分，或者正在流式显示
+      if (hasThinking) {
+        // 解析思考内容和正式回复
+        let thinkingBlocks = [];
+        let reply = '';
+        
+        if (isStreaming) {
+          const processed = processThinking(displayContent);
+          thinkingBlocks = processed.thinkingBlocks || [];
+          reply = processed.reply || '';
+        } else {
+          thinkingBlocks = msg.thinkingBlocks || [];
+          reply = msg.reply || content;
+        }
+        
+        return (
+          <>
+            {/* 思考部分 - 多个思考块显示 */}
+            {thinkingBlocks.map((thinking, index) => (
+              <div 
+                key={`thinking-${index}`}
+                className="thinking-block mb-3 p-3 rounded-lg border border-amber-200 text-gray-700 text-sm"
+                style={{ 
+                  opacity: thoughtOpacity,
+                  backgroundColor: 'rgba(254, 243, 199, 0.2)',
+                  transition: 'none' // 禁用过渡效果，防止闪烁
+                }}
+              >
+                <div className="flex items-center mb-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-amber-400 mr-1">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+                  </svg>
+                  <span className="font-medium text-amber-500 opacity-75">思考过程</span>
+                </div>
+                <div className="whitespace-pre-wrap text-gray-600">
+                  {thinking.split('\n').map((line, i) => (
+                    <React.Fragment key={i}>
+                      {line}
+                      {i < thinking.split('\n').length - 1 && <br />}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            ))}
+            
+            {/* 正式回复部分 */}
+            {reply && (
+              <div className="whitespace-pre-wrap text-gray-800">
+                {reply.split('\n').map((line, i) => (
+                  <React.Fragment key={i}>
+                    {line}
+                    {i < reply.split('\n').length - 1 && <br />}
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+            
+            {/* 如果既没有思考也没有回复，但有内容，则显示全部内容 */}
+            {thinkingBlocks.length === 0 && !reply && displayContent && (
+              <div className="whitespace-pre-wrap text-gray-800">
+                {displayContent.split('\n').map((line, i) => (
+                  <React.Fragment key={i}>
+                    {line}
+                    {i < displayContent.split('\n').length - 1 && <br />}
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      } else {
+        // 普通回复，无思考部分
+        return (
+          <div className="text-gray-800">
+            <div className="whitespace-pre-wrap">
+              {displayContent.split('\n').map((line, i) => (
+                <React.Fragment key={i}>
+                  {line}
+                  {i < displayContent.split('\n').length - 1 && <br />}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        );
+      }
     }
   };
 
@@ -143,7 +355,7 @@ function AIChat({ markdownContent, apiBaseUrl }) {
           value={selectedModel}
           onChange={(e) => setSelectedModel(e.target.value)}
           className="select select-sm select-bordered focus:ring-2 focus:ring-blue-500 transition-all"
-          disabled={isLoading}
+          disabled={isLoading || isStreaming}
         >
           {availableModels.map(model => (
             <option key={model.id} value={model.id}>
@@ -151,11 +363,22 @@ function AIChat({ markdownContent, apiBaseUrl }) {
             </option>
           ))}
         </select>
+        
+        {/* 调试开关 - 默认隐藏，按住Alt+D显示 */}
+        <button 
+          className="ml-2 px-2 py-1 text-xs rounded-md bg-gray-100 text-gray-400 hover:bg-gray-200"
+          title="按Alt+D开关调试信息"
+          onClick={() => setShowDebug(!showDebug)}
+          style={{ opacity: 0.3 }}
+        >
+          {showDebug ? "隐藏调试" : "显示调试"}
+        </button>
+        
         <div className="ml-auto flex items-center">
-          {isLoading ? (
+          {(isLoading || isStreaming) ? (
             <div className="flex items-center text-xs text-indigo-600">
               <span className="loading loading-dots loading-xs mr-1"></span>
-              处理中...
+              {isStreaming ? "正在生成..." : "处理中..."}
             </div>
           ) : (
             <div className="flex items-center">
@@ -168,8 +391,8 @@ function AIChat({ markdownContent, apiBaseUrl }) {
         </div>
       </div>
       
-      {/* 调试信息面板 */}
-      {debugInfo && (
+      {/* 调试信息面板 - 默认隐藏 */}
+      {showDebug && debugInfo && (
         <div 
           className={`text-xs p-2 transition-all duration-300 ${
             debugInfo.status === 'success' 
@@ -184,8 +407,8 @@ function AIChat({ markdownContent, apiBaseUrl }) {
         </div>
       )}
       
-      {/* 原始响应查看器 */}
-      {rawResponse && (
+      {/* 原始响应查看器 - 默认隐藏 */}
+      {showDebug && rawResponse && (
         <div className="text-xs p-2 bg-gray-50 border-b border-gray-200 overflow-auto max-h-36">
           <details>
             <summary className="font-semibold cursor-pointer text-gray-700 hover:text-blue-600 transition-colors">
@@ -222,7 +445,8 @@ function AIChat({ markdownContent, apiBaseUrl }) {
                 animationDelay: `${0.1 * index}s`,
                 boxShadow: msg.role === 'user' 
                   ? '0 4px 6px -1px rgba(59, 130, 246, 0.1), 0 2px 4px -1px rgba(59, 130, 246, 0.06)' 
-                  : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                  : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                minWidth: msg.role === 'assistant' ? '280px' : 'auto'
               }}
             >
               {/* 添加气泡尖角 */}
@@ -233,44 +457,33 @@ function AIChat({ markdownContent, apiBaseUrl }) {
               ></div>
               
               {/* 角色标识 */}
-              <div className={`text-xs font-semibold mb-1 ${msg.role === 'user' ? 'text-blue-100' : 'text-gray-500'}`}>
-                {msg.role === 'user' ? '您' : 'AI 助手'}
+              <div className={`text-xs font-semibold mb-1 ${msg.role === 'user' ? 'text-blue-100' : 'text-gray-500'} flex items-center`}>
+                {msg.role === 'user' ? (
+                  <span>您</span>
+                ) : (
+                  <>
+                    <span>AI 助手</span>
+                    {isStreaming && msg.isPlaceholder && (
+                      <span className="ml-2 inline-flex items-center">
+                        <span className="loading loading-dots loading-xs text-blue-500"></span>
+                      </span>
+                    )}
+                  </>
+                )}
               </div>
               
-              {/* 消息内容 */}
-              {msg.content ? (
-                <div className="markdown-content break-words">
-                  <div className={msg.role === 'user' ? 'text-white' : 'text-gray-800'}>
-                    <MarkdownViewer 
-                      markdown={msg.content} 
-                      className={msg.role === 'user' ? 'prose-invert' : ''}
-                    />
+              {/* 消息内容 - 使用新的渲染函数 */}
+              <div className="markdown-content break-words">
+                {renderMessageContent(msg, msg.role === 'user')}
+                {msg.role === 'assistant' && !msg.isPlaceholder && (
+                  <div className="text-xxs text-gray-400 mt-2 text-right">
+                    {`${new Date().toLocaleTimeString()} · ${msg.content.length} 字符`}
                   </div>
-                  {msg.role === 'assistant' && (
-                    <div className="text-xxs text-gray-400 mt-2 text-right">
-                      {`${new Date().toLocaleTimeString()} · ${msg.content.length} 字符`}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-red-500 italic">无内容显示或加载。</div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         ))}
-        
-        {/* 加载中动画 */}
-        {isLoading && (
-          <div className="flex items-start ml-2 mt-6">
-            <div className="bg-gray-100 rounded-xl p-3 shadow-sm">
-              <div className="flex space-x-1.5">
-                <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0s' }}></div>
-                <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-              </div>
-            </div>
-          </div>
-        )}
         
         {/* 如果没有消息，显示欢迎信息 */}
         {messages.filter(msg => msg.role !== 'system').length === 0 && (
@@ -300,14 +513,14 @@ function AIChat({ markdownContent, apiBaseUrl }) {
             placeholder="按 Shift+Enter 换行，按 Enter 发送..."
             className="flex-grow p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none transition-all duration-200 shadow-sm"
             style={{ minHeight: '60px' }}
-            disabled={isLoading}
+            disabled={isLoading || isStreaming}
           />
           <button 
             onClick={sendMessage} 
             className="btn btn-primary h-12 w-12 rounded-full shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center"
-            disabled={isLoading || !inputText.trim()}
+            disabled={isLoading || isStreaming || !inputText.trim()}
           >
-            {isLoading ? (
+            {isLoading || isStreaming ? (
               <span className="loading loading-spinner loading-sm"></span>
             ) : (
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
@@ -337,7 +550,23 @@ style.textContent = `
   .text-xxs {
     font-size: 0.65rem;
   }
+  
+  /* 禁用思考模块的过渡效果 */
+  .thinking-block {
+    transition: none !important;
+  }
 `;
 document.head.appendChild(style);
+
+// 添加键盘快捷键支持
+document.addEventListener('keydown', function(e) {
+  // Alt+D 切换调试信息显示
+  if (e.altKey && e.key === 'd') {
+    const debugButtons = document.querySelectorAll('[title="按Alt+D开关调试信息"]');
+    if (debugButtons.length > 0) {
+      debugButtons[0].click();
+    }
+  }
+});
 
 export default AIChat; 
