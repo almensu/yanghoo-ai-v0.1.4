@@ -1240,7 +1240,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
             </div>
           ) : ( /* vttMode === 'cut' */
             <div className="flex-grow flex items-center justify-center bg-base-200 p-4 rounded-lg shadow text-gray-500 italic">
-              剪辑模式进行中... (字幕选择已移至AI对话栏)
+              剪辑模式进行中...
             </div>
           )}
           

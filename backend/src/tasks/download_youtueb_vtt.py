@@ -74,7 +74,7 @@ async def download_youtube_vtt(task_meta: TaskMetadata, metadata_file: str = "ba
         # Function to get VTT URLs from current info.json
         def get_vtt_urls_from_info(info_json_path: Path) -> dict:
             urls = {}
-            target_langs = {"zh-Hans": ["zh-Hans"], "en": ["en", "en-orig"]}
+            target_langs = {"zh-Hans": ["zh-Hans"], "en": ["en-orig", "en"]}
             try:
                 if not info_json_path.exists():
                     logging.warning(f"Info JSON file not found at {info_json_path} during URL extraction.")
