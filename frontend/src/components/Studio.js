@@ -1138,14 +1138,14 @@ function Studio({ taskUuid, apiBaseUrl }) {
           )}
         </div>
 
-        {/* VTT Previewer Section */}
-        <div className="flex flex-col flex-grow overflow-hidden bg-white rounded shadow-md">
+        {/* VTT Previewer Section or Clipping Mode Placeholder */}
+        <div className="flex flex-col flex-grow min-h-0"> {/* Ensure this div can grow and shrink */}
           <div className="flex justify-between items-center p-4 pb-2 border-b border-gray-200 flex-shrink-0">
             <div className="flex items-center gap-2">
                 <h3 className="font-semibold">
-                    {vttMode === 'cut' ? '字幕选择 (剪辑模式)' : '字幕预览'}
+                    {vttMode === 'cut' ? '字幕选择 (原位置占位)' : '字幕预览'} {/* Title changes */} 
                 </h3>
-                 {/* Mode Toggle Buttons */} 
+                 {/* Mode Toggle Buttons - RETAIN THESE */}
                 <div className="btn-group">
                     <button 
                         className={`btn btn-xs ${vttMode === 'preview' ? 'btn-active btn-ghost' : 'btn-ghost'}`}
@@ -1161,20 +1161,21 @@ function Studio({ taskUuid, apiBaseUrl }) {
                     </button>
                 </div>
                 
-                {/* Cutting Mode Indicator */}
+                {/* Cutting Mode Indicator - RETAIN THIS */}
                 {vttMode === 'cut' && (
-                  <div className="ml-2 px-2 py-1 text-xs rounded-full bg-accent text-accent-content animate-pulse">
-                    选择模式
+                  <div className="ml-2 px-2 py-1 text-xs rounded-full bg-blue-500 text-white">
+                    剪辑模式
                   </div>
                 )}
             </div>
             <div className="flex gap-2">
+              {/* Language Selection Buttons - RETAIN THESE */}
               {langOptions.map(lang => (
                 <button
                   key={lang}
                   onClick={() => handleLanguageChange(lang)}
                   className={`btn btn-xs ${displayLang === lang ? 'btn-active btn-primary' : 'btn-outline'}`}
-                  disabled={!parsedCuesByLang[lang] && lang !== 'bilingual'}
+                  disabled={!parsedCuesByLang[lang] && lang !== 'bilingual' && !(lang === 'en' && parsedCuesByLang['en']) && !(lang === 'zh-Hans' && parsedCuesByLang['zh-Hans'])}
                 >
                   {getLangButtonLabel(lang)}
                 </button>
@@ -1182,8 +1183,8 @@ function Studio({ taskUuid, apiBaseUrl }) {
             </div>
           </div>
           
-          {/* Batch Selection Controls (only in cut mode) */}
-          {vttMode === 'cut' && displayedCues.length > 0 && (
+          {/* Batch Selection Controls (only in cut mode AND if VttPreviewer is in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
+          {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
             <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-base-200/50">
               <span className="text-xs text-gray-600">批量操作:</span>
               <button 
@@ -1201,48 +1202,50 @@ function Studio({ taskUuid, apiBaseUrl }) {
               </div>
             </div>
           )}
-          
-          <div className="flex-grow overflow-y-auto p-4 pt-2">
-            {/* Conditionally render VttPreviewer or message */}
-            {preferLocalVideo ? (
-              displayedCues.length > 0 ? (
-                <VttPreviewer
-                  cues={displayedCues}
-                  videoRef={videoElementRef}
-                  syncEnabled={true} 
-                  // --- Pass selection props only in 'cut' mode ---
-                  onCueSelect={vttMode === 'cut' ? handleCueSelect : undefined}
-                  selectedCues={vttMode === 'cut' ? selectedCueIds : undefined}
-                  // --------------------------------------------------
-                />
+
+          {/* Conditional Rendering: Placeholder or VTT Previewer */}
+          {vttMode === 'preview' ? (
+            <div className="flex-grow overflow-y-auto p-4 pt-2"> {/* Container for Previewer */}
+              {preferLocalVideo ? (
+                displayedCues.length > 0 ? (
+                  <VttPreviewer
+                    cues={displayedCues}
+                    videoRef={videoElementRef}
+                    syncEnabled={true} 
+                    onCueSelect={undefined} // No selection in preview mode
+                    selectedCues={undefined}
+                  />
+                ) : (
+                  <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
+                    {availableLangs.length === 0
+                      ? 'No VTT files found for this task.'
+                      : `No subtitles loaded or available for ${getLangButtonLabel(displayLang)}.`}
+                  </p>
+                )
               ) : (
-                <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
-                  {availableLangs.length === 0
-                    ? 'No VTT files found for this task.'
-                    : `No subtitles loaded or available for ${getLangButtonLabel(displayLang)}.`}
-                </p>
-              )
-            ) : (
-              displayedCues.length > 0 ? (
-                <VttPreviewer
-                  cues={displayedCues}
-                  videoRef={videoElementRef}
-                  syncEnabled={false}
-                  // --- Pass selection props only in 'cut' mode ---
-                  onCueSelect={vttMode === 'cut' ? handleCueSelect : undefined}
-                  selectedCues={vttMode === 'cut' ? selectedCueIds : undefined}
-                  // --------------------------------------------------
-                />
-              ) : (
-                <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
-                  No subtitles loaded or available for {getLangButtonLabel(displayLang)}.
-                </p>
-              )
-            )}
-          </div>
+                displayedCues.length > 0 ? (
+                  <VttPreviewer
+                    cues={displayedCues}
+                    videoRef={videoElementRef}
+                    syncEnabled={false}
+                    onCueSelect={undefined} // No selection in preview mode
+                    selectedCues={undefined}
+                  />
+                ) : (
+                  <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
+                    No subtitles loaded or available for {getLangButtonLabel(displayLang)}.
+                  </p>
+                )
+              )}
+            </div>
+          ) : ( /* vttMode === 'cut' */
+            <div className="flex-grow flex items-center justify-center bg-base-200 p-4 rounded-lg shadow text-gray-500 italic">
+              剪辑模式进行中... (字幕选择已移至AI对话栏)
+            </div>
+          )}
           
-          {/* --- Show Cut Button and Status only in 'cut' mode --- */}
-          {vttMode === 'cut' && displayedCues.length > 0 && (
+          {/* Cutting Controls Section (Only in Cut Mode AND if VttPreviewer is NOT in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
+          {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
             <div className="p-4 border-t border-gray-200 flex-shrink-0 space-y-3">
               <div className="flex items-center gap-3">
                 <button
@@ -1254,7 +1257,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
                 </button>
               </div>
 
-              {/* 简化状态显示 */}
               {cuttingJobId && cuttingStatus === 'completed' && cutOutputPath && (
                 <div className="mt-2">
                   <a 
@@ -1269,7 +1271,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
                 </div>
               )}
               
-              {/* 只显示失败状态的消息 */}
               {cuttingJobId && cuttingStatus === 'failed' && (
                 <div className="text-sm p-2 rounded-md bg-error/20 text-error mt-2">
                   {cuttingMessage || '剪辑失败'}
@@ -1277,33 +1278,47 @@ function Studio({ taskUuid, apiBaseUrl }) {
               )}
             </div>
           )}
-
-          {vttMode === 'cut' && selectedCueIds.size > 0 && (
-            <div className="flex flex-col w-full mt-4">
-              <div className="flex items-center gap-2 my-2">
-                <span className="text-sm font-medium">将嵌入字幕:</span>
-                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                  embeddingSubtitleLang !== 'none' 
-                    ? 'bg-success text-success-content' 
-                    : 'bg-error text-error-content'
-                }`}>
-                  {getSubtitleLangLabel(embeddingSubtitleLang)}
-                </span>
-                <span className="text-xs text-gray-500">
-                  (取决于当前选择的字幕语言)
-                </span>
-              </div>
-            </div>
-          )}
         </div>
+
+        {vttMode === 'cut' && selectedCueIds.size > 0 && (
+          <div className="flex flex-col w-full mt-4">
+            <div className="flex items-center gap-2 my-2">
+              <span className="text-sm font-medium">将嵌入字幕:</span>
+              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                embeddingSubtitleLang !== 'none' 
+                  ? 'bg-success text-success-content' 
+                  : 'bg-error text-error-content'
+              }`}>
+                {getSubtitleLangLabel(embeddingSubtitleLang)}
+              </span>
+              <span className="text-xs text-gray-500">
+                (取决于当前选择的字幕语言)
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* --- Middle Column (AI Chat Placeholder) --- */}
+      {/* --- Middle Column (AI Chat Placeholder or VTT Previewer in Cut Mode) --- */}
       <div className="flex flex-col flex-1 bg-white p-4 rounded-lg shadow overflow-auto">
-        <h3 className="text-lg font-semibold mb-2 border-b border-gray-300 pb-2 flex-shrink-0">AI 对话</h3>
-        <div className="flex-grow flex items-center justify-center">
-          <p className="text-gray-400 italic">(AI Chat Interface Placeholder)</p>
-        </div>
+        <h3 className="text-lg font-semibold mb-2 border-b border-gray-300 pb-2 flex-shrink-0">
+          {vttMode === 'cut' ? "字幕选择 (剪辑模式)" : "AI 对话"}
+        </h3>
+        {vttMode === 'cut' ? (
+          <div className="flex-grow min-h-0"> {/* Wrapper to allow VttPreviewer to take full height */}
+            <VttPreviewer
+              cues={displayedCues}
+              videoRef={videoElementRef}
+              syncEnabled={true} 
+              onCueSelect={handleCueSelect}
+              selectedCues={selectedCueIds}
+            />
+          </div>
+        ) : (
+          <div className="flex-grow flex items-center justify-center">
+            <p className="text-gray-400 italic">(AI Chat Interface Placeholder)</p>
+          </div>
+        )}
       </div>
 
       {/* --- Right Column (StudioWorkSpace) --- */}
