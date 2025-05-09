@@ -106,7 +106,7 @@ async def process_openai_request(model: str, messages: List[Dict], api_key: str)
             model=model_to_use,
             messages=messages,
             temperature=0.7,
-            max_tokens=2000,
+            max_tokens=7000 if "deepseek" in model_to_use else 32768,  # DeepSeek API accepts max 8192 tokens
         )
         
         assistant_reply = chat_completion.choices[0].message.content
