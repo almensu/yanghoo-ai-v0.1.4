@@ -1,0 +1,59 @@
+.markdown-body {
+  font-family: 'Inter', 'SF Pro', 'Segoe UI', Arial, sans-serif;
+  line-height: 1.7;
+  color: #222;
+  background: #fff;
+  padding: 1rem;
+  border-radius: 8px;
+  word-break: break-word;
+}
+.markdown-body h1, .markdown-body h2 {
+  border-bottom: 1px solid #eee;
+  padding-bottom: 0.2em;
+  margin-bottom: 0.5em;
+}
+.markdown-body pre {
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+}
+.markdown-body code {
+  background: #f6f8fa;
+  border-radius: 4px;
+  padding: 0.2em 0.4em;
+  font-size: 0.95em;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid #ddd;
+  padding: 0.5em 1em;
+}
+.markdown-body img {
+  max-width: 100%;
+  border-radius: 4px;
+  margin: 0.5em 0;
+}
+.markdown-body blockquote {
+  border-left: 4px solid #d0d7de;
+  background: #f6f8fa;
+  color: #555;
+  margin: 1em 0;
+  padding: 0.5em 1em;
+}
+.markdown-body ul, .markdown-body ol {
+  margin-left: 1.5em;
+  margin-bottom: 1em;
+}
+.markdown-body li {
+  margin-bottom: 0.3em;
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 2em 0;
+} 

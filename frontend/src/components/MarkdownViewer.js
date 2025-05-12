@@ -1,6 +1,9 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github.css'; // 你可以换成别的高亮主题
+import './markdown.css'; // 新增自定义 markdown 样式
 
 // Props:
 // - markdownContent: A string containing the Markdown text to render.
@@ -22,8 +25,11 @@ function MarkdownViewer({ markdownContent }) {
   }
 
   return (
-    <div className={containerClasses + " flex-grow overflow-auto"}> {/* Added flex-grow and overflow */}
-      <ReactMarkdown remarkPlugins={[remarkGfm]}> 
+    <div className={"markdown-body flex-grow overflow-auto p-4 bg-base-100 rounded-lg shadow"}>
+      <ReactMarkdown 
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+      >
         {markdownContent}
       </ReactMarkdown>
     </div>

@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios'; // Needed for fetching
 import MarkdownViewer from './MarkdownViewer';
+import MarkdownEditor from './MarkdownEditor'; // Import the editor component
 import PlaceholderComponent1 from './PlaceholderComponent1';
 import PlaceholderComponent2 from './PlaceholderComponent2';
 import MarkdownList from './MarkdownList'; // Import the new list component
@@ -17,6 +18,42 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [error, setError] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
+  const [isExpanded, setIsExpanded] = useState(false);
+  const contentRef = useRef(null);
+  const selectedFileRef = useRef(selectedFile);
+
+  const handleExpandToggle = () => {
+    const scrollPosition = contentRef.current?.scrollTop || 0;
+    
+    setIsExpanded(prev => !prev);
+    
+    setTimeout(() => {
+      if (contentRef.current) {
+        contentRef.current.scrollTop = scrollPosition;
+      }
+    }, 10);
+  };
+
+  const handleSelectFile = (filename) => {
+    if (selectedFile === filename) return;
+    
+    const scrollPosition = contentRef.current?.scrollTop || 0;
+    
+    selectedFileRef.current = filename;
+    setSelectedFile(filename);
+    setIsEditing(false);
+    setIsCreatingNew(false);
+    
+    setTimeout(() => {
+      if (contentRef.current) {
+        contentRef.current.scrollTop = 0;
+      }
+    }, 10);
+  };
 
   // Effect to fetch the list of markdown files for the task
   useEffect(() => {
@@ -53,7 +90,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
     };
 
     fetchFileList();
-  }, [taskUuid, apiBaseUrl]); // Re-run if task or API URL changes
+  }, [taskUuid, apiBaseUrl]);
 
   // Effect to fetch the content of the selected markdown file
   useEffect(() => {
@@ -85,24 +122,113 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
     fetchFileContent();
   }, [selectedFile, taskUuid, apiBaseUrl]); // Re-run if selected file, task, or API URL changes
 
-  const handleSelectFile = (filename) => {
-    setSelectedFile(filename);
+  const handleCreateNew = () => {
+    setIsCreatingNew(true);
+    setIsEditing(true);
+    setSelectedFile(null);
+    setCurrentMarkdownContent('');
+    setNewFileName('');
+  };
+
+  const handleSaveNew = async () => {
+    if (!newFileName || !taskUuid || !apiBaseUrl) return;
+    
+    // Add .md extension if not already present
+    const fileName = newFileName.endsWith('.md') ? newFileName : `${newFileName}.md`;
+    
+    setIsSaving(true);
+    try {
+      // Save the new markdown file
+      await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodeURIComponent(fileName)}`, 
+        currentMarkdownContent,
+        { headers: { 'Content-Type': 'text/plain' } }
+      );
+      
+      // Refresh the file list
+      const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/list`, {
+        params: { extension: '.md' }
+      });
+      
+      const files = response.data || [];
+      setMarkdownFiles(files);
+      
+      // Select the newly created file
+      setSelectedFile(fileName);
+      setIsCreatingNew(false);
+      setIsEditing(false);
+      
+    } catch (err) {
+      console.error("Error saving new markdown file:", err);
+      setError('Failed to save new markdown file.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedFile || !taskUuid || !apiBaseUrl) return;
+    
+    setIsSaving(true);
+    try {
+      // Save the edited markdown file
+      await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodeURIComponent(selectedFile)}`, 
+        currentMarkdownContent,
+        { headers: { 'Content-Type': 'text/plain' } }
+      );
+      
+      setIsEditing(false);
+    } catch (err) {
+      console.error(`Error saving markdown content for ${selectedFile}:`, err);
+      setError(`Failed to save content for ${selectedFile}.`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleContentChange = (newContent) => {
+    setCurrentMarkdownContent(newContent);
   };
 
   return (
-    <div className="flex flex-col w-1/4 flex-shrink-0 bg-white rounded-lg shadow overflow-hidden">
-      <h3 className="text-lg font-semibold p-4 pb-2 border-b border-gray-300 flex-shrink-0">Studio WorkSpace</h3>
-      <div className="flex-grow overflow-y-auto p-4 pt-2 space-y-4"> {/* Scrollable content area */}
+    <div className={`flex flex-col bg-white rounded-lg shadow overflow-hidden ${isExpanded ? 'w-full' : 'w-80'} transition-all duration-300 ease-in-out`}>
+      <div className="flex justify-between items-center border-b border-gray-300 flex-shrink-0">
+        <h3 className="text-lg font-semibold p-4 pb-2">Studio WorkSpace</h3>
+        <button 
+          onClick={handleExpandToggle}
+          className="mr-4 text-gray-600 hover:text-primary focus:outline-none p-1 rounded-full hover:bg-gray-100"
+          title={isExpanded ? "收缩面板" : "扩展面板"}
+        >
+          {isExpanded ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          )}
+        </button>
+      </div>
+      <div ref={contentRef} className="flex-grow overflow-y-auto p-4 pt-2 space-y-4">
         
-        {/* --- Markdown Section --- */}
         <div> 
-          <h4 className="text-md font-medium mb-1 text-gray-700">Markdown Viewer</h4>
-          {/* Display Loading/Error States */} 
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="text-md font-medium text-gray-700">Markdown Documents</h4>
+            <button 
+              onClick={handleCreateNew}
+              className="text-gray-600 hover:text-primary focus:outline-none p-1 rounded-full hover:bg-gray-100"
+              title="Create new markdown document"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+          </div>
+          
           {isLoadingList && <p className="text-sm text-gray-500 italic">Loading file list...</p>}
           {error && <p className="text-sm text-red-500">Error: {error}</p>}
           
-          {/* Render Markdown List */} 
-          {!isLoadingList && (
+          {!isLoadingList && !isCreatingNew && (
             <MarkdownList 
               files={markdownFiles} 
               selectedFile={selectedFile}
@@ -110,28 +236,98 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
             />
           )}
 
-          {/* Render Markdown Viewer */} 
-          <div className="mt-4 border-t pt-4"> {/* Separator */} 
+          {isCreatingNew && (
+            <div className="mt-3 border rounded p-3 bg-base-100">
+              <div className="flex items-center gap-2 mb-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                <input
+                  type="text"
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  placeholder="Enter file name (e.g. notes.md)"
+                  className="flex-1 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div className="flex justify-end gap-2 mt-2">
+                <button
+                  onClick={() => setIsCreatingNew(false)}
+                  className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveNew}
+                  disabled={!newFileName || isSaving}
+                  className={`px-3 py-1 text-xs rounded ${!newFileName || isSaving ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary text-primary-content hover:bg-primary-focus'}`}
+                >
+                  {isSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 border-t pt-4">
             {isLoadingContent ? (
-               <p className="text-sm text-gray-500 italic">Loading content for {selectedFile}...</p>
+              <p className="text-sm text-gray-500 italic">Loading content for {selectedFile}...</p>
+            ) : isEditing ? (
+              <div>
+                <MarkdownEditor 
+                  key={`editor-${selectedFile || 'new'}`}
+                  value={currentMarkdownContent}
+                  onChange={handleContentChange}
+                />
+                <div className="flex justify-end gap-2 mt-2">
+                  <button
+                    onClick={() => isCreatingNew ? setIsCreatingNew(false) : setIsEditing(false)}
+                    className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={isCreatingNew ? handleSaveNew : handleSaveEdit}
+                    disabled={isSaving}
+                    className={`px-3 py-1 text-xs rounded ${isSaving ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary text-primary-content hover:bg-primary-focus'}`}
+                  >
+                    {isSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
             ) : selectedFile ? (
-              <MarkdownViewer markdownContent={currentMarkdownContent} />
+              <div>
+                <div className="flex justify-end mb-2">
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    Edit
+                  </button>
+                </div>
+                <MarkdownViewer 
+                  key={`viewer-${selectedFile}`}
+                  markdownContent={currentMarkdownContent} 
+                />
+              </div>
             ) : !isLoadingList && markdownFiles.length > 0 ? (
-               <p className="text-gray-500 text-sm italic">Select a markdown file above to view its content.</p>
+              <p className="text-gray-500 text-sm italic">Select a markdown file above to view its content.</p>
             ) : markdownContent ? (
-              /* 当没有文件可选择但父组件提供了 markdown 内容时显示 */
               <div>
                 <p className="text-xs text-gray-500 mb-2 italic">Displaying default markdown content:</p>
-                <MarkdownViewer markdownContent={markdownContent} />
+                <MarkdownViewer 
+                  key="default-content"
+                  markdownContent={markdownContent} 
+                />
               </div>
-            ) : null /* 如果什么都没有，则不显示任何内容 */}
+            ) : null}
           </div>
         </div>
         
-        {/* --- Other Child Components (Placeholders remain) --- */}
         <PlaceholderComponent1 />
         <PlaceholderComponent2 />
-        {/* --- End Child Components --- */}
         
       </div>
     </div>
