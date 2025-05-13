@@ -263,15 +263,14 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
     }
   };
 
-  const handleMergeVtt = async (uuid) => {
+  const handleMergeVtt = async (uuid, format = 'all') => {
     setFetchLoading(true);
     setFetchError(null);
     let mergeError = null;
     try {
-      try { await axios.post(`${apiBaseUrl}/api/tasks/${uuid}/merge_vtt`, { format: 'merged' }); } catch (err) { mergeError = err; }
-      try { await axios.post(`${apiBaseUrl}/api/tasks/${uuid}/merge_vtt`, { format: 'parallel' }); } catch (err) { if (!mergeError) mergeError = err; }
+      try { await axios.post(`${apiBaseUrl}/api/tasks/${uuid}/merge_vtt`, { format: format }); } catch (err) { mergeError = err; }
       if (mergeError) throw mergeError;
-      alert('VTT merge requests sent.');
+      alert('VTT 处理请求已发送。');
       setTimeout(fetchTasks, 2000);
     } catch (err) {
       const msg = err.response?.data?.detail || 'Failed VTT merge.';

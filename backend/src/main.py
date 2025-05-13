@@ -15,7 +15,7 @@ import asyncio
 import mimetypes # 添加 mimetypes 导入
 import uuid
 import shlex
-from fastapi import BackgroundTasks # Import BackgroundTasks
+from fastapi import BackgroundTasks, Body # Import BackgroundTasks and Body
 from pydantic import BaseModel, Field # Import BaseModel and Field
 import re
 import copy
@@ -1112,7 +1112,7 @@ async def download_audio_endpoint(task_uuid: UUID):
 
 # --- NEW: Merge VTT Endpoint ---
 class MergeVttRequest(BaseModel):
-    format: Literal['parallel', 'merged'] = 'parallel' # Default to parallel
+    format: Literal['parallel', 'merged', 'en_only', 'zh_only', 'all'] = 'parallel' # 更新格式选项
 
 @app.post("/api/tasks/{task_uuid}/merge_vtt", status_code=200)
 async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
@@ -1131,18 +1131,58 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
     TASKS_DIR = SRC_DIR / 'tasks' 
     script_path = str(TASKS_DIR / "merge_vtt.py")
     task_data_dir = DATA_DIR / task_uuid_str
-    output_filename = f"{request.format}_transcript_vtt.md" # Use the requested format in filename
-    output_abs_path = task_data_dir / output_filename
-    output_rel_path = Path(task_uuid_str) / output_filename # Relative path for metadata
-
-    # Check if the specific requested format already exists
-    target_metadata_field = None
+    
+    # 处理 'all' 格式，一次生成所有类型
+    if request.format == 'all':
+        result_paths = {}
+        errors = []
+        # 获取 VTT 文件路径
+        en_vtt_rel_path = task_meta.vtt_files.get('en')
+        zh_vtt_rel_path = task_meta.vtt_files.get('zh-Hans')
+        if not en_vtt_rel_path and not zh_vtt_rel_path:
+            raise HTTPException(status_code=400, detail="Cannot merge: Neither English nor Chinese VTT file found in metadata.")
+        # 依次生成四种格式
+        formats = ['merged', 'parallel', 'en_only', 'zh_only']
+        for fmt in formats:
+            output_filename = f"{fmt}_transcript_vtt.md"
+            output_abs_path = task_data_dir / output_filename
+            en_arg = str(DATA_DIR / en_vtt_rel_path) if en_vtt_rel_path and (DATA_DIR / en_vtt_rel_path).exists() else "MISSING"
+            zh_arg = str(DATA_DIR / zh_vtt_rel_path) if zh_vtt_rel_path and (DATA_DIR / zh_vtt_rel_path).exists() else "MISSING"
+            command = [ sys.executable, script_path, en_arg, zh_arg, fmt, str(output_abs_path) ]
+            process = await run_in_threadpool(
+                subprocess.run,
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                encoding='utf-8'
+            )
+            if process.returncode == 0:
+                result_paths[fmt] = str(Path(task_uuid_str) / output_filename)
+                # 更新 metadata
+                if fmt == 'merged':
+                    task_meta.merged_format_vtt_md_path = str(Path(task_uuid_str) / output_filename)
+                elif fmt == 'parallel':
+                    task_meta.parallel_vtt_md_path = str(Path(task_uuid_str) / output_filename)
+                elif fmt == 'en_only':
+                    task_meta.en_only_vtt_md_path = str(Path(task_uuid_str) / output_filename)
+                elif fmt == 'zh_only':
+                    task_meta.zh_only_vtt_md_path = str(Path(task_uuid_str) / output_filename)
+            else:
+                errors.append({fmt: process.stderr[:200]})
+        metadata[task_uuid_str] = task_meta
+        await save_metadata(metadata)
+        return {"message": "All formats merged", "result_paths": result_paths, "errors": errors}
+    # 下面只处理单一格式
     if request.format == 'parallel':
         target_metadata_field = 'parallel_vtt_md_path'
     elif request.format == 'merged':
         target_metadata_field = 'merged_format_vtt_md_path'
+    elif request.format == 'en_only':
+        target_metadata_field = 'en_only_vtt_md_path'
+    elif request.format == 'zh_only':
+        target_metadata_field = 'zh_only_vtt_md_path'
     else:
-        # Should not happen due to Literal validation, but good practice
         raise HTTPException(status_code=400, detail=f"Invalid format requested: {request.format}")
 
     existing_path = getattr(task_meta, target_metadata_field, None)
@@ -2647,6 +2687,61 @@ async def get_cut_job_status(task_uuid: UUID, job_id: str):
 
 from .routes import chat
 app.include_router(chat.router)
+
+# --- START: Add POST endpoint for file creation/update ---
+@app.post("/api/tasks/{task_uuid}/files/{filename}", status_code=200)
+async def create_or_update_file(
+    task_uuid: UUID, 
+    filename: str, 
+    file_content: str = Body(..., media_type="text/plain")
+):
+    """
+    Create or update a file in the task's data directory.
+    Used primarily for markdown files editing.
+    """
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Request to create/update file '{filename}' for task {task_uuid_str}")
+
+    # Basic security check: prevent path traversal
+    if ".." in filename or filename.startswith("/"):
+        logger.warning(f"Detected illegal filename request: {filename} (task: {task_uuid_str})")
+        raise HTTPException(status_code=400, detail="Illegal filename")
+
+    # Build the full path
+    task_data_dir = DATA_DIR / task_uuid_str
+    file_path = task_data_dir / filename
+
+    # Ensure task directory exists
+    if not task_data_dir.exists() or not task_data_dir.is_dir():
+        logger.warning(f"Task data directory not found: {task_data_dir}")
+        raise HTTPException(status_code=404, detail="Task data directory not found")
+
+    # Ensure the file path stays within task directory
+    try:
+        expected_task_dir = (DATA_DIR / task_uuid_str).resolve(strict=True)
+        # Create parent directories if needed
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Resolve after potential parent directory creation
+        resolved_file_path = await run_in_threadpool(file_path.resolve)
+        
+        if not str(resolved_file_path).startswith(str(expected_task_dir)):
+            logger.warning(f"Path Traversal Check Failed: Resolved path {resolved_file_path} does not start with expected directory {expected_task_dir}")
+            raise HTTPException(status_code=400, detail="File path outside allowed directory")
+    except Exception as e:
+        logger.error(f"Error checking or creating file path: {file_path} - {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
+    # Write the content to the file
+    try:
+        async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+            await f.write(file_content)
+        logger.info(f"Successfully created/updated file: {file_path}")
+        return {"message": f"File {filename} created/updated successfully"}
+    except Exception as e:
+        logger.error(f"Error writing file {file_path}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to write file: {str(e)}")
+# --- END: Add POST endpoint for file creation/update ---
 
 if __name__ == "__main__":
     import uvicorn

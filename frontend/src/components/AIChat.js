@@ -12,9 +12,9 @@ function AIChat({ markdownContent, apiBaseUrl }) {
   const chatContainerRef = useRef(null);
   const [selectedModel, setSelectedModel] = useState('deepseek');
   const [availableModels, setAvailableModels] = useState([
-    { id: 'deepseek', name: 'DeepSeek AI' },
-    { id: 'qwen3:14b', name: 'Ollama - qwen3:14b' },
     { id: 'qwen3:0.6b', name: 'Ollama - qwen3:0.6b' },
+    { id: 'qwen3:14b', name: 'Ollama - qwen3:14b' },
+    { id: 'deepseek', name: 'DeepSeek AI' },
     //{ id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
   ]);
   const [debugInfo, setDebugInfo] = useState(null);

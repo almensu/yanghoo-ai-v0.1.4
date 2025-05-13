@@ -30,7 +30,9 @@ function MarkdownList({ files, selectedFile, onSelectFile }) {
                   : 'hover:bg-base-200'
               }`}
             >
-              {filename} {/* Display the filename */}
+              <div className="truncate max-w-full" title={filename}>
+                {filename}
+              </div>
             </button>
           </li>
         ))}

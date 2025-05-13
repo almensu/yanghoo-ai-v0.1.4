@@ -1,6 +1,6 @@
 from pydantic import BaseModel, HttpUrl, Field
 from enum import Enum
-from typing import Optional, Dict, Literal, List
+from typing import Optional, Dict, Literal, List, Union
 from uuid import UUID
 
 class Platform(str, Enum):
@@ -8,6 +8,8 @@ class Platform(str, Enum):
     TWITTER = "twitter"
     PODCAST = "podcast"
     XIAOYUZHOU = "xiaoyuzhou"
+    BILIBILI = "bilibili"
+    OTHER = "other"
 
 class IngestRequest(BaseModel):
     url: str
@@ -19,17 +21,19 @@ class TaskMetadata(BaseModel):
     title: Optional[str] = None
     thumbnail_path: Optional[str] = None
     info_json_path: Optional[str] = None
-    media_files: Optional[Dict[str, str]] = Field(default_factory=dict)
+    media_files: Dict[str, Optional[str]] = {}
     extracted_wav_path: Optional[str] = None
-    vtt_files: Optional[Dict[str, str]] = Field(default_factory=dict)
+    vtt_files: Dict[str, Optional[str]] = {}
     whisperx_json_path: Optional[str] = None
     transcription_model: Optional[str] = None
     parallel_vtt_md_path: Optional[str] = None
     merged_format_vtt_md_path: Optional[str] = None
+    en_only_vtt_md_path: Optional[str] = None
+    zh_only_vtt_md_path: Optional[str] = None
     merged_whisperx_md_path: Optional[str] = None
     archived: bool = False
     downloaded_audio_path: Optional[str] = None
-    embed_url: Optional[HttpUrl] = None
+    embed_url: Optional[str] = None
 
 class FetchInfoJsonResponse(BaseModel):
     task_uuid: UUID

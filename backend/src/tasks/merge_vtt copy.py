@@ -167,53 +167,11 @@ def create_parallel_doc(en_vtt_path, zh_vtt_path, output_file):
          print(f"Error writing parallel file {output_file}: {e}", file=sys.stderr)
          sys.exit(1) # Exit with error if writing fails
 
-def create_en_only_doc(en_vtt_path, output_file):
-    """Create an English-only markdown document without timestamps."""
-    en_content_raw = parse_vtt(en_vtt_path) if en_vtt_path != MISSING_SENTINEL else []
-    
-    en_content = deduplicate_overlaps(en_content_raw)
-    
-    if not en_content:
-        print("Error: No valid English VTT content found or remaining after deduplication.", file=sys.stderr)
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write("# English Transcript\n\nError: No valid English content found.\n")
-        return
-    
-    try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write("# English Transcript\n\n")
-            for _time, text in en_content:
-                f.write(f"{text.strip()}\n\n") # Corrected newline handling
-    except Exception as e:
-        print(f"Error writing English-only file {output_file}: {e}", file=sys.stderr)
-        sys.exit(1)
-
-def create_zh_only_doc(zh_vtt_path, output_file):
-    """Create a Chinese-only markdown document without timestamps."""
-    zh_content_raw = parse_vtt(zh_vtt_path) if zh_vtt_path != MISSING_SENTINEL else []
-    
-    zh_content = deduplicate_overlaps(zh_content_raw)
-    
-    if not zh_content:
-        print("Error: No valid Chinese VTT content found or remaining after deduplication.", file=sys.stderr)
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write("# 中文字幕\n\nError: 未找到有效的中文内容。\n")
-        return
-    
-    try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write("# 中文字幕\n\n")
-            for _time, text in zh_content:
-                f.write(f"{text.strip()}\n\n") # Corrected newline handling
-    except Exception as e:
-        print(f"Error writing Chinese-only file {output_file}: {e}", file=sys.stderr)
-        sys.exit(1)
-
 def main():
     # Expect 5 arguments: script_name, en_vtt, zh_vtt, format, output_file
     if len(sys.argv) != 5:
         print(f"Usage: python {os.path.basename(__file__)} <en_vtt_path|{MISSING_SENTINEL}> <zh_vtt_path|{MISSING_SENTINEL}> <format> <output_abs_path>")
-        print("Format options: merged, parallel, en_only, zh_only, all")
+        print("Format options: merged, parallel")
         sys.exit(1)
     
     en_vtt_path = sys.argv[1]
@@ -226,86 +184,22 @@ def main():
         print(f"Error: At least one input VTT path must be provided (not {MISSING_SENTINEL}).", file=sys.stderr)
         sys.exit(1)
         
-    if format_type not in ['merged', 'parallel', 'en_only', 'zh_only', 'all']:
-         print(f"Error: Invalid format '{format_type}'. Choose from: merged, parallel, en_only, zh_only, all", file=sys.stderr)
+    if format_type not in ['merged', 'parallel']:
+         print(f"Error: Invalid format '{format_type}'. Choose from: merged, parallel", file=sys.stderr)
          sys.exit(1)
 
-    # Validate language-specific formats have matching input files
-    if format_type == 'en_only' and en_vtt_path == MISSING_SENTINEL:
-        print("Error: Cannot create English-only output with missing English VTT.", file=sys.stderr)
-        sys.exit(1)
-    
-    if format_type == 'zh_only' and zh_vtt_path == MISSING_SENTINEL:
-        print("Error: Cannot create Chinese-only output with missing Chinese VTT.", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Starting VTT processing. Format: {format_type}")
+    print(f"Starting VTT merge. Format: {format_type}")
     print(f"  EN VTT Path: {en_vtt_path}")
     print(f"  ZH VTT Path: {zh_vtt_path}")
     print(f"  Output Path: {output_file}")
     
-    # Get base directory and file patterns for 'all' mode
-    if format_type == 'all':
-        output_dir = os.path.dirname(output_file)
-        
-        # 按照现有命名模式命名文件
-        merged_output = os.path.join(output_dir, "merged_transcript_vtt.md")
-        parallel_output = os.path.join(output_dir, "parallel_transcript_vtt.md")
-        en_only_output = os.path.join(output_dir, "en_transcript_vtt.md")
-        zh_only_output = os.path.join(output_dir, "zh_transcript_vtt.md")
-    
     try:
-        if format_type == "merged" or format_type == "all":
-            if format_type == "all":
-                create_merged_doc(en_vtt_path, zh_vtt_path, merged_output)
-                print(f"Created merged bilingual transcript: {merged_output}")
-            else:
-                create_merged_doc(en_vtt_path, zh_vtt_path, output_file)
-                print(f"Created merged bilingual transcript: {output_file}")
-                
-        if format_type == "parallel" or format_type == "all":
-            if format_type == "all":
-                create_parallel_doc(en_vtt_path, zh_vtt_path, parallel_output)
-                print(f"Created parallel bilingual transcript: {parallel_output}")
-            else:
-                create_parallel_doc(en_vtt_path, zh_vtt_path, output_file)
-                print(f"Created parallel bilingual transcript: {output_file}")
-                
-        if format_type == "en_only" or format_type == "all":
-            if en_vtt_path != MISSING_SENTINEL:
-                if format_type == "all":
-                    create_en_only_doc(en_vtt_path, en_only_output)
-                    print(f"Created English-only transcript: {en_only_output}")
-                else:
-                    create_en_only_doc(en_vtt_path, output_file)
-                    print(f"Created English-only transcript: {output_file}")
-            elif format_type == "en_only":
-                en_content_raw = parse_vtt(en_vtt_path) if en_vtt_path != MISSING_SENTINEL else []
-                en_content = deduplicate_overlaps(en_content_raw)
-                with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write('# English Transcript\n\n')
-                    for item in en_content:
-                        if item['en']:
-                            f.write(item['en'].strip() + '\n\n')
-                return
-                
-        if format_type == "zh_only" or format_type == "all":
-            if zh_vtt_path != MISSING_SENTINEL:
-                if format_type == "all":
-                    create_zh_only_doc(zh_vtt_path, zh_only_output)
-                    print(f"Created Chinese-only transcript: {zh_only_output}")
-                else:
-                    create_zh_only_doc(zh_vtt_path, output_file)
-                    print(f"Created Chinese-only transcript: {output_file}")
-            elif format_type == "zh_only":
-                zh_content_raw = parse_vtt(zh_vtt_path) if zh_vtt_path != MISSING_SENTINEL else []
-                zh_content = deduplicate_overlaps(zh_content_raw)
-                with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write('# 中文逐字稿\n\n')
-                    for item in zh_content:
-                        if item['zh']:
-                            f.write(item['zh'].strip() + '\n\n')
-                return
+        if format_type == "merged":
+            create_merged_doc(en_vtt_path, zh_vtt_path, output_file)
+            print(f"Created merged bilingual transcript: {output_file}")
+        elif format_type == "parallel":
+            create_parallel_doc(en_vtt_path, zh_vtt_path, output_file)
+            print(f"Created parallel bilingual transcript: {output_file}")
         
         # Exit successfully if functions complete without error
         sys.exit(0)

@@ -280,9 +280,9 @@ function CardView({
                                        "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
                                        (!canMerge || isMerged) && 'btn-disabled'
                                     )} 
-                                   onClick={() => onMergeVtt(task.uuid)}
+                                   onClick={() => onMergeVtt(task.uuid, 'all')}
                                    disabled={!canMerge || isMerged}
-                                   data-tip={isMerged ? "字幕已合并" : (!canMerge ? (vttEnExists || vttZhExists ? "可以合并" : "缺少VTT文件") : "合并字幕 (MD)")}
+                                   data-tip={isMerged ? "字幕已合并" : (!canMerge ? (vttEnExists || vttZhExists ? "一键生成全部格式" : "缺少VTT文件") : "一键生成全部格式 (MD)")}
                                 >
                                    <IconWrapper icon={Combine} className={cn(isMerged ? 'text-success' : (!canMerge ? 'text-base-content/40' : 'text-secondary'))} /> 
                                 </button>

@@ -1,12 +1,73 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { WebVTTParser } from 'webvtt-parser';
-
 import VideoPlayer from './VideoPlayer';
 import VttPreviewer from './VttPreviewer';
 import MarkdownViewer from './MarkdownViewer';
 import StudioWorkSpace from './StudioWorkSpace';
 import AIChat from './AIChat';
+
+// Add scrollbar styling with !important to ensure they override other styles
+const scrollbarStyles = `
+  /* 全局滚动条样式 */
+  * {
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(156, 163, 175, 0.3) transparent !important;
+  }
+
+  /* Hide scrollbar by default but allow scrolling */
+  ::-webkit-scrollbar {
+    width: 8px !important;
+    height: 8px !important;
+    background: transparent !important;
+  }
+
+  /* Track */
+  ::-webkit-scrollbar-track {
+    background: transparent !important;
+  }
+
+  /* Handle */
+  ::-webkit-scrollbar-thumb {
+    background: rgba(156, 163, 175, 0.3) !important;
+    border-radius: 4px !important;
+    transition: background 0.2s ease !important;
+  }
+
+  /* Handle on hover */
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(156, 163, 175, 0.6) !important;
+  }
+
+  /* Style for elements that should have custom scrollbar behavior */
+  .custom-scrollbar {
+    overflow: auto !important;
+  }
+  
+  .custom-scrollbar:not(:hover)::-webkit-scrollbar-thumb {
+    background: transparent !important;
+  }
+  
+  .custom-scrollbar:not(:hover) {
+    scrollbar-color: transparent transparent !important;
+  }
+  
+  /* Target all scrolling containers */
+  .overflow-auto::-webkit-scrollbar-thumb,
+  .overflow-y-auto::-webkit-scrollbar-thumb,
+  .overflow-x-auto::-webkit-scrollbar-thumb,
+  div::-webkit-scrollbar-thumb {
+    background: rgba(156, 163, 175, 0.3) !important;
+    border-radius: 4px !important;
+  }
+  
+  .overflow-auto:not(:hover)::-webkit-scrollbar-thumb,
+  .overflow-y-auto:not(:hover)::-webkit-scrollbar-thumb,
+  .overflow-x-auto:not(:hover)::-webkit-scrollbar-thumb,
+  div:not(:hover)::-webkit-scrollbar-thumb {
+    background: transparent !important;
+  }
+`;
 
 // --- 新增：前端 VTT 清洗辅助函数 ---
 
@@ -1020,6 +1081,20 @@ function Studio({ taskUuid, apiBaseUrl }) {
     setLastSelectedCueId(null);
   }, [displayLang, vttMode]);
 
+  // Add global scrollbar styles to head
+  useEffect(() => {
+    // 添加样式到head
+    const styleElement = document.createElement('style');
+    styleElement.type = 'text/css';
+    styleElement.appendChild(document.createTextNode(scrollbarStyles));
+    document.head.appendChild(styleElement);
+    
+    // 组件卸载时清理
+    return () => {
+      document.head.removeChild(styleElement);
+    };
+  }, []);
+
   // Add this in the UI section where the cut button is
   const getSubtitleLangLabel = (lang) => {
     switch(lang) {
@@ -1097,242 +1172,244 @@ function Studio({ taskUuid, apiBaseUrl }) {
   };
 
   return (
-    <div className="flex flex-row flex-1 h-full p-4 gap-4 overflow-hidden bg-gray-100">
+    <>
+      <div className="flex flex-row flex-1 h-full p-4 gap-4 overflow-hidden bg-gray-100">
 
-      {/* --- Left Column (Video + Subtitles) --- */}
-      <div className="flex flex-col w-2/5 flex-shrink-0 gap-4 overflow-hidden">
-        {/* Video Player Section */}
-        <div className="flex flex-col flex-shrink-0">
-          <h2 className="text-xl font-semibold mb-2 text-gray-800">Video / Preview</h2>
-          <div className="relative bg-black rounded shadow-md aspect-video">
-            <div className="absolute top-0 left-0 w-full h-full">
-              {(localVideoAvailable || embedVideoAvailable) ? (
-                <VideoPlayer
-                  ref={videoElementRef}
-                  localVideoPath={videoRelativePath}
-                  apiBaseUrl={apiBaseUrl}
-                  taskUuid={taskUuid}
-                  embedUrl={embedUrl}
-                  preferLocalVideo={preferLocalVideo}
-                  // --- ADDED Props for Native Track (为原生字幕轨添加 Props) ---
-                  vttUrl={preferLocalVideo ? vttBlobUrl : null} // Only pass URL if local video is preferred
-                  vttLang={trackLangCode !== 'none' ? trackLangCode : null} // Pass language code (e.g., 'en', 'zh'), null if none
-                  // -----------------------------------------------------------
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gray-800">
-                  No video preview available.
-                </div>
-              )}
-            </div>
-          </div>
-          <p className="mt-2 text-sm text-gray-600 truncate" title={taskDetails?.title}>
-              {taskDetails?.title || 'Untitled Task'}
-          </p>
-          {canToggleVideo && (
-              <button
-                  onClick={handleToggleVideo}
-                  className="mt-1 btn btn-xs btn-outline self-start"
-              >
-                  {preferLocalVideo ? "切换到在线视频" : "切换到本地视频"}
-              </button>
-          )}
-        </div>
-
-        {/* VTT Previewer Section or Clipping Mode Placeholder */}
-        <div className="flex flex-col flex-grow min-h-0"> {/* Ensure this div can grow and shrink */}
-          <div className="flex justify-between items-center p-4 pb-2 border-b border-gray-200 flex-shrink-0">
-            <div className="flex items-center gap-2">
-                <h3 className="font-semibold">
-                    {vttMode === 'cut' ? '字幕选择 (原位置占位)' : '字幕预览'} {/* Title changes */} 
-                </h3>
-                 {/* Mode Toggle Buttons - RETAIN THESE */}
-                <div className="btn-group">
-                    <button 
-                        className={`btn btn-xs ${vttMode === 'preview' ? 'btn-active btn-ghost' : 'btn-ghost'}`}
-                        onClick={() => toggleVttMode('preview')}
-                    >
-                        预览
-                    </button>
-                    <button 
-                        className={`btn btn-xs ${vttMode === 'cut' ? 'btn-active btn-ghost' : 'btn-ghost'}`}
-                        onClick={() => toggleVttMode('cut')}
-                    >
-                        剪辑
-                    </button>
-                </div>
-                
-                {/* Cutting Mode Indicator - RETAIN THIS */}
-                {vttMode === 'cut' && (
-                  <div className="ml-2 px-2 py-1 text-xs rounded-full bg-blue-500 text-white">
-                    剪辑模式
+        {/* --- Left Column (Video + Subtitles) --- */}
+        <div className="flex flex-col w-2/5 flex-shrink-0 gap-4 overflow-hidden">
+          {/* Video Player Section */}
+          <div className="flex flex-col flex-shrink-0">
+            <h2 className="text-xl font-semibold mb-2 text-gray-800">Video / Preview</h2>
+            <div className="relative bg-black rounded shadow-md aspect-video">
+              <div className="absolute top-0 left-0 w-full h-full">
+                {(localVideoAvailable || embedVideoAvailable) ? (
+                  <VideoPlayer
+                    ref={videoElementRef}
+                    localVideoPath={videoRelativePath}
+                    apiBaseUrl={apiBaseUrl}
+                    taskUuid={taskUuid}
+                    embedUrl={embedUrl}
+                    preferLocalVideo={preferLocalVideo}
+                    // --- ADDED Props for Native Track (为原生字幕轨添加 Props) ---
+                    vttUrl={preferLocalVideo ? vttBlobUrl : null} // Only pass URL if local video is preferred
+                    vttLang={trackLangCode !== 'none' ? trackLangCode : null} // Pass language code (e.g., 'en', 'zh'), null if none
+                    // -----------------------------------------------------------
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gray-800">
+                    No video preview available.
                   </div>
                 )}
+              </div>
             </div>
-            <div className="flex gap-2">
-              {/* Language Selection Buttons - RETAIN THESE */}
-              {langOptions.map(lang => (
+            <p className="mt-2 text-sm text-gray-600 truncate" title={taskDetails?.title}>
+                {taskDetails?.title || 'Untitled Task'}
+            </p>
+            {canToggleVideo && (
                 <button
-                  key={lang}
-                  onClick={() => handleLanguageChange(lang)}
-                  className={`btn btn-xs ${displayLang === lang ? 'btn-active btn-primary' : 'btn-outline'}`}
-                  disabled={!parsedCuesByLang[lang] && lang !== 'bilingual' && !(lang === 'en' && parsedCuesByLang['en']) && !(lang === 'zh-Hans' && parsedCuesByLang['zh-Hans'])}
+                    onClick={handleToggleVideo}
+                    className="mt-1 btn btn-xs btn-outline self-start"
                 >
-                  {getLangButtonLabel(lang)}
+                    {preferLocalVideo ? "切换到在线视频" : "切换到本地视频"}
                 </button>
-              ))}
-            </div>
+            )}
           </div>
-          
-          {/* Batch Selection Controls (only in cut mode AND if VttPreviewer is in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
-          {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
-            <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-base-200/50">
-              <span className="text-xs text-gray-600">批量操作:</span>
-              <button 
-                className="btn btn-xs btn-ghost" 
-                onClick={handleSelectAll}>
-                全选
-              </button>
-              <button 
-                className="btn btn-xs btn-ghost" 
-                onClick={handleSelectNone}>
-                取消全选
-              </button>
-              <div className="ml-auto text-xs text-gray-600">
-                已选择: <span className="font-semibold text-accent">{selectedCueIds.size}</span> / {displayedCues.length}
-              </div>
-            </div>
-          )}
 
-          {/* Conditional Rendering: Placeholder or VTT Previewer */}
-          {vttMode === 'preview' ? (
-            <div className="flex-grow overflow-y-auto p-4 pt-2"> {/* Container for Previewer */}
-              {preferLocalVideo ? (
-                displayedCues.length > 0 ? (
-                  <VttPreviewer
-                    cues={displayedCues}
-                    videoRef={videoElementRef}
-                    syncEnabled={true} 
-                    onCueSelect={undefined} // No selection in preview mode
-                    selectedCues={undefined}
-                  />
-                ) : (
-                  <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
-                    {availableLangs.length === 0
-                      ? 'No VTT files found for this task.'
-                      : `No subtitles loaded or available for ${getLangButtonLabel(displayLang)}.`}
-                  </p>
-                )
-              ) : (
-                displayedCues.length > 0 ? (
-                  <VttPreviewer
-                    cues={displayedCues}
-                    videoRef={videoElementRef}
-                    syncEnabled={false}
-                    onCueSelect={undefined} // No selection in preview mode
-                    selectedCues={undefined}
-                  />
-                ) : (
-                  <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
-                    No subtitles loaded or available for {getLangButtonLabel(displayLang)}.
-                  </p>
-                )
-              )}
-            </div>
-          ) : ( /* vttMode === 'cut' */
-            <div className="flex-grow flex items-center justify-center bg-base-200 p-4 rounded-lg shadow text-gray-500 italic">
-              剪辑模式进行中...
-            </div>
-          )}
-          
-          {/* Cutting Controls Section (Only in Cut Mode AND if VttPreviewer is NOT in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
-          {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
-            <div className="p-4 border-t border-gray-200 flex-shrink-0 space-y-3">
-              <div className="flex items-center gap-3">
-                <button
-                  className={`btn btn-primary flex-grow ${cuttingStatus === 'processing' ? 'loading' : ''}`}
-                  onClick={handleCutVideoClick}
-                  disabled={selectedCueIds.size === 0 || cuttingStatus === 'processing'}
-                >
-                  {cuttingStatus === 'processing' ? '正在处理...' : `剪辑选中的 ${selectedCueIds.size} 个片段`}
-                </button>
+          {/* VTT Previewer Section or Clipping Mode Placeholder */}
+          <div className="flex flex-col flex-grow min-h-0"> {/* Ensure this div can grow and shrink */}
+            <div className="flex justify-between items-center p-4 pb-2 border-b border-gray-200 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                  <h3 className="font-semibold">
+                      {vttMode === 'cut' ? '字幕选择 (原位置占位)' : '字幕预览'} {/* Title changes */} 
+                  </h3>
+                   {/* Mode Toggle Buttons - RETAIN THESE */}
+                  <div className="btn-group">
+                      <button 
+                          className={`btn btn-xs ${vttMode === 'preview' ? 'btn-active btn-ghost' : 'btn-ghost'}`}
+                          onClick={() => toggleVttMode('preview')}
+                      >
+                          预览
+                      </button>
+                      <button 
+                          className={`btn btn-xs ${vttMode === 'cut' ? 'btn-active btn-ghost' : 'btn-ghost'}`}
+                          onClick={() => toggleVttMode('cut')}
+                      >
+                          剪辑
+                      </button>
+                  </div>
+                  
+                  {/* Cutting Mode Indicator - RETAIN THIS */}
+                  {vttMode === 'cut' && (
+                    <div className="ml-2 px-2 py-1 text-xs rounded-full bg-blue-500 text-white">
+                      剪辑模式
+                    </div>
+                  )}
               </div>
-
-              {cuttingJobId && cuttingStatus === 'completed' && cutOutputPath && (
-                <div className="mt-2">
-                  <a 
-                    href={`${apiBaseUrl}/files/${cutOutputPath}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-sm btn-success w-full"
-                    download
+              <div className="flex gap-2">
+                {/* Language Selection Buttons - RETAIN THESE */}
+                {langOptions.map(lang => (
+                  <button
+                    key={lang}
+                    onClick={() => handleLanguageChange(lang)}
+                    className={`btn btn-xs ${displayLang === lang ? 'btn-active btn-primary' : 'btn-outline'}`}
+                    disabled={!parsedCuesByLang[lang] && lang !== 'bilingual' && !(lang === 'en' && parsedCuesByLang['en']) && !(lang === 'zh-Hans' && parsedCuesByLang['zh-Hans'])}
                   >
-                    下载剪辑结果
-                  </a>
+                    {getLangButtonLabel(lang)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* Batch Selection Controls (only in cut mode AND if VttPreviewer is in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
+            {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
+              <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-base-200/50">
+                <span className="text-xs text-gray-600">批量操作:</span>
+                <button 
+                  className="btn btn-xs btn-ghost" 
+                  onClick={handleSelectAll}>
+                  全选
+                </button>
+                <button 
+                  className="btn btn-xs btn-ghost" 
+                  onClick={handleSelectNone}>
+                  取消全选
+                </button>
+                <div className="ml-auto text-xs text-gray-600">
+                  已选择: <span className="font-semibold text-accent">{selectedCueIds.size}</span> / {displayedCues.length}
                 </div>
-              )}
-              
-              {cuttingJobId && cuttingStatus === 'failed' && (
-                <div className="text-sm p-2 rounded-md bg-error/20 text-error mt-2">
-                  {cuttingMessage || '剪辑失败'}
+              </div>
+            )}
+
+            {/* Conditional Rendering: Placeholder or VTT Previewer */}
+            {vttMode === 'preview' ? (
+              <div className="flex-grow overflow-y-auto p-4 pt-2 custom-scrollbar">
+                {preferLocalVideo ? (
+                  displayedCues.length > 0 ? (
+                    <VttPreviewer
+                      cues={displayedCues}
+                      videoRef={videoElementRef}
+                      syncEnabled={true} 
+                      onCueSelect={undefined} // No selection in preview mode
+                      selectedCues={undefined}
+                    />
+                  ) : (
+                    <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
+                      {availableLangs.length === 0
+                        ? 'No VTT files found for this task.'
+                        : `No subtitles loaded or available for ${getLangButtonLabel(displayLang)}.`}
+                    </p>
+                  )
+                ) : (
+                  displayedCues.length > 0 ? (
+                    <VttPreviewer
+                      cues={displayedCues}
+                      videoRef={videoElementRef}
+                      syncEnabled={false}
+                      onCueSelect={undefined} // No selection in preview mode
+                      selectedCues={undefined}
+                    />
+                  ) : (
+                    <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
+                      No subtitles loaded or available for {getLangButtonLabel(displayLang)}.
+                    </p>
+                  )
+                )}
+              </div>
+            ) : ( /* vttMode === 'cut' */
+              <div className="flex-grow flex items-center justify-center bg-base-200 p-4 rounded-lg shadow text-gray-500 italic">
+                剪辑模式进行中...
+              </div>
+            )}
+            
+            {/* Cutting Controls Section (Only in Cut Mode AND if VttPreviewer is NOT in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
+            {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
+              <div className="p-4 border-t border-gray-200 flex-shrink-0 space-y-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    className={`btn btn-primary flex-grow ${cuttingStatus === 'processing' ? 'loading' : ''}`}
+                    onClick={handleCutVideoClick}
+                    disabled={selectedCueIds.size === 0 || cuttingStatus === 'processing'}
+                  >
+                    {cuttingStatus === 'processing' ? '正在处理...' : `剪辑选中的 ${selectedCueIds.size} 个片段`}
+                  </button>
                 </div>
-              )}
+
+                {cuttingJobId && cuttingStatus === 'completed' && cutOutputPath && (
+                  <div className="mt-2">
+                    <a 
+                      href={`${apiBaseUrl}/files/${cutOutputPath}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-sm btn-success w-full"
+                      download
+                    >
+                      下载剪辑结果
+                    </a>
+                  </div>
+                )}
+                
+                {cuttingJobId && cuttingStatus === 'failed' && (
+                  <div className="text-sm p-2 rounded-md bg-error/20 text-error mt-2">
+                    {cuttingMessage || '剪辑失败'}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {vttMode === 'cut' && selectedCueIds.size > 0 && (
+            <div className="flex flex-col w-full mt-4">
+              <div className="flex items-center gap-2 my-2">
+                <span className="text-sm font-medium">将嵌入字幕:</span>
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                  embeddingSubtitleLang !== 'none' 
+                    ? 'bg-success text-success-content' 
+                    : 'bg-error text-error-content'
+                }`}>
+                  {getSubtitleLangLabel(embeddingSubtitleLang)}
+                </span>
+                <span className="text-xs text-gray-500">
+                  (取决于当前选择的字幕语言)
+                </span>
+              </div>
             </div>
           )}
         </div>
 
-        {vttMode === 'cut' && selectedCueIds.size > 0 && (
-          <div className="flex flex-col w-full mt-4">
-            <div className="flex items-center gap-2 my-2">
-              <span className="text-sm font-medium">将嵌入字幕:</span>
-              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                embeddingSubtitleLang !== 'none' 
-                  ? 'bg-success text-success-content' 
-                  : 'bg-error text-error-content'
-              }`}>
-                {getSubtitleLangLabel(embeddingSubtitleLang)}
-              </span>
-              <span className="text-xs text-gray-500">
-                (取决于当前选择的字幕语言)
-              </span>
+        {/* --- Middle Column (AI Chat Placeholder or VTT Previewer in Cut Mode) --- */}
+        <div className="flex flex-col flex-1 bg-white p-4 rounded-lg shadow overflow-auto custom-scrollbar">
+          <h3 className="text-lg font-semibold mb-2 border-b border-gray-300 pb-2 flex-shrink-0">
+            {vttMode === 'cut' ? "字幕选择 (剪辑模式)" : "AI 对话"}
+          </h3>
+          {vttMode === 'cut' ? (
+            <div className="flex-grow min-h-0 custom-scrollbar">
+              <VttPreviewer
+                cues={displayedCues}
+                videoRef={videoElementRef}
+                syncEnabled={true} 
+                onCueSelect={handleCueSelect}
+                selectedCues={selectedCueIds}
+              />
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="flex-grow h-full custom-scrollbar">
+              <AIChat 
+                markdownContent={markdownContent}
+                apiBaseUrl={apiBaseUrl}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* --- Right Column (StudioWorkSpace) --- */}
+        <StudioWorkSpace 
+          taskUuid={taskUuid} 
+          apiBaseUrl={apiBaseUrl} 
+          markdownContent={markdownContent} // 传递 markdown 内容作为备用
+        />
+
       </div>
-
-      {/* --- Middle Column (AI Chat Placeholder or VTT Previewer in Cut Mode) --- */}
-      <div className="flex flex-col flex-1 bg-white p-4 rounded-lg shadow overflow-auto">
-        <h3 className="text-lg font-semibold mb-2 border-b border-gray-300 pb-2 flex-shrink-0">
-          {vttMode === 'cut' ? "字幕选择 (剪辑模式)" : "AI 对话"}
-        </h3>
-        {vttMode === 'cut' ? (
-          <div className="flex-grow min-h-0"> {/* Wrapper to allow VttPreviewer to take full height */}
-            <VttPreviewer
-              cues={displayedCues}
-              videoRef={videoElementRef}
-              syncEnabled={true} 
-              onCueSelect={handleCueSelect}
-              selectedCues={selectedCueIds}
-            />
-          </div>
-        ) : (
-          <div className="flex-grow h-full">
-            <AIChat 
-              markdownContent={markdownContent}
-              apiBaseUrl={apiBaseUrl}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* --- Right Column (StudioWorkSpace) --- */}
-      <StudioWorkSpace 
-        taskUuid={taskUuid} 
-        apiBaseUrl={apiBaseUrl} 
-        markdownContent={markdownContent} // 传递 markdown 内容作为备用
-      />
-
-    </div>
+    </>
   );
 }
 
