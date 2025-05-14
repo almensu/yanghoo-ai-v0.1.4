@@ -5,42 +5,83 @@ import axios from 'axios';
 import IngestForm from '../components/IngestForm';
 import TaskList from '../components/TaskList';
 
+// Helper for sorting icons (you can replace with actual icons later)
+const SortIndicator = ({ order }) => {
+  if (!order) return null;
+  return order === 'asc' ? ' ▲' : ' ▼';
+};
+
 function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
   const [tasks, setTasks] = useState([]);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
+  const [sortField, setSortField] = useState('created_at'); // Default sort field to created_at
+  const [sortOrder, setSortOrder] = useState('desc'); // Default sort order to descending
   const ws = useRef(null);
   const navigate = useNavigate();
 
-  // Modified: Ensure all tasks are included, archiving status is handled by backend/display only
-  const filteredTasks = useMemo(() => {
-    // The sorting logic based on 'archived' can remain if you want archived tasks
-    // to appear at the bottom, but they will still be visible and interactable.
-    // If you want no visual distinction in order, remove the sort or adjust.
-    // For now, keeping the sort as it doesn't filter out.
-    return tasks.sort((a, b) => {
+  const handleSort = useCallback((field, order) => {
+    if (order) { // If an explicit order is provided (e.g., from CardView dropdown)
+      setSortField(field);
+      setSortOrder(order);
+    } else { // Toggle order if no explicit order is given (e.g., from TableView header click)
+      setSortOrder(currentOrder => {
+        if (sortField === field) {
+          return currentOrder === 'asc' ? 'desc' : 'asc';
+        }
+        return 'asc'; // Default to ascending for new field
+      });
+      setSortField(field);
+    }
+  }, [sortField]);
+
+  const sortedTasks = useMemo(() => {
+    let sorted = [...tasks];
+    if (sortField) {
+      sorted.sort((a, b) => {
+        let valA, valB;
+
+        // Handle date fields (created_at and last_modified)
+        if (sortField === 'created_at' || sortField === 'last_modified') {
+          valA = a[sortField] ? new Date(a[sortField]).getTime() : 0;
+          valB = b[sortField] ? new Date(b[sortField]).getTime() : 0;
+        } else {
+          // Handle string fields (title, platform, url)
+          valA = a[sortField] ? String(a[sortField]).toLowerCase() : '';
+          valB = b[sortField] ? String(b[sortField]).toLowerCase() : '';
+        }
+        
+        let comparison = 0;
+        if (valA > valB) {
+          comparison = 1;
+        } else if (valA < valB) {
+          comparison = -1;
+        }
+        return sortOrder === 'asc' ? comparison : comparison * -1;
+      });
+    }
+
+    // Secondary sort by archived status (archived tasks at the bottom)
+    // This should ideally run AFTER the primary sort, so we apply it here again
+    // or ensure the primary sort is stable if items have same primary sort value.
+    // For simplicity, applying it again on the already primary-sorted list.
+    sorted.sort((a, b) => {
       if (a.archived !== b.archived) {
-        return a.archived ? 1 : -1; // Archived tasks sort to the bottom
+        return a.archived ? 1 : -1;
       }
-      return 0; // Maintain original order for tasks with same archive status
+      return 0;
     });
-  }, [tasks]);
+    return sorted;
+  }, [tasks, sortField, sortOrder]);
 
   const fetchTasks = useCallback(async () => {
     setFetchLoading(true);
     setFetchError(null);
     try {
       const response = await axios.get(`${apiBaseUrl}/api/tasks`);
-      const sortedTasks = response.data.sort((a, b) => {
-        // This initial sort from fetch can also be simplified if the useMemo sort handles it,
-        // or if the backend already provides a preferred order.
-        // For now, let's match the useMemo sort for consistency.
-        if (a.archived !== b.archived) {
-          return a.archived ? 1 : -1;
-        }
-        return 0; 
-      });
-      setTasks(sortedTasks);
+      // Initial sort from backend might not be needed if client-side sort is comprehensive
+      // For now, remove initial client-side sort here to rely on the main sortedTasks useMemo
+      setTasks(response.data);
       setFetchError(null);
     } catch (err) {
       console.error("Error fetching tasks:", err);
@@ -356,27 +397,36 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
         API_BASE_URL={apiBaseUrl}
         onIngestComplete={fetchTasks}
       />
-      <TaskList
-        tasks={filteredTasks}
-        isLoading={fetchLoading}
-        error={fetchError}
-        onDelete={handleDeleteTask}
-        onArchive={handleArchiveTask}
-        onRestoreArchived={handleRestoreArchived}
-        onDownloadRequest={handleDownloadRequest}
-        onDownloadAudio={handleDownloadAudio}
-        onExtractAudio={handleExtractAudio}
-        onDeleteVideo={handleDeleteVideo}
-        onDeleteAudio={handleDeleteAudio}
-        onDownloadVtt={handleDownloadVtt}
-        onDeleteVtt={handleDeleteVtt}
-        onMergeVtt={handleMergeVtt}
-        onTranscribeWhisperX={handleTranscribeWhisperX}
-        onDeleteWhisperX={handleDeleteWhisperX}
-        onCreateVideo={handleCreateVideo}
-        onOpenFolder={handleOpenFolder}
-        onGoToStudio={handleGoToStudio}
-      />
+      {fetchError && <div className="text-red-500 text-center my-4">{fetchError}</div>}
+      {fetchLoading ? (
+        <div className="text-center my-10">Loading tasks...</div>
+      ) : (
+        <TaskList
+          tasks={sortedTasks}
+          isLoading={fetchLoading}
+          error={fetchError}
+          onDelete={handleDeleteTask}
+          onArchive={handleArchiveTask}
+          onRestoreArchived={handleRestoreArchived}
+          onDownloadRequest={handleDownloadRequest}
+          onDownloadAudio={handleDownloadAudio}
+          onExtractAudio={handleExtractAudio}
+          onDeleteVideo={handleDeleteVideo}
+          onDeleteAudio={handleDeleteAudio}
+          onDownloadVtt={handleDownloadVtt}
+          onDeleteVtt={handleDeleteVtt}
+          onMergeVtt={handleMergeVtt}
+          onTranscribeWhisperX={handleTranscribeWhisperX}
+          onDeleteWhisperX={handleDeleteWhisperX}
+          onCreateVideo={handleCreateVideo}
+          onOpenFolder={handleOpenFolder}
+          onGoToStudio={handleGoToStudio}
+          sortField={sortField}
+          sortOrder={sortOrder}
+          handleSort={handleSort}
+          SortIndicator={SortIndicator}
+        />
+      )}
     </div>
   );
 }

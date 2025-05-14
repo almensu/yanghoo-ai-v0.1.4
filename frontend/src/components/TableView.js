@@ -53,7 +53,12 @@ function TableView({
   tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, 
   onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, 
   onDeleteVtt, onMergeVtt, onCreateVideo,
-  onTranscribeWhisperX, onDeleteWhisperX 
+  onTranscribeWhisperX, onDeleteWhisperX,
+  // Sorting props
+  sortField,
+  sortOrder,
+  handleSort,
+  SortIndicator
 }) {
   const [whisperxModels, setWhisperxModels] = React.useState({});
 
@@ -78,6 +83,13 @@ function TableView({
   const getSelectedWhisperXModel = (uuid) => whisperxModels[uuid] || 'medium.en';
   const handleWhisperXModelChange = (uuid, model) => setWhisperxModels(prev => ({ ...prev, [uuid]: model }));
 
+  const renderSortIndicator = (field) => {
+    if (sortField === field) {
+      return <SortIndicator order={sortOrder} />;
+    }
+    return null;
+  };
+
   return (
     <div className="overflow-x-auto border border-base-300 rounded-lg shadow-sm">
       {/* Apply daisyUI table-zebra for Notion-like feel */}
@@ -88,9 +100,36 @@ function TableView({
             {/* Adjust padding and text style */}
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">#</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">缩略图</th>
-            <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider w-1/4">标题</th>
-            <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">平台</th>
-            <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">URL</th>
+            <th 
+              className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider w-1/4 cursor-pointer hover:bg-base-300/50 transition-colors"
+              onClick={() => handleSort('title')}
+            >
+              标题 {renderSortIndicator('title')}
+            </th>
+            <th 
+              className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider cursor-pointer hover:bg-base-300/50 transition-colors"
+              onClick={() => handleSort('platform')}
+            >
+              平台 {renderSortIndicator('platform')}
+            </th>
+            <th 
+              className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider cursor-pointer hover:bg-base-300/50 transition-colors"
+              onClick={() => handleSort('url')}
+            >
+              URL {renderSortIndicator('url')}
+            </th>
+            <th 
+              className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider cursor-pointer hover:bg-base-300/50 transition-colors"
+              onClick={() => handleSort('created_at')}
+            >
+              添加日期 {renderSortIndicator('created_at')}
+            </th>
+            <th 
+              className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider cursor-pointer hover:bg-base-300/50 transition-colors"
+              onClick={() => handleSort('last_modified')}
+            >
+              最后修改 {renderSortIndicator('last_modified')}
+            </th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">视频</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">音频</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">VTT</th>
@@ -142,7 +181,12 @@ function TableView({
                 </td>
                 <td className="p-3 text-xs"><span className="badge badge-sm badge-outline font-normal">{task.platform || 'N/A'}</span></td>
                 <td className="p-3 text-xs"><a href={task.url} target="_blank" rel="noopener noreferrer" className="link link-hover text-base-content/70 hover:text-primary truncate block max-w-[150px]" title={task.url}>{task.url || 'N/A'}</a></td>
-                
+                <td className="p-3 text-xs">
+                  {task.created_at ? new Date(task.created_at).toLocaleDateString() : 'N/A'}
+                </td>
+                <td className="p-3 text-xs">
+                  {task.last_modified ? new Date(task.last_modified).toLocaleDateString() : 'N/A'}
+                </td>
                 {/* Video Column */} 
                 <td className="p-3 text-xs">
                   <div className="flex items-center gap-2">

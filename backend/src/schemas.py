@@ -2,6 +2,7 @@ from pydantic import BaseModel, HttpUrl, Field
 from enum import Enum
 from typing import Optional, Dict, Literal, List, Union
 from uuid import UUID
+from datetime import datetime
 
 class Platform(str, Enum):
     YOUTUBE = "youtube"
@@ -34,6 +35,8 @@ class TaskMetadata(BaseModel):
     archived: bool = False
     downloaded_audio_path: Optional[str] = None
     embed_url: Optional[str] = None
+    created_at: Optional[datetime] = None
+    last_modified: Optional[datetime] = None
 
 class FetchInfoJsonResponse(BaseModel):
     task_uuid: UUID

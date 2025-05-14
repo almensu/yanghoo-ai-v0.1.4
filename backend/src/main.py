@@ -5,6 +5,7 @@ import shutil
 import json
 from uuid import UUID
 from typing import Dict, List, Optional, Literal, Any
+from datetime import datetime, timezone # Added import
 import aiofiles
 import yt_dlp
 import ffmpeg
@@ -19,6 +20,7 @@ from fastapi import BackgroundTasks, Body # Import BackgroundTasks and Body
 from pydantic import BaseModel, Field # Import BaseModel and Field
 import re
 import copy
+import httpx # Add httpx for async HTTP requests
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -239,49 +241,162 @@ async def save_archived_metadata(metadata: Dict[str, Dict]):
         logger.error(f"Unexpected error during archived metadata save: {e}", exc_info=True)
 # --- END: Load/Save for Archived Metadata --- 
 
-@app.post("/api/ingest", response_model=IngestResponse)
-async def ingest_url(request: IngestRequest):
-    try:
-        # Load existing metadata FIRST to check for duplicates
-        all_metadata = await load_metadata()
-        request_url_str = str(request.url) # Ensure URL is string for comparison
+async def _update_task_metadata_and_save(task_uuid: UUID, updates: Dict[str, Any]) -> Optional[TaskMetadata]:
+    """Loads metadata, updates a specific task, sets last_modified, and saves."""
+    all_metadata = await load_metadata()
+    task_uuid_str = str(task_uuid)
 
-        # Check for existing URL
+    if task_uuid_str not in all_metadata:
+        logger.error(f"Task {task_uuid_str} not found in metadata for update.")
+        return None # Or raise HTTPException(status_code=404, detail="Task not found")
+
+    task_to_update = all_metadata[task_uuid_str]
+
+    # Apply updates
+    for key, value in updates.items():
+        if hasattr(task_to_update, key):
+            setattr(task_to_update, key, value)
+        else:
+            logger.warning(f"Attempted to update non-existent field '{key}' on task {task_uuid_str}")
+
+    # Update last_modified timestamp
+    task_to_update.last_modified = datetime.now(timezone.utc)
+    
+    # Ensure embed_url is populated if it's a YouTube task and URL exists (in case it was missed or URL was part of updates)
+    if task_to_update.platform == Platform.YOUTUBE and task_to_update.url:
+        task_to_update = _populate_embed_url(task_to_update) # _populate_embed_url should ideally not save but just return the object
+
+    all_metadata[task_uuid_str] = task_to_update # Put the updated task back
+    await save_metadata(all_metadata)
+    logger.info(f"Task {task_uuid_str} updated and metadata saved. Last modified: {task_to_update.last_modified}")
+    return task_to_update
+
+async def _download_thumbnail(task_uuid_str: str, thumbnail_url: str, task_data_dir: Path) -> Optional[str]:
+    """Downloads a thumbnail image and saves it, returning its relative path."""
+    if not thumbnail_url:
+        return None
+    try:
+        # Determine file extension
+        # Basic check, can be improved with mimetypes if URL doesn't have extension
+        file_ext = Path(thumbnail_url).suffix or '.jpg' # Default to .jpg if no extension
+        if not file_ext.startswith('.'): # Ensure it has a dot
+             file_ext = '.' + file_ext
+        if len(file_ext) > 5: # basic sanity check for extension length
+            file_ext = '.jpg' 
+
+        thumbnail_filename = f"thumbnail{file_ext}"
+        thumbnail_abs_path = task_data_dir / thumbnail_filename
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(thumbnail_url, timeout=10.0) # Added timeout
+            response.raise_for_status() # Raise an exception for bad status codes
+            async with aiofiles.open(thumbnail_abs_path, 'wb') as f:
+                await f.write(response.content)
+        
+        # Return path relative to DATA_DIR
+        return str(Path(task_uuid_str) / thumbnail_filename)
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error downloading thumbnail {thumbnail_url} for task {task_uuid_str}: {e.response.status_code} - {e.response.text}")
+        return None
+    except httpx.RequestError as e:
+        logger.error(f"Request error downloading thumbnail {thumbnail_url} for task {task_uuid_str}: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error downloading thumbnail {thumbnail_url} for task {task_uuid_str}: {e}", exc_info=True)
+        return None
+
+@app.post("/api/ingest", response_model=IngestResponse)
+async def ingest_url(request: IngestRequest, background_tasks: BackgroundTasks): # Added BackgroundTasks for potential future use
+    try:
+        all_metadata = await load_metadata()
+        request_url_str = str(request.url)
+
         for existing_uuid, existing_meta in all_metadata.items():
             if existing_meta.url == request_url_str:
-                if existing_meta.archived:
-                    logger.warning(f"Ingest failed: URL {request_url_str} already exists but is archived (UUID: {existing_uuid}).")
-                    raise HTTPException(
-                        status_code=409, # Conflict
-                        detail=f"URL already exists but is archived (Task ID: {existing_uuid}). Consider restoring it instead."
-                    )
+                logger.info(f"URL {request_url_str} already ingested with UUID {existing_uuid}.")
+                # Ensure all fields are populated for existing task before returning
+                if not existing_meta.info_json_path or not existing_meta.title or not existing_meta.thumbnail_path:
+                    logger.info(f"Existing task {existing_uuid} missing some info, attempting to fetch.")
+                    try:
+                        # Use DATA_DIR as base for run_fetch_info_json
+                        info_json_rel_path = await run_fetch_info_json(existing_meta, str(DATA_DIR))
+                        existing_meta.info_json_path = info_json_rel_path
+                        info_json_abs_path = DATA_DIR / info_json_rel_path
+                        if info_json_abs_path.exists():
+                            async with aiofiles.open(info_json_abs_path, 'r') as f_json:
+                                info_data = json.loads(await f_json.read())
+                            existing_meta.title = info_data.get('title')
+                            thumbnail_url = info_data.get('thumbnail')
+                            if thumbnail_url:
+                                task_data_dir = DATA_DIR / str(existing_meta.uuid)
+                                existing_meta.thumbnail_path = await _download_thumbnail(str(existing_meta.uuid), thumbnail_url, task_data_dir)
+                        existing_meta = _populate_embed_url(existing_meta)
+                        existing_meta.last_modified = datetime.now(timezone.utc)
+                        all_metadata[existing_uuid] = existing_meta
+                        await save_metadata(all_metadata)
+                        logger.info(f"Successfully updated missing info for existing task {existing_uuid}.")
+                    except Exception as e_fetch:
+                        logger.error(f"Failed to fetch missing info for existing task {existing_uuid}: {e_fetch}")
+                return IngestResponse(metadata=existing_meta)
+
+        new_uuid = uuid.uuid4()
+        task_uuid_str = str(new_uuid)
+        task_data_dir = DATA_DIR / task_uuid_str
+        task_data_dir.mkdir(parents=True, exist_ok=True)
+
+        platform = Platform.OTHER
+        if "youtube.com" in request_url_str or "youtu.be" in request_url_str: platform = Platform.YOUTUBE
+        elif "xiaoyuzhoufm.com" in request_url_str: platform = Platform.XIAOYUZHOU
+
+        now = datetime.now(timezone.utc)
+        new_task_metadata = TaskMetadata(
+            uuid=new_uuid,
+            url=request_url_str,
+            platform=platform,
+            created_at=now,
+            last_modified=now
+        )
+
+        # Fetch info.json, title, and thumbnail
+        try:
+            # Use DATA_DIR as base for run_fetch_info_json
+            info_json_rel_path = await run_fetch_info_json(new_task_metadata, str(DATA_DIR))
+            new_task_metadata.info_json_path = info_json_rel_path
+            
+            # Read info.json to get title and thumbnail URL
+            if info_json_rel_path:
+                info_json_abs_path = DATA_DIR / info_json_rel_path
+                if info_json_abs_path.exists():
+                    async with aiofiles.open(info_json_abs_path, 'r') as f_json:
+                        info_data = json.loads(await f_json.read())
+                    new_task_metadata.title = info_data.get('title')
+                    thumbnail_url = info_data.get('thumbnail') # yt-dlp usually provides 'thumbnail' key for the best quality
+                    
+                    # Download thumbnail
+                    if thumbnail_url:
+                        new_task_metadata.thumbnail_path = await _download_thumbnail(task_uuid_str, thumbnail_url, task_data_dir)
                 else:
-                    logger.warning(f"Ingest failed: URL {request_url_str} already exists and is active (UUID: {existing_uuid}).")
-                    raise HTTPException(
-                        status_code=409, # Conflict
-                        detail=f"URL already exists (Task ID: {existing_uuid})."
-                    )
-        
-        # If no duplicate found, proceed with creating the task
-        logger.info(f"URL {request_url_str} not found in existing metadata. Proceeding with ingest.")
-        # Pass BASE_DIR (Path object) as string to the task function if it expects string
-        # Or update the task function to accept Path
-        task_metadata = await create_ingest_task(request_url_str, str(BASE_DIR))
-        # Note: No need to reload metadata here, we already have it
-        all_metadata[str(task_metadata.uuid)] = task_metadata
+                    logger.warning(f"info.json path provided ({info_json_rel_path}) but file does not exist at {info_json_abs_path}.")            
+        except Exception as e_fetch:
+            logger.error(f"Failed to fetch info.json or thumbnail for new task {new_uuid}: {e_fetch}", exc_info=True)
+            # Continue with partial metadata if fetching info fails, or raise error depending on desired behavior
+
+        new_task_metadata = _populate_embed_url(new_task_metadata)
+
+        all_metadata[task_uuid_str] = new_task_metadata
         await save_metadata(all_metadata)
-        logger.info(f"Successfully ingested URL {request_url_str} with new UUID {task_metadata.uuid}")
-        return IngestResponse(metadata=task_metadata)
-    except ValueError as e:
-        # Handle potential errors from create_ingest_task or platform detection
-        logger.error(f"ValueError during ingest for URL {request.url}: {e}", exc_info=True)
-        raise HTTPException(status_code=400, detail=str(e))
-    # Keep the existing HTTPException for duplicates (raised within the loop)
-    except HTTPException as http_exc: 
-        raise http_exc # Re-raise the 409 exception
+        logger.info(f"New URL {request_url_str} ingested with UUID {new_uuid}. Title: {new_task_metadata.title}")
+        
+        return IngestResponse(metadata=new_task_metadata)
+    except HTTPException as e: # Specifically re-raise HTTPExceptions
+        raise e
+    except ValidationError as e:
+        logger.error(f"Validation error during ingest: {e}", exc_info=True)
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.error(f"Internal server error during ingest for URL {request.url}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Unexpected error during ingest: {e}", exc_info=True)
+        # It's good practice to return a generic error to the client for unexpected issues
+        raise HTTPException(status_code=500, detail="Internal server error during ingest process.")
 
 # Add endpoint to list all tasks
 @app.get("/api/tasks", response_model=List[TaskMetadata])

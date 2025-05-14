@@ -23,7 +23,12 @@ function TaskList({
   onDeleteWhisperX,
   onCreateVideo,
   onOpenFolder,
-  onGoToStudio // Add the new prop here
+  onGoToStudio, // Add the new prop here
+  // Sorting props from TaskListPage
+  sortField,
+  sortOrder,
+  handleSort,
+  SortIndicator 
 }) {
   const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
   const [searchTerm, setSearchTerm] = useState(''); // State for search term (if you add search input later)
@@ -85,6 +90,11 @@ function TaskList({
               onCreateVideo={onCreateVideo}
               onOpenFolder={onOpenFolder}
               onGoToStudio={onGoToStudio}
+              // Pass sorting props
+              sortField={sortField}
+              sortOrder={sortOrder}
+              handleSort={handleSort}
+              SortIndicator={SortIndicator}
             />
           ) : (
             <TableView 
@@ -102,6 +112,11 @@ function TaskList({
               onTranscribeWhisperX={onTranscribeWhisperX}
               onDeleteWhisperX={onDeleteWhisperX}
               onCreateVideo={onCreateVideo}
+              // Pass sorting props
+              sortField={sortField}
+              sortOrder={sortOrder}
+              handleSort={handleSort}
+              SortIndicator={SortIndicator}
             />
           )}
           {tasks.length === 0 && !isLoading && <p className="text-center text-gray-500 mt-4">No tasks ingested yet.</p>}
