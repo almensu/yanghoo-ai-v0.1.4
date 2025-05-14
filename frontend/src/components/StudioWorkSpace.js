@@ -233,23 +233,17 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
   };
 
   return (
-    <div className={`flex flex-col bg-white rounded-lg shadow overflow-hidden ${isExpanded ? 'w-full' : 'w-80'} transition-all duration-300 ease-in-out`}>
-      <div className="flex justify-between items-center border-b border-gray-300 flex-shrink-0">
-        <h3 className="text-lg font-semibold p-4 pb-2">Studio WorkSpace</h3>
+    <div className={`flex flex-col bg-white rounded-lg shadow overflow-hidden ${isExpanded ? 'absolute right-0 z-10 w-[60%] h-full top-0 left-[40%]' : 'flex-1 min-w-0'} transition-all duration-300 ease-in-out`}>
+      <div className={`flex justify-between items-center border-b border-gray-300 flex-shrink-0 sticky top-0 bg-white z-20 ${isExpanded ? 'p-2' : 'p-4 pb-2'}`}>
+        <h3 className="text-lg font-semibold">Studio WorkSpace</h3>
         <button 
           onClick={handleExpandToggle}
-          className="mr-4 text-gray-600 hover:text-primary focus:outline-none p-1 rounded-full hover:bg-gray-100"
+          className={`${isExpanded ? 'p-2 bg-primary text-white' : 'mr-4 text-gray-600 hover:text-primary p-1'} rounded-full hover:bg-opacity-90 focus:outline-none`}
           title={isExpanded ? "收缩面板" : "扩展面板"}
         >
-          {isExpanded ? (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          )}
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
         </button>
       </div>
       <div ref={contentRef} className="flex-grow overflow-y-auto p-4 pt-2 space-y-4">
@@ -371,17 +365,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
           </div>
         </div>
         
-        {/* 添加时间戳格式测试组件 */}
-        <div className="mt-6 pt-4 border-t border-gray-200">
-          <div className="flex items-center justify-between mb-1">
-            <h4 className="text-md font-medium text-gray-700">时间戳格式测试</h4>
-          </div>
-          <TimestampFormatTest 
-            videoRef={videoRef} 
-            apiBaseUrl={apiBaseUrl} 
-            className="mt-2"
-          />
-        </div>
+
         
         <PlaceholderComponent1 />
         <PlaceholderComponent2 />
