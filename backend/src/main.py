@@ -972,7 +972,7 @@ async def get_task_file(task_uuid: UUID, filename: str):
     """
     提供任务数据目录中指定文件的访问。
     进行了基本的安全检查，防止访问目录外的文件。
-    (不再需要优先提供 .fixed.vtt，因为文件在下载时已被规范化)
+    支持子目录中的文件，例如 "markdown/file.md"。
     """
     task_uuid_str = str(task_uuid)
     logger.info(f"请求获取任务 {task_uuid_str} 的文件: {filename}")
@@ -982,7 +982,7 @@ async def get_task_file(task_uuid: UUID, filename: str):
         logger.warning(f"检测到非法的文件名请求: {filename} (任务: {task_uuid_str})")
         raise HTTPException(status_code=400, detail="不允许的文件名")
 
-    # 构建文件的绝对路径
+    # 构建文件的绝对路径 - 支持子目录
     file_path_to_serve = DATA_DIR / task_uuid_str / filename
     
     # --- 重要的安全检查：确保文件路径在预期的 DATA_DIR/{task_uuid} 目录下 ---
@@ -1035,9 +1035,12 @@ async def get_task_file(task_uuid: UUID, filename: str):
     # 对于 .vtt 文件，强制使用 text/vtt
     if filename.lower().endswith('.vtt'):
         media_type = 'text/vtt'
+    # 对于 .md 文件，强制使用 text/markdown
+    elif filename.lower().endswith('.md'):
+        media_type = 'text/markdown'
 
     logger.info(f"正在提供文件: {file_path_to_serve} (类型: {media_type})，请求名: {filename}")
-    return FileResponse(path=str(file_path_to_serve), filename=filename, media_type=media_type)
+    return FileResponse(path=str(file_path_to_serve), filename=os.path.basename(filename), media_type=media_type)
 # --- END: 新增 - 获取任务目录下的任意文件 ---
 
 
@@ -1257,9 +1260,25 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
         if not en_vtt_rel_path and not zh_vtt_rel_path:
             raise HTTPException(status_code=400, detail="Cannot merge: Neither English nor Chinese VTT file found in metadata.")
         # 依次生成四种格式
-        formats = ['merged', 'parallel', 'en_only', 'zh_only']
+        formats = ['merged', 'parallel', 'en_only', 'zh_only', 'en_only_timestamp', 'zh_only_timestamp']
         for fmt in formats:
-            output_filename = f"{fmt}_transcript_vtt.md"
+            output_filename = f"{fmt}_transcript_vtt.md" # Default, can be overridden
+            if fmt == 'merged':
+                output_filename = "merged_transcript_vtt.md"
+            elif fmt == 'parallel':
+                output_filename = "parallel_transcript_vtt.md"
+            elif fmt == 'en_only':
+                output_filename = "en_transcript_vtt.md"
+            elif fmt == 'zh_only':
+                output_filename = "zh_transcript_vtt.md"
+            elif fmt == 'en_only_timestamp':
+                output_filename = "en_transcript_vtt_timestamp.md"
+            elif fmt == 'zh_only_timestamp':
+                output_filename = "zh_transcript_vtt_timestamp.md"
+            else:
+                errors.append({fmt: "Unknown format for filename generation"})
+                continue
+
             output_abs_path = task_data_dir / output_filename
             en_arg = str(DATA_DIR / en_vtt_rel_path) if en_vtt_rel_path and (DATA_DIR / en_vtt_rel_path).exists() else "MISSING"
             zh_arg = str(DATA_DIR / zh_vtt_rel_path) if zh_vtt_rel_path and (DATA_DIR / zh_vtt_rel_path).exists() else "MISSING"
@@ -1283,6 +1302,10 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
                     task_meta.en_only_vtt_md_path = str(Path(task_uuid_str) / output_filename)
                 elif fmt == 'zh_only':
                     task_meta.zh_only_vtt_md_path = str(Path(task_uuid_str) / output_filename)
+                elif fmt == 'en_only_timestamp':
+                    task_meta.en_only_vtt_timestamp_md_path = str(Path(task_uuid_str) / output_filename)
+                elif fmt == 'zh_only_timestamp':
+                    task_meta.zh_only_vtt_timestamp_md_path = str(Path(task_uuid_str) / output_filename)
             else:
                 errors.append({fmt: process.stderr[:200]})
         metadata[task_uuid_str] = task_meta
@@ -1778,44 +1801,51 @@ class MarkdownFilesResponse(BaseModel):
 @app.get("/api/tasks/{task_uuid}/markdown/list", response_model=MarkdownFilesResponse) # Ensure path is /list
 async def list_markdown_files(task_uuid: UUID): # Use UUID type hint
     """
-    Lists all markdown (.md) files within the specified task's 'markdown' subdirectory.
+    Lists all markdown (.md) files within the specified task's directory.
     """
     task_uuid_str = str(task_uuid) 
     # Minimal logging
 
-    # Construct the path to the markdown subdirectory
-    markdown_dir = DATA_DIR / task_uuid_str / "markdown"
+    # Construct the path to the task directory (removed markdown subdirectory)
+    task_dir = DATA_DIR / task_uuid_str
 
-    if not markdown_dir.exists():
-        # logger.warning(f"Markdown directory does not exist: {markdown_dir}") # Can be noisy
+    if not task_dir.exists():
+        logger.warning(f"Task directory does not exist: {task_dir}")
         return MarkdownFilesResponse(files=[]) 
-    if not markdown_dir.is_dir():
-        logger.warning(f"Path exists but is not a directory: {markdown_dir}") # Keep warning
+    if not task_dir.is_dir():
+        logger.warning(f"Path exists but is not a directory: {task_dir}") 
         return MarkdownFilesResponse(files=[]) 
         
     # Confirmed exists and is directory
 
     try:
         markdown_files = []
-        # logger.info(f"Starting iteration over directory: {markdown_dir}") # Removed
-        for item in markdown_dir.iterdir():
-            # Keep intermediate variables from working version
+        # Scan for markdown files in the task directory
+        for item in task_dir.iterdir():
             is_file = item.is_file()
             if is_file:
                 is_md = item.name.lower().endswith('.md')
                 if is_md:
                     markdown_files.append(item.name)
-            # else:
-                 # logger.info(f"    Skipping (not a file).") # Removed
         
-        logger.info(f"Found {len(markdown_files)} markdown files in {markdown_dir}") # Keep summary log
+        # Also check for a markdown subdirectory if it exists
+        markdown_subdir = task_dir / "markdown"
+        if markdown_subdir.exists() and markdown_subdir.is_dir():
+            for item in markdown_subdir.iterdir():
+                is_file = item.is_file()
+                if is_file:
+                    is_md = item.name.lower().endswith('.md')
+                    if is_md:
+                        # Prepend with subdirectory for correct path reference
+                        markdown_files.append(f"markdown/{item.name}")
+        
+        logger.info(f"Found {len(markdown_files)} markdown files for task {task_uuid_str}") 
         # Return the sorted list inside the response model
         response_data = MarkdownFilesResponse(files=sorted(markdown_files))
-        # logger.info(f"Prepared response data: {response_data}") # Removed
         return response_data
 
     except Exception as e:
-        logger.error(f"Error listing files in directory {markdown_dir}: {e}", exc_info=True)
+        logger.error(f"Error listing markdown files for task {task_uuid_str}: {e}", exc_info=True)
         # Raise 500 for internal errors.
         raise HTTPException(status_code=500, detail="Error listing markdown files")
 # --- END: New List Markdown Files Endpoint ---

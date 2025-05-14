@@ -5,16 +5,18 @@ import MarkdownEditor from './MarkdownEditor'; // Import the editor component
 import PlaceholderComponent1 from './PlaceholderComponent1';
 import PlaceholderComponent2 from './PlaceholderComponent2';
 import MarkdownList from './MarkdownList'; // Import the new list component
+import TimestampFormatTest from './TimestampFormatTest'; // 导入时间戳格式测试组件
 
 // Props:
 // - taskUuid: The UUID of the current task
 // - apiBaseUrl: The base URL for the backend API
 // - markdownContent: Optional fallback markdown content from parent
+// - videoRef: Reference to the video element for timestamp navigation
 
-function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
+function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
   const [markdownFiles, setMarkdownFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null); // Name of the selected file
-  const [currentMarkdownContent, setCurrentMarkdownContent] = useState('');
+  const [currentMarkdownContent, setCurrentMarkdownContent] = useState(markdownContent || '');
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [error, setError] = useState(null);
@@ -59,44 +61,73 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
   useEffect(() => {
     if (!taskUuid || !apiBaseUrl) return;
 
+    // setCurrentMarkdownContent is initialized with prop, or by file selection effect.
+    // This effect focuses on the file list and default selection if needed.
+
     const fetchFileList = async () => {
       setIsLoadingList(true);
       setError(null);
-      setMarkdownFiles([]); // Clear previous list
-      setSelectedFile(null); // Reset selection
-      setCurrentMarkdownContent(''); // Clear content
+      setMarkdownFiles([]); 
+      // Don't reset selectedFile here if we want to respect a direct prop content display initially.
+      // setSelectedFile(null); // Let prop content persist if no default file is chosen
+      // setCurrentMarkdownContent(''); // Already initialized from prop
       try {
-        // Call the backend endpoint to list files with the .md extension
         const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/list`, {
-          params: { extension: '.md' } // Add query parameter to filter by extension
+          params: { extension: '.md' } 
         });
 
-        // Expecting ["file1.md", "file2.md"]
-        const files = response.data || []; // Directly use the response data array
+        const files = response.data || []; 
         setMarkdownFiles(files);
         
-        // Automatically select the first file if available (e.g., parallel_summary.md)
-        const defaultFile = files.find(f => f.includes('parallel_summary.md')) || files[0];
-        if (defaultFile) {
-          setSelectedFile(defaultFile);
+        // If markdownContent prop was NOT provided (or was empty), then try to select a default file from the list.
+        // Otherwise, if markdownContent prop WAS provided, selectedFile remains null (or its current value)
+        // so that the prop-derived currentMarkdownContent is displayed until the user picks a file.
+        if (!markdownContent) {
+          const defaultFileToLoad = files.find(f => f.includes('parallel_summary.md')) || files[0];
+          if (defaultFileToLoad) {
+            setSelectedFile(defaultFileToLoad); // This will trigger the content fetching useEffect
+          } else {
+            setSelectedFile(null); // No default file found, ensure selectedFile is null
+            setCurrentMarkdownContent(''); // No prop, no default file, so no content.
+          }
+        } else {
+          // markdownContent prop IS available. We've initialized currentMarkdownContent with it.
+          // We do NOT auto-select a file from the list here, to let the prop content show.
+          // If a file was ALREADY selected (e.g. user clicked one), we don't want to nullify it here either.
+          // So, selectedFile remains as is (could be null, could be user-selected).
+          // If selectedFile is null, the rendering logic will use the prop-based currentMarkdownContent.
+          if (!selectedFile) { // Only ensure it's null if it wasn't already set by user interaction somehow before this runs
+             // If no file is selected AND we are using prop content, ensure selectedFile is null.
+             // This helps the rendering logic pick the prop content via the `markdownContent ?` branch.
+             setSelectedFile(null);
+          }
         }
       } catch (err) {
-        console.error("Error fetching markdown file list:", err); // Keep error log
+        console.error("Error fetching markdown file list:", err);
         setError('Failed to load markdown file list.');
         setMarkdownFiles([]);
+        setSelectedFile(null);
+        setCurrentMarkdownContent(markdownContent || ''); // Fallback to prop content on list fetch error
       } finally {
         setIsLoadingList(false);
       }
     };
 
     fetchFileList();
-  }, [taskUuid, apiBaseUrl]);
+  // Let's keep the dependencies simple, this effect is about the file list primarily.
+  // markdownContent dependency was causing re-runs that might not be desired for just file list.
+  // }, [taskUuid, apiBaseUrl, markdownContent, selectedFile]); 
+  }, [taskUuid, apiBaseUrl]); // Simpler dependencies
 
   // Effect to fetch the content of the selected markdown file
   useEffect(() => {
+    // This effect should ONLY run if a file is EXPLICITLY selected.
+    // If selectedFile is null, we rely on currentMarkdownContent being set (or not) by the prop or list fetch logic.
     if (!selectedFile || !taskUuid || !apiBaseUrl) {
-        setCurrentMarkdownContent(''); // Clear content if no file is selected
-        return;
+      // If no file is selected, currentMarkdownContent should reflect the prop's value (or be empty).
+      // The initialization of currentMarkdownContent and the list-fetching useEffect handle this.
+      // So, we don't necessarily clear currentMarkdownContent here unless selectedFile was just cleared.
+      return;
     }
 
     const fetchFileContent = async () => {
@@ -120,7 +151,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
     };
 
     fetchFileContent();
-  }, [selectedFile, taskUuid, apiBaseUrl]); // Re-run if selected file, task, or API URL changes
+  }, [selectedFile, taskUuid, apiBaseUrl, markdownContent]); // Re-run if selected file, task, or API URL changes
 
   const handleCreateNew = () => {
     setIsCreatingNew(true);
@@ -175,6 +206,18 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
         currentMarkdownContent,
         { headers: { 'Content-Type': 'text/plain' } }
       );
+      
+      // Reload the file content to ensure we're displaying the latest version
+      try {
+        const encodedFilename = encodeURIComponent(selectedFile);
+        const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`, {
+          responseType: 'text'
+        });
+        setCurrentMarkdownContent(response.data || '');
+      } catch (fetchErr) {
+        console.error(`Error reloading content after save for ${selectedFile}:`, fetchErr);
+        // Continue with existing content if reload fails
+      }
       
       setIsEditing(false);
     } catch (err) {
@@ -310,6 +353,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
                 <MarkdownViewer 
                   key={`viewer-${selectedFile}`}
                   markdownContent={currentMarkdownContent} 
+                  videoRef={videoRef}
                 />
               </div>
             ) : !isLoadingList && markdownFiles.length > 0 ? (
@@ -320,10 +364,23 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent }) {
                 <MarkdownViewer 
                   key="default-content"
                   markdownContent={markdownContent} 
+                  videoRef={videoRef}
                 />
               </div>
             ) : null}
           </div>
+        </div>
+        
+        {/* 添加时间戳格式测试组件 */}
+        <div className="mt-6 pt-4 border-t border-gray-200">
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="text-md font-medium text-gray-700">时间戳格式测试</h4>
+          </div>
+          <TimestampFormatTest 
+            videoRef={videoRef} 
+            apiBaseUrl={apiBaseUrl} 
+            className="mt-2"
+          />
         </div>
         
         <PlaceholderComponent1 />

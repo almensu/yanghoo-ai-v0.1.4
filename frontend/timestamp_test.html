@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>时间戳测试页面</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  <script src="https://unpkg.com/react-markdown@8/index.js"></script>
+  <script src="https://unpkg.com/remark-gfm@3/index.js"></script>
+  <script src="https://unpkg.com/rehype-raw@6/index.js"></script>
+  <script src="https://unpkg.com/rehype-highlight@6/index.js"></script>
+  
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github.css">
+  
+  <style>
+    .timestamp-btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.25rem 0.5rem;
+      margin: 0.25rem;
+      border-radius: 0.25rem;
+      background-color: #dbeafe;
+      color: #1e40af;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .timestamp-btn:hover {
+      background-color: #bfdbfe;
+    }
+    .timestamp-btn.active {
+      background-color: #93c5fd;
+    }
+    .markdown-body {
+      padding: 1rem;
+      background-color: white;
+      border-radius: 0.5rem;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body class="bg-gray-100 p-4">
+  <div class="max-w-6xl mx-auto">
+    <h1 class="text-2xl font-bold mb-4">时间戳测试页面</h1>
+    
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- 视频播放器 -->
+      <div class="bg-white p-4 rounded-lg shadow">
+        <h2 class="text-xl font-semibold mb-2">视频播放器</h2>
+        <video id="videoPlayer" controls width="100%" class="rounded">
+          <source src="https://www.w3schools.com/html/mov_bbb.mp4" type="video/mp4">
+          您的浏览器不支持HTML5视频。
+        </video>
+        <div class="mt-2 text-sm text-gray-500">
+          示例视频用于测试时间戳跳转功能。
+        </div>
+      </div>
+      
+      <!-- Markdown内容 -->
+      <div id="markdownContainer" class="bg-white p-4 rounded-lg shadow">
+        <h2 class="text-xl font-semibold mb-2">Markdown内容</h2>
+        <div id="root"></div>
+      </div>
+    </div>
+    
+    <!-- 测试结果区域 -->
+    <div class="mt-4 bg-white p-4 rounded-lg shadow">
+      <h2 class="text-xl font-semibold mb-2">测试结果</h2>
+      <div id="testResults" class="space-y-2">
+        <p>点击不同格式的时间戳，查看哪些格式能正确跳转到视频时间点。</p>
+        <ul id="resultsList" class="list-disc pl-5"></ul>
+      </div>
+    </div>
+  </div>
+
+  <script type="text/babel">
+    // 简化版的MarkdownWithTimestamps组件
+    const MarkdownWithTimestamps = ({ markdownContent, videoRef }) => {
+      const [isVideoAvailable, setIsVideoAvailable] = React.useState(false);
+      
+      React.useEffect(() => {
+        const checkVideoRef = () => {
+          const isAvailable = Boolean(videoRef);
+          setIsVideoAvailable(isAvailable);
+          return isAvailable;
+        };
+        
+        checkVideoRef();
+        const interval = setInterval(checkVideoRef, 2000);
+        return () => clearInterval(interval);
+      }, [videoRef]);
+
+      const timeToSeconds = (timeStr) => {
+        try {
+          if (!timeStr) return 0;
+          
+          const parts = timeStr.split(':');
+          let hours = 0, minutes = 0, seconds = 0;
+          
+          if (parts.length === 3) {
+            [hours, minutes, seconds] = parts;
+          } else if (parts.length === 2) {
+            [minutes, seconds] = parts;
+          } else if (parts.length === 1) {
+            seconds = parts[0];
+          }
+          
+          let milliseconds = 0;
+          if (String(seconds).includes('.')) {
+            const secParts = String(seconds).split('.');
+            seconds = secParts[0];
+            milliseconds = secParts[1] || 0;
+            milliseconds = Number(`0.${milliseconds}`);
+          }
+          
+          return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds) + milliseconds;
+        } catch (error) {
+          console.error("时间戳转换错误:", error);
+          return 0;
+        }
+      };
+
+      const handleTimestampClick = (timeStr) => {
+        if (!videoRef) {
+          console.warn("视频引用无效，无法跳转到时间戳");
+          return;
+        }
+        
+        try {
+          const seconds = timeToSeconds(timeStr);
+          console.log(`跳转到时间点: ${timeStr} (${seconds}秒)`);
+          
+          videoRef.currentTime = seconds;
+          
+          const buttons = document.querySelectorAll('.timestamp-btn');
+          buttons.forEach(button => {
+            if (button.dataset.time === timeStr) {
+              button.classList.add('active');
+              setTimeout(() => button.classList.remove('active'), 1000);
+            }
+          });
+          
+          // 记录点击结果
+          const resultItem = document.createElement('li');
+          resultItem.innerHTML = `<span class="font-medium">${timeStr}</span>: 成功跳转到 ${seconds} 秒`;
+          document.getElementById('resultsList').appendChild(resultItem);
+          
+          if (videoRef.paused) {
+            videoRef.play()
+              .then(() => console.log('开始播放'))
+              .catch(err => console.error("自动播放失败:", err));
+          }
+        } catch (error) {
+          console.error("处理时间戳点击时出错:", error);
+        }
+      };
+
+      // 点击事件委托
+      React.useEffect(() => {
+        const handleContainerClick = (e) => {
+          const button = e.target.closest('.timestamp-btn');
+          if (button) {
+            e.preventDefault();
+            const timeStr = button.dataset.time;
+            if (timeStr) {
+              handleTimestampClick(timeStr);
+            }
+          }
+        };
+        
+        const container = document.getElementById('root');
+        if (container) {
+          container.addEventListener('click', handleContainerClick);
+          return () => container.removeEventListener('click', handleContainerClick);
+        }
+      }, []);
+
+      // 预处理Markdown内容
+      const processedContent = React.useMemo(() => {
+        if (!markdownContent) return '';
+        
+        // 处理多种时间戳格式
+        let processed = markdownContent;
+        
+        // 1. 处理标准格式 [00:00:00]
+        processed = processed.replace(
+          /\[(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]/g, 
+          '<button class="timestamp-btn" data-time="$1">⏱️ $1</button>'
+        );
+        
+        // 2. 处理转义格式 \[00:00:00\]
+        processed = processed.replace(
+          /\\\[(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\\\]/g, 
+          '<button class="timestamp-btn" data-time="$1">⏱️ $1</button>'
+        );
+        
+        // 3. 处理括号格式 (00:00:00)
+        processed = processed.replace(
+          /\((\d{2}:\d{2}:\d{2}(?:\.\d+)?)\)/g, 
+          '<button class="timestamp-btn" data-time="$1">⏱️ $1</button>'
+        );
+        
+        // 4. 处理短格式 [MM:SS]
+        processed = processed.replace(
+          /\[(\d{2}:\d{2})\]/g, 
+          '<button class="timestamp-btn" data-time="$1">⏱️ $1</button>'
+        );
+        
+        return processed;
+      }, [markdownContent]);
+
+      if (!markdownContent) {
+        return <div className="text-gray-500 italic">暂无内容显示或加载。</div>;
+      }
+
+      return (
+        <div className="markdown-timestamps-container">
+          <ReactMarkdown
+            children={processedContent}
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw, rehypeHighlight]}
+          />
+          
+          {!isVideoAvailable && (
+            <div className="text-xs text-amber-600 mt-2 p-1 bg-amber-50 rounded">
+              注意：视频播放器未就绪，时间戳点击可能暂时不可用
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // 获取Markdown文件内容
+    fetch('test_timestamp_formats.md')
+      .then(response => response.text())
+      .then(markdown => {
+        const videoElement = document.getElementById('videoPlayer');
+        ReactDOM.render(
+          <MarkdownWithTimestamps 
+            markdownContent={markdown} 
+            videoRef={videoElement} 
+          />,
+          document.getElementById('root')
+        );
+      })
+      .catch(error => {
+        console.error('加载Markdown文件失败:', error);
+        document.getElementById('root').innerHTML = `
+          <div class="text-red-500">
+            加载Markdown文件失败: ${error.message}
+          </div>
+        `;
+      });
+  </script>
+</body>
+</html> 

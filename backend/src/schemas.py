@@ -31,6 +31,8 @@ class TaskMetadata(BaseModel):
     merged_format_vtt_md_path: Optional[str] = None
     en_only_vtt_md_path: Optional[str] = None
     zh_only_vtt_md_path: Optional[str] = None
+    en_only_vtt_timestamp_md_path: Optional[str] = None
+    zh_only_vtt_timestamp_md_path: Optional[str] = None
     merged_whisperx_md_path: Optional[str] = None
     archived: bool = False
     downloaded_audio_path: Optional[str] = None

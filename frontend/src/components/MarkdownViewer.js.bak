@@ -1,0 +1,219 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github.css'; // 你可以换成别的高亮主题
+import './markdown.css'; // 新增自定义 markdown 样式
+
+// Props:
+// - markdownContent: A string containing the Markdown text to render.
+// - videoRef: A ref to the video element.
+
+// 这个正则表达式专门匹配markdown中的时间戳格式
+// 常见格式: \[00:00:00\], [00:00:00]
+const TIMESTAMP_REGEX = /(?:\\+\[|\[)(\d{2}:\d{2}:\d{2})(?:\\+\]|\])/g;
+
+const MarkdownViewer = ({ markdownContent, videoRef }) => {
+  // 状态跟踪视频引用是否有效
+  const [isVideoRefValid, setIsVideoRefValid] = useState(false);
+
+  // 检查视频引用是否有效并可用的函数
+  const checkVideoRef = useCallback(() => {
+    if (videoRef && videoRef.current) {
+      console.log('视频引用检查: 有效');
+      setIsVideoRefValid(true);
+      return true;
+    } else {
+      console.log('视频引用检查: 无效');
+      setIsVideoRefValid(false);
+      return false;
+    }
+  }, [videoRef]);
+
+  // 定期检查视频引用是否有效
+  useEffect(() => {
+    checkVideoRef();
+    const interval = setInterval(checkVideoRef, 2000);
+    return () => clearInterval(interval);
+  }, [checkVideoRef, videoRef]);
+
+  // 时间戳转换为秒数的函数
+  const timeToSeconds = (timeStr) => {
+    try {
+      // 处理不同的时间戳格式
+      if (!timeStr) return 0;
+      
+      // 按":"分割，处理有无小时/毫秒的格式
+      const parts = timeStr.split(':');
+      let hours = 0, minutes = 0, seconds = 0;
+      
+      if (parts.length === 3) {
+        // HH:MM:SS 或 HH:MM:SS.mmm
+        [hours, minutes, seconds] = parts;
+      } else if (parts.length === 2) {
+        // MM:SS 或 MM:SS.mmm
+        [minutes, seconds] = parts;
+      } else if (parts.length === 1) {
+        // 仅秒数可能带毫秒
+        seconds = parts[0];
+      }
+      
+      // 处理毫秒（如果存在）
+      let milliseconds = 0;
+      if (String(seconds).includes('.')) {
+        const secParts = String(seconds).split('.');
+        seconds = secParts[0];
+        milliseconds = secParts[1] || 0;
+        // 将毫秒标准化为小数
+        milliseconds = Number(`0.${milliseconds}`);
+      }
+      
+      return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds) + milliseconds;
+    } catch (error) {
+      console.error("时间转换错误:", error);
+      return 0;
+    }
+  };
+
+  // 处理时间戳点击事件的函数
+  const handleTimestampClick = (timeStr) => {
+    console.log(`时间戳被点击: "${timeStr}"`);
+    
+    // 确保视频引用有效
+    if (!checkVideoRef()) {
+      console.error('视频引用无效，无法导航到时间戳');
+      return;
+    }
+    
+    try {
+      // 转换为秒
+      const seconds = timeToSeconds(timeStr);
+      console.log(`尝试将视频定位到: ${timeStr} (${seconds} 秒)`);
+      
+      // 安全地设置当前时间
+      videoRef.current.currentTime = seconds;
+      console.log(`成功设置视频时间为 ${seconds} 秒`);
+      
+      // 可选：自动播放
+      if (videoRef.current.paused) {
+        videoRef.current.play()
+          .then(() => console.log('点击时间戳后开始播放'))
+          .catch(err => console.error("无法自动播放:", err));
+      }
+    } catch (error) {
+      console.error("处理时间戳点击时出错:", error);
+    }
+  };
+
+  // 自定义文本渲染器，使时间戳可点击
+  const renderers = {
+    text: ({ children }) => {
+      if (!children || typeof children !== 'string') return children;
+      
+      // 对非常长的文本进行日志截断
+      const previewText = children.length > 100 ? 
+        children.substring(0, 100) + '...' : 
+        children;
+      
+      // 重置正则表达式状态
+      TIMESTAMP_REGEX.lastIndex = 0;
+      
+      // 检查此文本是否包含任何时间戳
+      const hasTimestamps = TIMESTAMP_REGEX.test(children);
+      
+      // 再次重置正则表达式状态
+      TIMESTAMP_REGEX.lastIndex = 0;
+      
+      if (!hasTimestamps) {
+        return children;
+      }
+      
+      console.log('找到可能的时间戳:', previewText);
+      
+      // 按时间戳拆分文本并单独渲染
+      const parts = [];
+      let lastIndex = 0;
+      let match;
+      
+      while ((match = TIMESTAMP_REGEX.exec(children)) !== null) {
+        const fullMatch = match[0];
+        const timeStr = match[1];
+        
+        console.log(`匹配到时间戳: "${fullMatch}" -> 提取时间: "${timeStr}"`);
+        
+        // 添加时间戳前的文本
+        if (match.index > lastIndex) {
+          parts.push(children.substring(lastIndex, match.index));
+        }
+        
+        if (!timeStr) {
+          console.warn('无效的时间戳匹配:', fullMatch);
+          parts.push(fullMatch);
+        } else {
+          // 添加可点击的时间戳，使用更高可点击性的按钮
+          parts.push(
+            <button 
+              key={`timestamp-${match.index}`}
+              className="timestamp inline-flex items-center px-1.5 py-0.5 my-0.5 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleTimestampClick(timeStr);
+              }}
+              title={`点击跳转到视频时间点: ${timeStr}`}
+              data-timestamp={timeStr}
+              disabled={!isVideoRefValid}
+              type="button"
+              style={{ fontSize: '0.9em', fontWeight: 'bold' }}
+            >
+              ⏱️ {timeStr}
+            </button>
+          );
+        }
+        
+        lastIndex = match.index + fullMatch.length;
+      }
+      
+      // 添加剩余文本
+      if (lastIndex < children.length) {
+        parts.push(children.substring(lastIndex));
+      }
+      
+      return <>{parts}</>;
+    }
+  };
+
+  // 组件加载时检查视频引用
+  useEffect(() => {
+    console.log("MarkdownViewer 渲染，videoRef:", videoRef ? "存在" : "缺失");
+    checkVideoRef();
+  }, [videoRef, markdownContent, checkVideoRef]);
+
+  if (!markdownContent) {
+    return (
+      <div className="text-gray-500 italic flex items-center justify-center flex-grow p-4 bg-base-100 rounded-lg shadow">
+        暂无内容显示或加载。
+      </div>
+    );
+  }
+
+  return (
+    <div className="markdown-body flex-grow overflow-auto p-4 bg-base-100 rounded-lg shadow">
+      <ReactMarkdown 
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={renderers}
+      >
+        {markdownContent}
+      </ReactMarkdown>
+      
+      {!isVideoRefValid && (
+        <div className="text-xs text-amber-600 mt-2 p-1 bg-amber-50 rounded">
+          注意：视频播放器未就绪，时间戳点击可能暂时不可用
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default MarkdownViewer; 

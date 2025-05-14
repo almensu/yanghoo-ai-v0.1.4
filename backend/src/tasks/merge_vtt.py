@@ -209,11 +209,55 @@ def create_zh_only_doc(zh_vtt_path, output_file):
         print(f"Error writing Chinese-only file {output_file}: {e}", file=sys.stderr)
         sys.exit(1)
 
+def create_en_only_doc_with_timestamp(en_vtt_path, output_file):
+    """Create an English-only markdown document with timestamps."""
+    en_content_raw = parse_vtt(en_vtt_path) if en_vtt_path != MISSING_SENTINEL else []
+    en_content = deduplicate_overlaps(en_content_raw)
+
+    if not en_content:
+        print("Error: No valid English VTT content found or remaining after deduplication for timestamped output.", file=sys.stderr)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("# English Transcript with Timestamps\\n\\nError: No valid English content found.\\n")
+        return
+
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("# English Transcript with Timestamps\\n\\n")
+            for time, text in en_content:
+                f.write(f"## [{time}]\\n\\n")
+                f.write(f"**EN**: {text.strip()}\\n\\n")
+                f.write("---\\n\\n")
+    except Exception as e:
+        print(f"Error writing English-only file with timestamps {output_file}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def create_zh_only_doc_with_timestamp(zh_vtt_path, output_file):
+    """Create a Chinese-only markdown document with timestamps."""
+    zh_content_raw = parse_vtt(zh_vtt_path) if zh_vtt_path != MISSING_SENTINEL else []
+    zh_content = deduplicate_overlaps(zh_content_raw)
+
+    if not zh_content:
+        print("Error: No valid Chinese VTT content found or remaining after deduplication for timestamped output.", file=sys.stderr)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("# 中文逐字稿 (带时间戳)\\n\\nError: 未找到有效的中文内容。\\n")
+        return
+
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("# 中文逐字稿 (带时间戳)\\n\\n")
+            for time, text in zh_content:
+                f.write(f"## [{time}]\\n\\n")
+                f.write(f"**中文**: {text.strip()}\\n\\n")
+                f.write("---\\n\\n")
+    except Exception as e:
+        print(f"Error writing Chinese-only file with timestamps {output_file}: {e}", file=sys.stderr)
+        sys.exit(1)
+
 def main():
     # Expect 5 arguments: script_name, en_vtt, zh_vtt, format, output_file
     if len(sys.argv) != 5:
         print(f"Usage: python {os.path.basename(__file__)} <en_vtt_path|{MISSING_SENTINEL}> <zh_vtt_path|{MISSING_SENTINEL}> <format> <output_abs_path>")
-        print("Format options: merged, parallel, en_only, zh_only, all")
+        print("Format options: merged, parallel, en_only, zh_only, en_only_timestamp, zh_only_timestamp, all")
         sys.exit(1)
     
     en_vtt_path = sys.argv[1]
@@ -226,17 +270,25 @@ def main():
         print(f"Error: At least one input VTT path must be provided (not {MISSING_SENTINEL}).", file=sys.stderr)
         sys.exit(1)
         
-    if format_type not in ['merged', 'parallel', 'en_only', 'zh_only', 'all']:
-         print(f"Error: Invalid format '{format_type}'. Choose from: merged, parallel, en_only, zh_only, all", file=sys.stderr)
+    if format_type not in ['merged', 'parallel', 'en_only', 'zh_only', 'en_only_timestamp', 'zh_only_timestamp', 'all']:
+         print(f"Error: Invalid format '{format_type}'. Choose from: merged, parallel, en_only, zh_only, en_only_timestamp, zh_only_timestamp, all", file=sys.stderr)
          sys.exit(1)
 
     # Validate language-specific formats have matching input files
     if format_type == 'en_only' and en_vtt_path == MISSING_SENTINEL:
         print("Error: Cannot create English-only output with missing English VTT.", file=sys.stderr)
         sys.exit(1)
+
+    if format_type == 'en_only_timestamp' and en_vtt_path == MISSING_SENTINEL:
+        print("Error: Cannot create English-only timestamped output with missing English VTT.", file=sys.stderr)
+        sys.exit(1)
     
     if format_type == 'zh_only' and zh_vtt_path == MISSING_SENTINEL:
         print("Error: Cannot create Chinese-only output with missing Chinese VTT.", file=sys.stderr)
+        sys.exit(1)
+
+    if format_type == 'zh_only_timestamp' and zh_vtt_path == MISSING_SENTINEL:
+        print("Error: Cannot create Chinese-only timestamped output with missing Chinese VTT.", file=sys.stderr)
         sys.exit(1)
 
     print(f"Starting VTT processing. Format: {format_type}")
@@ -253,6 +305,8 @@ def main():
         parallel_output = os.path.join(output_dir, "parallel_transcript_vtt.md")
         en_only_output = os.path.join(output_dir, "en_transcript_vtt.md")
         zh_only_output = os.path.join(output_dir, "zh_transcript_vtt.md")
+        en_only_timestamp_output = os.path.join(output_dir, "en_transcript_vtt_timestamp.md")
+        zh_only_timestamp_output = os.path.join(output_dir, "zh_transcript_vtt_timestamp.md")
     
     try:
         if format_type == "merged" or format_type == "all":
@@ -283,10 +337,10 @@ def main():
                 en_content_raw = parse_vtt(en_vtt_path) if en_vtt_path != MISSING_SENTINEL else []
                 en_content = deduplicate_overlaps(en_content_raw)
                 with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write('# English Transcript\n\n')
+                    f.write('# English Transcript\\n\\n')
                     for item in en_content:
                         if item['en']:
-                            f.write(item['en'].strip() + '\n\n')
+                            f.write(item['en'].strip() + '\\n\\n')
                 return
                 
         if format_type == "zh_only" or format_type == "all":
@@ -301,11 +355,40 @@ def main():
                 zh_content_raw = parse_vtt(zh_vtt_path) if zh_vtt_path != MISSING_SENTINEL else []
                 zh_content = deduplicate_overlaps(zh_content_raw)
                 with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write('# 中文逐字稿\n\n')
+                    f.write('# 中文逐字稿\\n\\n')
                     for item in zh_content:
                         if item['zh']:
-                            f.write(item['zh'].strip() + '\n\n')
+                            f.write(item['zh'].strip() + '\\n\\n')
                 return
+
+        if format_type == "en_only_timestamp" or format_type == "all":
+            if en_vtt_path != MISSING_SENTINEL:
+                if format_type == "all":
+                    create_en_only_doc_with_timestamp(en_vtt_path, en_only_timestamp_output)
+                    print(f"Created English-only transcript with timestamps: {en_only_timestamp_output}")
+                else:
+                    create_en_only_doc_with_timestamp(en_vtt_path, output_file)
+                    print(f"Created English-only transcript with timestamps: {output_file}")
+            elif format_type == "en_only_timestamp": # Should be caught by validation, but as safety
+                print("Error: English VTT missing for en_only_timestamp format.", file=sys.stderr)
+                # Create empty file as per existing pattern for other missing inputs
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write("# English Transcript with Timestamps\\n\\nError: No valid English content found (missing input VTT).\\n")
+                # sys.exit(1) could also be here if we want to be stricter
+
+        if format_type == "zh_only_timestamp" or format_type == "all":
+            if zh_vtt_path != MISSING_SENTINEL:
+                if format_type == "all":
+                    create_zh_only_doc_with_timestamp(zh_vtt_path, zh_only_timestamp_output)
+                    print(f"Created Chinese-only transcript with timestamps: {zh_only_timestamp_output}")
+                else:
+                    create_zh_only_doc_with_timestamp(zh_vtt_path, output_file)
+                    print(f"Created Chinese-only transcript with timestamps: {output_file}")
+            elif format_type == "zh_only_timestamp": # Should be caught by validation
+                print("Error: Chinese VTT missing for zh_only_timestamp format.", file=sys.stderr)
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write("# 中文逐字稿 (带时间戳)\\n\\nError: 未找到有效的中文内容 (输入VTT缺失)。\\n")
+                # sys.exit(1)
         
         # Exit successfully if functions complete without error
         sys.exit(0)
