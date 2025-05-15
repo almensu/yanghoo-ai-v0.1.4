@@ -1986,7 +1986,7 @@ def convert_vtt_to_ass(vtt_file_path, output_ass_path, segments: List[Dict], is_
             cs = int((seconds_val - int(seconds_val)) * 100)  # ASS使用厘秒(centiseconds)
             return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
         
-        # ASS文件头 - 使用专业字幕样式
+        # ASS文件头 - 使用专业字幕样式，统一对齐方式解决位置不稳定问题
         ass_header = '''[Script Info]
 ScriptType: v4.00+
 PlayResX: 1280
@@ -1996,14 +1996,14 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-; 中文样式 - 顶部显示，带轻微渐变背景增强可读性，黄色字体
-Style: Chinese,PingFang SC,42,&H0000FFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,8,20,20,30,1
-; 英文样式 - 底部显示，字体稍小
+; 中文样式 - 黄色字体，底部对齐(2)以保持位置稳定
+Style: Chinese,PingFang SC,42,&H0000FFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,2,20,20,30,1
+; 英文样式 - 底部显示
 Style: English,Arial,37,&H00FFFFFF,&H000000FF,&H00000000,&H50000000,0,0,0,0,100,100,0,0,3,2.0,0,2,20,20,30,1
 ; 单独中文样式 - 黄色字体
-Style: Chinese-Only,PingFang SC,42,&H0000FFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,2,20,20,40,1
+Style: Chinese-Only,PingFang SC,42,&H0000FFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,2,20,20,30,1
 ; 单独英文样式
-Style: English-Only,Arial,38,&H00FFFFFF,&H000000FF,&H00000000,&H50000000,0,0,0,0,100,100,0,0,3,2.2,0,2,20,20,50,1
+Style: English-Only,Arial,38,&H00FFFFFF,&H000000FF,&H00000000,&H50000000,0,0,0,0,100,100,0,0,3,2.2,0,2,20,20,30,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -2103,33 +2103,56 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 start_str = format_time(output_start)
                 end_str = format_time(output_end)
                 
-                if i < 5:  # 记录前几个字幕的处理详情
-                    segment_info = f"[{matching_segment[0]:.1f}-{matching_segment[1]:.1f} -> {matching_segment[2]:.1f}+{matching_segment[3]:.1f}]"
-                    logger.debug(f"字幕 #{i}: 原始时间 {caption_start_s:.2f}s-{caption_end_s:.2f}s => "
-                                f"输出时间 {output_start:.2f}s-{output_end:.2f}s ({start_str}-{end_str}) 段落: {segment_info}")
+                # 检测中英文
+                zh_part = None
+                en_part = None
                 
-                # 存储映射好的字幕数据以备后续处理
-                # 分割caption_text，将中文和英文部分分开
-                lines = caption_text.split("\n")
-                zh_part = ""
-                en_part = ""
-                
-                # 简单的语言检测，基于是否包含中文字符
-                for line in lines:
-                    if bool(re.search(r'[\u4e00-\u9fff]', line)):
-                        zh_part = line.strip()
-                    else:
-                        en_part = line.strip()
-                
-                # 如果未能正确分割，可能是单语字幕
-                if not zh_part and not en_part:
-                    # 如果只有一行，则根据内容判断语言
-                    if lines and lines[0]:
-                        line = lines[0].strip()
-                        if bool(re.search(r'[\u4e00-\u9fff]', line)):
-                            zh_part = line
+                # 首先检查是否是双语（有'\n'或'\r\n'分隔）
+                if is_bilingual or '\n' in caption_text:
+                    lines = caption_text.split('\n')
+                    # 只考虑前两行，即使有更多行
+                    if len(lines) >= 2:
+                        line1 = lines[0].strip()
+                        line2 = lines[1].strip()
+                        
+                        # 简单判断哪一行是英文，哪一行是中文 - 基于规则：
+                        # 1. 含有中文字符的为中文
+                        # 2. 不含中文字符的为英文
+                        has_zh_line1 = bool(re.search(r'[\u4e00-\u9fff]', line1))
+                        has_zh_line2 = bool(re.search(r'[\u4e00-\u9fff]', line2))
+                        
+                        # 双语模式下智能分配
+                        if has_zh_line1 and has_zh_line2:
+                            # 两行都有中文，取较短的作为中文（可能是总结）
+                            if len(line1) <= len(line2):
+                                zh_part = line1
+                                en_part = line2  # 这可能也是中文
+                            else:
+                                zh_part = line2
+                                en_part = line1  # 这可能也是中文
+                        elif has_zh_line1:
+                            zh_part = line1
+                            en_part = line2
+                        elif has_zh_line2:
+                            zh_part = line2
+                            en_part = line1
                         else:
-                            en_part = line
+                            # 没有中文，按英文处理全部
+                            en_part = caption_text  
+                    else:
+                        # 只有一行
+                        has_zh = bool(re.search(r'[\u4e00-\u9fff]', caption_text))
+                        if has_zh:
+                            zh_part = caption_text
+                        else:
+                            en_part = caption_text
+                else:
+                    # 单行文本
+                    has_zh = bool(re.search(r'[\u4e00-\u9fff]', caption_text))
+                    if has_zh:
+                        zh_part = caption_text
+                    else:
+                        en_part = caption_text
                 
                 # 添加到待处理列表
                 assigned_subtitles.append({
@@ -2180,14 +2203,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         show_en = True
                         recent_subtitles[en_part] = sub['end']  # 更新结束时间
                 
+                # 双语模式且都显示时，垂直排列（中文在上，英文在下）
+                if is_bilingual and has_zh and has_en and show_zh and show_en:
+                    # 处理中文，添加特殊垂直偏移实现双语垂直排列
+                    processed_zh = zh_part.replace('\n', '\\N').replace('\\n', '\\N')
+                    processed_en = en_part.replace('\n', '\\N').replace('\\n', '\\N')
+                    
+                    # 使用特殊标记强制位置：
+                    # 注意：维持垂直偏移，但使用底部对齐(2)以保持位置统一
+                    f.write(f"Dialogue: 0,{start_str},{end_str},Chinese,,0,0,0,,{{\\pos(640,650)\\an2}}{processed_zh}\\N{processed_en}\n")
+                    processed_count += 2  # 算作两行
+                    continue
+
                 # 写出中文部分（如果有且应该显示）
                 if has_zh and show_zh:
-                    f.write(f"Dialogue: 0,{start_str},{end_str},Chinese-Only,,0,0,0,,{zh_part}\n")
+                    processed_text = zh_part.replace('\n', '\\N').replace('\\n', '\\N')
+                    f.write(f"Dialogue: 0,{start_str},{end_str},Chinese-Only,,0,0,0,,{processed_text}\n")
                     processed_count += 1
                 
                 # 写出英文部分（如果有且应该显示）
                 if has_en and show_en:
-                    f.write(f"Dialogue: 0,{start_str},{end_str},English-Only,,0,0,0,,{en_part}\n")
+                    processed_text = en_part.replace('\n', '\\N').replace('\\n', '\\N')
+                    f.write(f"Dialogue: 0,{start_str},{end_str},English-Only,,0,0,0,,{processed_text}\n")
                     processed_count += 1
                 
                 # 处理完整文本（如果没有独立的中英文部分）
@@ -2205,9 +2242,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         processed_count += 1
             
             logger.info(f"VTT到ASS转换完成：处理了{processed_count}条ASS对话行，跳过了{skipped_count}条，保留原始时长且智能去除重复")
-        return True
+            
+            # 确保至少有一条字幕
+            if processed_count == 0:
+                f.write(f"Dialogue: 0,0:00:00.00,0:00:05.00,English-Only,,0,0,0,,No subtitles processed\n")
+                
+            return True
     except Exception as e:
-        logger.error(f"转换VTT到ASS失败: {e}", exc_info=True)
+        logger.error(f"Convert VTT to ASS Error: {e}", exc_info=True)
         return False
 
 def run_ffmpeg_cut(
