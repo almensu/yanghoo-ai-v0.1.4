@@ -32,7 +32,10 @@ const BilingualCueItem = ({ cue, isActive, onClick, onCueSelect, selectedCues })
 
   // 根据文本是否存在确定占位符样式（例如，斜体和灰色）
   const enStyle = cue.enText ? "text-sm leading-tight mb-1" : "text-sm italic text-gray-400 leading-tight mb-1";
-  const zhStyle = cue.zhText ? "text-sm text-gray-700 leading-tight" : "text-sm italic text-gray-400 leading-tight";
+  // 修复：当字幕活跃时，使中文与英文一样显示为白色，否则保持原有灰色
+  const zhStyle = cue.zhText 
+    ? (isActive ? "text-sm text-primary-content leading-tight" : "text-sm text-gray-700 leading-tight") 
+    : "text-sm italic text-gray-400 leading-tight";
 
   return (
     <li 
