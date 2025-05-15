@@ -9,6 +9,7 @@ const subtitleStyles = `
     padding: 4px 8px;
     border-radius: 2px;
     font-size: 16px;
+    font-family: "Source Han Sans CN Bold", "思源黑体 CN Bold", Arial, sans-serif !important;
     line-height: 1.5;
     bottom: 60px !important; /* Moved higher from bottom */
     display: inline-block;
@@ -393,6 +394,7 @@ const VideoPlayer = forwardRef(({
       .custom-subtitle-style {
         color: white !important;
         font-weight: bold !important;
+        font-family: "Source Han Sans CN Bold", "思源黑体 CN Bold", Arial, sans-serif !important;
         text-shadow: 1px 1px 2px black, 0 0 1em black, 0 0 0.2em black !important;
       }
       
