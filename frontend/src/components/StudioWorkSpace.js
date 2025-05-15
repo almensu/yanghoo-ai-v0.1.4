@@ -233,7 +233,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
   };
 
   return (
-    <div className={`flex flex-col bg-white rounded-lg shadow overflow-hidden ${isExpanded ? 'absolute right-0 z-10 w-[60%] h-full top-0 left-[40%]' : 'flex-1 min-w-0'} transition-all duration-300 ease-in-out`}>
+    <div className={`flex flex-col bg-white rounded-lg shadow overflow-hidden ${isExpanded ? 'absolute right-0 z-10 w-[50%] h-full top-0 left-[50%]' : 'flex-1 min-w-0'} transition-all duration-300 ease-in-out`}>
       <div className={`flex justify-between items-center border-b border-gray-300 flex-shrink-0 sticky top-0 bg-white z-20 ${isExpanded ? 'p-2' : 'p-4 pb-2'}`}>
         <h3 className="text-lg font-semibold">Studio WorkSpace</h3>
         <button 
