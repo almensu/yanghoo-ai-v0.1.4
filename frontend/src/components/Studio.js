@@ -397,9 +397,11 @@ const formatCuesToVttString = (cues) => {
 
   cues.forEach((cue, index) => {
     // 基本验证 - 跳过无效时间或没有文本的 cue
-    if (cue.startTime === undefined || cue.endTime === undefined || cue.startTime >= cue.endTime || !cue.text) {
-        console.warn("Skipping invalid cue during VTT string generation (生成 VTT 字符串时跳过无效 cue):", cue);
-        return; // 跳过这个 cue
+    if (cue.startTime === undefined || cue.endTime === undefined || cue.startTime >= cue.endTime) {
+        if (!cue.text && (!cue.isBilingual || (!cue.enText && !cue.zhText))) {
+            console.warn("Skipping invalid cue during VTT string generation (生成 VTT 字符串时跳过无效 cue):", cue);
+            return; // 跳过这个 cue
+        }
     }
 
     const startTimeFormatted = formatTime(cue.startTime);
@@ -409,17 +411,26 @@ const formatCuesToVttString = (cues) => {
     vttString += `${index + 1}\n`;
     vttString += `${startTimeFormatted} --> ${endTimeFormatted}\n`;
     
-    // Properly handle bilingual text with line breaks
-    // For bilingual support, preserve newlines in the text
-    // Check if text contains newlines (which would indicate bilingual content)
-    const hasNewlines = cue.text.includes('\n');
-    
-    if (hasNewlines) {
-      // For bilingual text, preserve newlines but trim whitespace
-      vttString += `${cue.text.trim()}\n\n`; // Preserve internal newlines
-    } else {
-      // For single language text, replace newlines with spaces as before
-      vttString += `${cue.text.replace(/\n+/g, ' ').trim()}\n\n`;
+    // 处理不同格式的字幕
+    if (cue.isBilingual) {
+      // 双语字幕特殊处理：英文优先
+      let bilingualText = '';
+      if (cue.enText) bilingualText += cue.enText;
+      if (cue.enText && cue.zhText) bilingualText += '\n';
+      if (cue.zhText) bilingualText += cue.zhText;
+      
+      vttString += `${bilingualText.trim()}\n\n`;
+    } else if (cue.text) {
+      // 单语字幕处理
+      const hasNewlines = cue.text.includes('\n');
+      
+      if (hasNewlines) {
+        // 对于已经包含换行的文本，保留内部换行
+        vttString += `${cue.text.trim()}\n\n`;
+      } else {
+        // 对于单行文本，替换换行为空格
+        vttString += `${cue.text.replace(/\n+/g, ' ').trim()}\n\n`;
+      }
     }
   });
 
@@ -687,50 +698,41 @@ function Studio({ taskUuid, apiBaseUrl }) {
     if (displayLang === 'bilingual') {
         const enCues = parsedCuesByLang['en'] || [];
         const zhCues = parsedCuesByLang['zh-Hans'] || [];
-        if (enCues.length > 0 && zhCues.length > 0) {
-            // Create bilingual cues for better native rendering
-            const mergedCues = [];
-            const maxLength = Math.max(enCues.length, zhCues.length);
-            
-            for (let i = 0; i < maxLength; i++) {
-                const enCue = enCues[i] || null;
-                const zhCue = zhCues[i] || null;
-                
-                // Skip if both cues are missing
-                if (!enCue && !zhCue) continue;
-                
-                // Prioritize zh timing if available, else en
-                const startTime = zhCue?.startTime ?? enCue?.startTime;
-                const endTime = zhCue?.endTime ?? enCue?.endTime;
-                
-                if (startTime !== undefined && endTime !== undefined && startTime < endTime) {
-                    // Create a combined text with both languages
-                    let combinedText = '';
-                    if (zhCue?.text) combinedText += zhCue.text;
-                    if (zhCue?.text && enCue?.text) combinedText += '\n';
-                    if (enCue?.text) combinedText += enCue.text;
-                    
-                    mergedCues.push({
-                        startTime,
-                        endTime,
-                        text: combinedText
-                    });
-                }
+        if (!enCues.length && !zhCues.length) return [];
+
+        // Create a unified timeline of all unique start and end times
+        const timePoints = new Set();
+        [...enCues, ...zhCues].forEach(cue => {
+            timePoints.add(cue.startTime);
+            timePoints.add(cue.endTime);
+        });
+        const sortedTimePoints = Array.from(timePoints).sort((a, b) => a - b);
+
+        const mergedCues = [];
+        for (let i = 0; i < sortedTimePoints.length - 1; i++) {
+            const segmentStart = sortedTimePoints[i];
+            const segmentEnd = sortedTimePoints[i+1];
+            const midPoint = segmentStart + (segmentEnd - segmentStart) / 2;
+
+            if (segmentStart >= segmentEnd) continue; // Skip zero-duration segments
+
+            // 优先使用英文字幕，即使没有完全对齐
+            const activeEnCue = enCues.find(cue => midPoint >= cue.startTime && midPoint < cue.endTime);
+            const activeZhCue = zhCues.find(cue => midPoint >= cue.startTime && midPoint < cue.endTime);
+
+            if (activeEnCue || activeZhCue) {
+                mergedCues.push({
+                    id: `bilingual-merged-${segmentStart}-${segmentEnd}`,
+                    startTime: segmentStart,
+                    endTime: segmentEnd,
+                    enText: activeEnCue?.text || null,
+                    zhText: activeZhCue?.text || null,
+                    isBilingual: true
+                });
             }
-            
-            cuesToUse = mergedCues;
-            langForTrack = 'zh'; // Use Chinese as default language code
-        } else if (zhCues.length > 0) {
-            cuesToUse = zhCues;
-            langForTrack = 'zh-Hans';
-        } else if (enCues.length > 0) {
-            cuesToUse = enCues;
-            langForTrack = 'en';
-        } else if (availableLangs.length > 0 && parsedCuesByLang[availableLangs[0]]?.length > 0) {
-            cuesToUse = parsedCuesByLang[availableLangs[0]];
-            langForTrack = availableLangs[0];
         }
-        console.log(`Studio: Bilingual mode selected, using native track for (双语模式, 原生字幕轨使用): ${langForTrack}`);
+        cuesToUse = mergedCues;
+        langForTrack = 'en'; // 使用英语作为默认语言代码
     } else if (parsedCuesByLang[displayLang]?.length > 0) {
         cuesToUse = parsedCuesByLang[displayLang];
         langForTrack = displayLang;
@@ -785,6 +787,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
 
             if (segmentStart >= segmentEnd) continue; // Skip zero-duration segments
 
+            // 优先使用英文字幕，即使没有完全对齐
             const activeEnCue = enCues.find(cue => midPoint >= cue.startTime && midPoint < cue.endTime);
             const activeZhCue = zhCues.find(cue => midPoint >= cue.startTime && midPoint < cue.endTime);
 

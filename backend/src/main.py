@@ -2303,12 +2303,13 @@ def run_ffmpeg_cut(
                         current_start_s = None
                         current_end_s = None
                         
-                        if caption_zh and caption_zh.start_in_seconds is not None and caption_zh.end_in_seconds is not None:
-                            current_start_s = caption_zh.start_in_seconds
-                            current_end_s = caption_zh.end_in_seconds
-                        elif caption_en and caption_en.start_in_seconds is not None and caption_en.end_in_seconds is not None:
+                        # 优先使用英文字幕的时间戳（修改逻辑：英文优先）
+                        if caption_en and caption_en.start_in_seconds is not None and caption_en.end_in_seconds is not None:
                             current_start_s = caption_en.start_in_seconds
                             current_end_s = caption_en.end_in_seconds
+                        elif caption_zh and caption_zh.start_in_seconds is not None and caption_zh.end_in_seconds is not None:
+                            current_start_s = caption_zh.start_in_seconds
+                            current_end_s = caption_zh.end_in_seconds
                         
                         if current_start_s is None or current_end_s is None:
                             logger.debug(f"[Job {job_id}] Index {i}: 跳过合并字幕，缺少时间数据")
@@ -2320,8 +2321,8 @@ def run_ffmpeg_cut(
                         
                         combined_text = ""
                         if text_zh and text_en:
-                            # 确保始终将中文放在前面（上面），英文放在后面（下面）
-                            combined_text = f"{text_zh}\n{text_en}"
+                            # 确保英文放在前面（上面），中文放在后面（下面）
+                            combined_text = f"{text_en}\n{text_zh}"
                         elif text_zh:
                             combined_text = text_zh
                         elif text_en:
