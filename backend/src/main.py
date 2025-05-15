@@ -1996,12 +1996,12 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-; 中文样式 - 顶部显示，带轻微渐变背景增强可读性
-Style: Chinese,PingFang SC,42,&H00FFFFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,8,20,20,30,1
+; 中文样式 - 顶部显示，带轻微渐变背景增强可读性，黄色字体
+Style: Chinese,PingFang SC,42,&H0000FFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,8,20,20,30,1
 ; 英文样式 - 底部显示，字体稍小
 Style: English,Arial,37,&H00FFFFFF,&H000000FF,&H00000000,&H50000000,0,0,0,0,100,100,0,0,3,2.0,0,2,20,20,30,1
-; 单独中文样式
-Style: Chinese-Only,PingFang SC,42,&H00FFFFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,2,20,20,40,1
+; 单独中文样式 - 黄色字体
+Style: Chinese-Only,PingFang SC,42,&H0000FFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,2,20,20,40,1
 ; 单独英文样式
 Style: English-Only,Arial,38,&H00FFFFFF,&H000000FF,&H00000000,&H50000000,0,0,0,0,100,100,0,0,3,2.2,0,2,20,20,50,1
 

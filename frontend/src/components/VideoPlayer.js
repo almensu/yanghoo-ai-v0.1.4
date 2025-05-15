@@ -15,6 +15,39 @@ const subtitleStyles = `
     max-width: 80%;
     white-space: pre-line;
     position: relative !important;
+    font-weight: bold !important; /* 字体加粗 */
+    text-shadow: 1px 1px 2px black, 0 0 1em black, 0 0 0.2em black !important; /* 添加文字阴影/描边效果 */
+  }
+  
+  /* 中文字幕显示为黄色 - 使用多种选择器确保覆盖各种情况 */
+  video::cue:lang(zh),
+  ::cue:lang(zh),
+  video::cue:lang(zh-Hans),
+  ::cue:lang(zh-Hans),
+  video::cue:lang(zh-CN),
+  ::cue:lang(zh-CN) {
+    color: #FFEB3B !important; /* 黄色字体 */
+  }
+  
+  /* 为双语字幕中的中文部分添加黄色（通过标识符或后代选择器） */
+  video::cue[voice="中文"],
+  ::cue[voice="中文"],
+  video::cue[voice="Chinese"],
+  ::cue[voice="Chinese"] {
+    color: #FFEB3B !important; /* 黄色字体 */
+  }
+  
+  /* 通过位置尝试识别双语字幕的第二行（通常是中文） */
+  video::cue > *:nth-child(2),
+  ::cue > *:nth-child(2) {
+    color: #FFEB3B !important; /* 第二行设为黄色 */
+  }
+
+  /* 强制覆盖所有字幕容器样式 */
+  ::-webkit-media-text-track-display {
+    color: white !important;
+    font-weight: bold !important;
+    text-shadow: 1px 1px 2px black, 0 0 1em black, 0 0 0.2em black !important;
   }
   
   /* Make sure subtitles have enough room */
@@ -106,6 +139,72 @@ const VideoPlayer = forwardRef(({
   // Corrected logic: Only show local if preferred AND available
   // (修正逻辑: 仅当倾向本地且本地源可用时显示)
   const shouldShowLocal = preferLocalVideo && localVideoSrc;
+
+  // --- 添加JavaScript直接处理字幕样式的代码 ---
+  useEffect(() => {
+    // 如果不是显示本地视频，不处理字幕样式
+    if (!shouldShowLocal) return;
+    
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    
+    // 辅助函数：判断文本是否包含中文
+    const containsChinese = (text) => {
+      return /[\u4e00-\u9fa5]/.test(text);
+    };
+    
+    // 监听字幕更新事件
+    const handleCueChange = () => {
+      try {
+        if (!videoElement.textTracks) return;
+        
+        // 遍历所有文本轨道
+        for (let i = 0; i < videoElement.textTracks.length; i++) {
+          const track = videoElement.textTracks[i];
+          
+          // 只处理显示中的轨道
+          if (track.mode === 'showing' && track.activeCues) {
+            for (let j = 0; j < track.activeCues.length; j++) {
+              const cue = track.activeCues[j];
+              
+              // 查找字幕显示容器
+              setTimeout(() => {
+                // 尝试查找字幕显示元素
+                const subtitleElements = document.querySelectorAll('::-webkit-media-text-track-display-node');
+                
+                subtitleElements.forEach(element => {
+                  // 检查元素内容是否包含中文
+                  if (containsChinese(element.textContent)) {
+                    // 对中文设置黄色
+                    element.style.color = '#FFEB3B';
+                  }
+                });
+                
+                // 备用方法：尝试通过DOM操作直接修改字幕容器样式
+                const displayContainer = document.querySelector('::-webkit-media-text-track-display');
+                if (displayContainer) {
+                  // 添加自定义样式类
+                  displayContainer.classList.add('custom-subtitle-style');
+                }
+              }, 50); // 短暂延迟以确保DOM更新
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Error processing cue change:", e);
+      }
+    };
+    
+    // 为视频添加cuechange事件监听
+    videoElement.textTracks.addEventListener('cuechange', handleCueChange);
+    
+    // 清理函数
+    return () => {
+      if (videoElement && videoElement.textTracks) {
+        videoElement.textTracks.removeEventListener('cuechange', handleCueChange);
+      }
+    };
+  }, [shouldShowLocal]);
 
   // --- Effect to Dynamically Manage the <track> Element (TEMPORARILY DISABLED) ---
   useEffect(() => {
@@ -284,6 +383,42 @@ const VideoPlayer = forwardRef(({
       }
     }, 1000);
   }, [vttUrl, shouldShowLocal]);
+
+  // 添加全局样式
+  useEffect(() => {
+    // 创建样式标签
+    const styleElement = document.createElement('style');
+    styleElement.textContent = `
+      /* 自定义字幕样式类 */
+      .custom-subtitle-style {
+        color: white !important;
+        font-weight: bold !important;
+        text-shadow: 1px 1px 2px black, 0 0 1em black, 0 0 0.2em black !important;
+      }
+      
+      /* 尝试直接通过DOM结构修改字幕样式 */
+      ::-webkit-media-text-track-display-node:lang(zh),
+      ::-webkit-media-text-track-display-node:lang(zh-CN),
+      ::-webkit-media-text-track-display-node:lang(zh-Hans) {
+        color: #FFEB3B !important; /* 中文黄色 */
+      }
+      
+      /* 基于内容检测：如果节点内有中文字符，强制应用黄色 */
+      ::-webkit-media-text-track-display-node:has(span:lang(zh)),
+      ::-webkit-media-text-track-display-node:has(span:lang(zh-CN)),
+      ::-webkit-media-text-track-display-node:has(span:lang(zh-Hans)) {
+        color: #FFEB3B !important;
+      }
+    `;
+    
+    // 将样式添加到头部
+    document.head.appendChild(styleElement);
+    
+    // 清理函数
+    return () => {
+      document.head.removeChild(styleElement);
+    };
+  }, []);
 
   return (
     // Removed outer div wrapper, parent will handle layout
