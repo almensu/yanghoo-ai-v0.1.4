@@ -135,31 +135,44 @@ function VttPreviewer({ cues = [], videoRef, syncEnabled = true, onCueSelect, se
   // Effect: Add/Remove 'timeupdate' listener (添加/移除监听器)
   useEffect(() => {
     const videoElement = videoRef?.current;
-    if (videoElement) {
-      console.log("VttPreviewer: Adding throttled timeupdate listener (添加节流后的 timeupdate 监听器).");
+    
+    // 严格检查videoElement是否为有效的HTML视频元素
+    if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
+      console.log("VttPreviewer: Video element ref is not a valid HTMLVideoElement, listener not added");
+      return;
+    }
+    
+    console.log("VttPreviewer: Adding throttled timeupdate listener (添加节流后的 timeupdate 监听器).");
+    
+    // 使用try-catch包裹事件监听代码，避免可能的错误
+    try {
       // Use the throttled handler
       videoElement.addEventListener('timeupdate', handleTimeUpdateThrottled);
       // Initial call still uses the original logic for immediate feedback
       // (初始调用仍用原始逻辑以获得即时反馈)
       timeUpdateLogic(); 
+    } catch (error) {
+      console.error("VttPreviewer: Error adding timeupdate event listener:", error);
+      return; // 如果添加失败，直接返回，避免后续清理代码出错
+    }
 
-      return () => {
-        if (videoElement) {
-            console.log("VttPreviewer: Removing throttled timeupdate listener (移除节流后的 timeupdate 监听器).");
-            // Remove the throttled handler
-             videoElement.removeEventListener('timeupdate', handleTimeUpdateThrottled);
-        } 
+    return () => {
+      try {
+        console.log("VttPreviewer: Removing throttled timeupdate listener (移除节流后的 timeupdate 监听器).");
+        // Remove the throttled handler
+        videoElement.removeEventListener('timeupdate', handleTimeUpdateThrottled);
+        
         // Cleanup for the throttle function itself (clear any pending timeout)
         if (handleTimeUpdateThrottled && typeof handleTimeUpdateThrottled.cancel === 'function') { 
-             // Note: Our simple throttle doesn't have cancel, lodash does.
-             // If using lodash: handleTimeUpdateThrottled.cancel();
+          // Note: Our simple throttle doesn't have cancel, lodash does.
+          // If using lodash: handleTimeUpdateThrottled.cancel();
         }
-      };
-    } else {
-        console.log("VttPreviewer: Video element ref not available, listener not added (视频元素 ref 不可用, 未添加监听器).");
-    }
+      } catch (error) {
+        console.error("VttPreviewer: Error removing timeupdate event listener:", error);
+      }
+    };
   // Depend on the throttled handler instance and the original logic for initial call
-  }, [videoRef, videoRef?.current, handleTimeUpdateThrottled, timeUpdateLogic]); 
+  }, [videoRef, videoRef?.current, handleTimeUpdateThrottled, timeUpdateLogic]);
 
   // 回调：处理字幕项点击事件（仅在非选择模式下用于跳转）
   const handleCueClickForSeek = useCallback((startTime) => {

@@ -424,6 +424,79 @@ function AIChat({ markdownContent, apiBaseUrl }) {
     }
   };
 
+  // 添加键盘快捷键支持
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Alt+D 切换调试信息显示
+      if (e.altKey && e.key === 'd') {
+        setShowDebug(prev => !prev);
+      }
+    };
+
+    try {
+      document.addEventListener('keydown', handleKeyDown);
+      return () => {
+        try {
+          document.removeEventListener('keydown', handleKeyDown);
+        } catch (error) {
+          console.error("AIChat: Error removing keydown event listener:", error);
+        }
+      };
+    } catch (error) {
+      console.error("AIChat: Error adding keydown event listener:", error);
+    }
+  }, []);
+
+  // 移除全局事件监听器
+  useEffect(() => {
+    return () => {
+      // 在组件卸载时移除全局样式
+      const styleElement = document.head.querySelector('style[data-aichat-styles]');
+      if (styleElement) {
+        document.head.removeChild(styleElement);
+      }
+    };
+  }, []);
+
+  // CSS样式
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.setAttribute('data-aichat-styles', 'true');
+    style.textContent = `
+      .text-xxs {
+        font-size: 0.65rem;
+      }
+      
+      .thinking-blocks-container {
+        display: block;
+      }
+      
+      .thinking-block {
+        display: block;
+        margin-bottom: 0.75rem;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        opacity: 0.8;
+        background-color: rgba(243, 244, 246, 0.5);
+        border: 1px solid #e5e7eb;
+        position: relative;
+        contain: content;
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      try {
+        if (style.parentNode) {
+          style.parentNode.removeChild(style);
+        }
+      } catch (error) {
+        console.error("AIChat: Error removing style element:", error);
+      }
+    };
+  }, []);
+
   return (
     <div className="flex flex-col h-full bg-white rounded-lg shadow overflow-hidden">
       {/* 顶部模型选择栏 */}
@@ -596,42 +669,5 @@ function AIChat({ markdownContent, apiBaseUrl }) {
     </div>
   );
 }
-
-// CSS样式
-const style = document.createElement('style');
-style.textContent = `
-  .text-xxs {
-    font-size: 0.65rem;
-  }
-  
-  .thinking-blocks-container {
-    display: block;
-  }
-  
-  .thinking-block {
-    display: block;
-    margin-bottom: 0.75rem;
-    padding: 0.75rem;
-    border-radius: 0.5rem;
-    font-size: 0.875rem;
-    opacity: 0.8;
-    background-color: rgba(243, 244, 246, 0.5);
-    border: 1px solid #e5e7eb;
-    position: relative;
-    contain: content;
-  }
-`;
-document.head.appendChild(style);
-
-// 添加键盘快捷键支持
-document.addEventListener('keydown', function(e) {
-  // Alt+D 切换调试信息显示
-  if (e.altKey && e.key === 'd') {
-    const debugButtons = document.querySelectorAll('[title="按Alt+D开关调试信息"]');
-    if (debugButtons.length > 0) {
-      debugButtons[0].click();
-    }
-  }
-});
 
 export default AIChat; 

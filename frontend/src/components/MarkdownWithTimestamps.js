@@ -1,5 +1,9 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import './markdown.css'; // 保留自定义 markdown 样式
+import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import remarkGfm from 'remark-gfm';
+import { normalizeTimestamp, timeToSeconds } from '../utils/timestampUtils';
 
 /**
  * 带时间戳处理功能的Markdown查看器
@@ -20,12 +24,17 @@ const MarkdownWithTimestamps = ({
 }) => {
   // 视频引用状态
   const [isVideoAvailable, setIsVideoAvailable] = useState(false);
+  // 添加点击历史记录状态，用于显示最近点击的时间戳
+  const [lastClickedTimestamp, setLastClickedTimestamp] = useState(null);
   
   // 定期检查视频引用
   useEffect(() => {
     const checkVideoRef = () => {
       const isAvailable = Boolean(videoRef?.current);
-      setIsVideoAvailable(isAvailable);
+      if (isAvailable !== isVideoAvailable) {
+        setIsVideoAvailable(isAvailable);
+        console.log(`[MarkdownWithTimestamps] 视频引用状态变更: ${isAvailable ? '可用' : '不可用'}`);
+      }
       return isAvailable;
     };
     
@@ -37,91 +46,110 @@ const MarkdownWithTimestamps = ({
     // 设置定期检查(每2秒)
     const interval = setInterval(checkVideoRef, 2000);
     return () => clearInterval(interval);
-  }, [videoRef, onTimestampClick]);
-
-  // 时间戳转换为秒数
-  const timeToSeconds = (timeStr) => {
-    try {
-      if (!timeStr) return 0;
-      
-      // 处理不同的时间戳格式
-      const parts = timeStr.split(':');
-      let hours = 0, minutes = 0, seconds = 0;
-      
-      if (parts.length === 3) {
-        // HH:MM:SS 或 HH:MM:SS.mmm 格式
-        [hours, minutes, seconds] = parts;
-      } else if (parts.length === 2) {
-        // MM:SS 或 MM:SS.mmm 格式
-        [minutes, seconds] = parts;
-      } else if (parts.length === 1) {
-        // 仅秒数，可能带毫秒
-        seconds = parts[0];
-      }
-      
-      // 处理可能的毫秒部分
-      let milliseconds = 0;
-      if (String(seconds).includes('.')) {
-        const secParts = String(seconds).split('.');
-        seconds = secParts[0];
-        milliseconds = secParts[1] || 0;
-        milliseconds = Number(`0.${milliseconds}`);
-      }
-      
-      return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds) + milliseconds;
-    } catch (error) {
-      console.error("[MarkdownWithTimestamps] 时间戳转换错误:", error);
-      return 0;
-    }
-  };
+  }, [videoRef, onTimestampClick, isVideoAvailable]);
 
   // 默认的时间戳点击处理函数
   const defaultHandleTimestampClick = useCallback((timeStr) => {
     console.log(`[MarkdownWithTimestamps] 默认处理时间戳点击: ${timeStr}`);
     if (!videoRef?.current) {
       console.warn("[MarkdownWithTimestamps] 视频引用无效，无法跳转到时间戳");
-      return;
+      return false;
     }
     
     try {
-      const seconds = timeToSeconds(timeStr);
-      console.log(`[MarkdownWithTimestamps] 跳转到时间点: ${timeStr} (${seconds}秒)`);
-      
-      videoRef.current.currentTime = seconds;
-      console.log(`[DEBUG] 已设置视频当前时间为 ${seconds} 秒`);
-      
-      // 点击的按钮添加视觉反馈
-      const buttons = document.querySelectorAll('.timestamp-btn');
-      buttons.forEach(button => {
-        if (button.dataset.time === timeStr) {
-          button.classList.add('bg-blue-300');
-          setTimeout(() => button.classList.remove('bg-blue-300'), 1000);
+      // 首先检查是否存在seekToTimestamp方法 (支持YouTube和本地视频)
+      if (typeof videoRef.current.seekToTimestamp === 'function') {
+        // 使用新的seekToTimestamp方法处理本地和YouTube视频的时间戳跳转
+        console.log(`[MarkdownWithTimestamps] 使用seekToTimestamp跳转到: ${timeStr}`);
+        
+        // 标准化时间戳格式
+        const normalizedTimestamp = normalizeTimestamp(timeStr);
+        videoRef.current.seekToTimestamp(normalizedTimestamp);
+        console.log(`[MarkdownWithTimestamps] 时间戳已标准化: ${timeStr} -> ${normalizedTimestamp}`);
+        
+        // 记录最近点击的时间戳
+        setLastClickedTimestamp(timeStr);
+        return true;
+      } else if (videoRef.current.video && typeof videoRef.current.video.seekToTimestamp === 'function') {
+        // 检查是否videoRef.current有video子属性且有seekToTimestamp方法
+        console.log(`[MarkdownWithTimestamps] 使用video.seekToTimestamp跳转到: ${timeStr}`);
+        
+        const normalizedTimestamp = normalizeTimestamp(timeStr);
+        videoRef.current.video.seekToTimestamp(normalizedTimestamp);
+        console.log(`[MarkdownWithTimestamps] 时间戳已标准化: ${timeStr} -> ${normalizedTimestamp}`);
+        
+        setLastClickedTimestamp(timeStr);
+        return true;
+      } else if (videoRef.current.video && videoRef.current.video instanceof HTMLVideoElement) {
+        // 回退到直接操作video元素
+        console.log(`[MarkdownWithTimestamps] 回退到直接操作video元素: ${timeStr}`);
+        
+        const seconds = timeToSeconds(timeStr);
+        console.log(`[MarkdownWithTimestamps] 回退方法: 跳转到时间点: ${timeStr} (${seconds}秒)`);
+        
+        videoRef.current.video.currentTime = seconds;
+        videoRef.current.video.play().catch(err => 
+          console.error("[MarkdownWithTimestamps] 自动播放失败:", err)
+        );
+        
+        setLastClickedTimestamp(timeStr);
+        return true;
+      } else if (videoRef.current instanceof HTMLVideoElement) {
+        // 直接使用video元素的情况
+        const seconds = timeToSeconds(timeStr);
+        console.log(`[MarkdownWithTimestamps] 使用直接video引用: ${timeStr} (${seconds}秒)`);
+        
+        videoRef.current.currentTime = seconds;
+        console.log(`[MarkdownWithTimestamps] 已设置视频当前时间为 ${seconds} 秒`);
+        
+        // 可选地开始播放
+        if (videoRef.current.paused) {
+          videoRef.current.play()
+            .then(() => console.log('[MarkdownWithTimestamps] 开始播放'))
+            .catch(err => console.error("[MarkdownWithTimestamps] 自动播放失败:", err));
         }
-      });
-      
-      // 可选地开始播放
-      if (videoRef.current.paused) {
-        videoRef.current.play()
-          .then(() => console.log('[MarkdownWithTimestamps] 开始播放'))
-          .catch(err => console.error("[MarkdownWithTimestamps] 自动播放失败:", err));
+        
+        setLastClickedTimestamp(timeStr);
+        return true;
+      } else {
+        // 找不到合适的视频控制方法
+        console.error("[MarkdownWithTimestamps] 无法识别的视频引用格式:", videoRef.current);
+        return false;
       }
     } catch (error) {
       console.error("[MarkdownWithTimestamps] 处理时间戳点击时出错:", error);
+      return false;
     }
-  }, [videoRef, timeToSeconds]);
+  }, [videoRef]);
   
   // 使用提供的自定义处理函数或默认处理函数
   const handleTimestampClick = useCallback((timeStr) => {
     console.log(`[MarkdownWithTimestamps] 处理时间戳点击: ${timeStr}`);
     console.log(`[MarkdownWithTimestamps] 将使用${onTimestampClick ? '自定义' : '默认'}处理函数`);
     
+    // 添加点击的视觉反馈 - 移到这里处理，确保无论使用哪种处理函数都会有反馈
+    const buttons = document.querySelectorAll('.timestamp-btn');
+    buttons.forEach(button => {
+      button.classList.remove('bg-blue-300', 'active-timestamp');
+      if (button.dataset.time === timeStr) {
+        button.classList.add('bg-blue-300', 'active-timestamp');
+        setTimeout(() => button.classList.remove('bg-blue-300'), 1000);
+      }
+    });
+    
+    // 执行时间戳处理逻辑
+    let success = false;
     if (onTimestampClick) {
       console.log('[MarkdownWithTimestamps] 调用自定义点击处理函数');
-      onTimestampClick(timeStr, videoRef);
+      success = onTimestampClick(timeStr, videoRef);
     } else {
       console.log('[MarkdownWithTimestamps] 调用默认点击处理函数');
-      defaultHandleTimestampClick(timeStr);
+      success = defaultHandleTimestampClick(timeStr);
     }
+    
+    // 记录结果
+    console.log(`[MarkdownWithTimestamps] 时间戳点击处理结果: ${success ? '成功' : '失败'}`);
+    return success;
   }, [onTimestampClick, defaultHandleTimestampClick, videoRef]);
 
   // 预处理Markdown内容，将时间戳转换为HTML按钮
@@ -179,7 +207,7 @@ const MarkdownWithTimestamps = ({
     
     // 2. 处理短格式MM:SS时间戳（包括括号、中括号、带或不带毫秒）
     // 匹配 [MM:SS], [MM:SS.mmm], (MM:SS), (MM:SS.mmm)
-    const shortTimeRegex = /(?:(?:\[|\\()(\\d{1,2}:\\d{2}(?:\\.\\d+)?)(?:\]|\\)))/g;
+    const shortTimeRegex = /(?:(?:\[|\()(\d{1,2}:\d{2}(?:\.\d+)?)(?:\]|\)))/g;
     processed = processed.replace(
       shortTimeRegex,
       (match, timeStr) => {
@@ -190,7 +218,7 @@ const MarkdownWithTimestamps = ({
     
     // 3. 处理转义的格式
     // 匹配 \\\[00:00:00\\\], \\\[MM:SS\\\]
-    const escapedTimeRegex = /\\\\\\[((?:\\d{1,2}:\\d{2}(?::\\d{2})?)(?:\\.\\d+)?)\\\\\\]/g;
+    const escapedTimeRegex = /\\\\\\[((?:\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d+)?)\\\\\\]/g;
     processed = processed.replace(
       escapedTimeRegex,
       (match, timeStr) => {
@@ -256,6 +284,12 @@ const MarkdownWithTimestamps = ({
       {!isVideoAvailable && videoRef && (
         <div className="text-xs text-amber-600 mt-2 p-1 bg-amber-50 rounded">
           注意：视频播放器未就绪，时间戳点击可能暂时不可用
+        </div>
+      )}
+      
+      {lastClickedTimestamp && (
+        <div className="text-xs text-green-600 mt-1 p-1 bg-green-50 rounded">
+          最近点击的时间戳: {lastClickedTimestamp}
         </div>
       )}
     </div>

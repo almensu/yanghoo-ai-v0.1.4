@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List } from 'lucide-react'; // Import icons, Added List
+import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List, Youtube } from 'lucide-react'; // Added Youtube icon
 
 function Sidebar() {
   const [isExpanded, setIsExpanded] = useState(true); // Sidebar starts expanded
@@ -18,6 +18,7 @@ function Sidebar() {
     { name: 'VTT Preview 测试', icon: <ListVideo size={20} />, path: '/test/vtt-previewer' }, // New VTT Test Page link
     { name: 'Markdown 测试', icon: <Settings size={20} />, path: '/test/markdown' }, // Added Markdown Test Page link
     { name: 'Markdown List 测试', icon: <List size={20} />, path: '/test/markdownlist' }, // Added MarkdownList Test Page link
+    { name: 'YouTube 时间戳 测试', icon: <Youtube size={20} />, path: '/test/youtube-timestamp' }, // Added YouTube timestamp test page
   ];
 
   return (

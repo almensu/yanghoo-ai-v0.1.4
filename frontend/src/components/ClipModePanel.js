@@ -125,10 +125,27 @@ function ClipModePanel({ data, onClose, onFinalizeClip }) {
 
   useEffect(() => {
     const videoElement = videoRef?.current;
-    if (videoElement) {
+    
+    // 严格检查videoElement是否为有效的HTML视频元素
+    if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
+      console.log("ClipModePanel: Video element ref is not a valid HTMLVideoElement, listener not added");
+      return;
+    }
+    
+    try {
       videoElement.addEventListener('timeupdate', handleTimeUpdateThrottled);
       timeUpdateLogic(); // Initial call
-      return () => videoElement.removeEventListener('timeupdate', handleTimeUpdateThrottled);
+      
+      return () => {
+        try {
+          videoElement.removeEventListener('timeupdate', handleTimeUpdateThrottled);
+        } catch (error) {
+          console.error("ClipModePanel: Error removing timeupdate event listener:", error);
+        }
+      };
+    } catch (error) {
+      console.error("ClipModePanel: Error adding timeupdate event listener:", error);
+      return;
     }
   }, [videoRef, videoRef?.current, handleTimeUpdateThrottled, timeUpdateLogic]);
 

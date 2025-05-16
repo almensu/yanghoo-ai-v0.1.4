@@ -38,12 +38,6 @@ const subtitleStyles = `
     color: #FFEB3B !important; /* 黄色字体 */
   }
   
-  /* 通过位置尝试识别双语字幕的第二行（通常是中文） */
-  video::cue > *:nth-child(2),
-  ::cue > *:nth-child(2) {
-    color: #FFEB3B !important; /* 第二行设为黄色 */
-  }
-
   /* 强制覆盖所有字幕容器样式 */
   ::-webkit-media-text-track-display {
     color: white !important;
@@ -112,9 +106,205 @@ const VideoPlayer = forwardRef(({
   const videoRef = useRef(null); // Ref for the <video> element itself
   const trackRef = useRef(null); // Ref to keep track of the added <track> element
   const [currentCueIndex, setCurrentCueIndex] = useState(-1); // Track current cue index
+  // 添加状态存储格式化后的YouTube嵌入URL
+  const [formattedEmbedUrl, setFormattedEmbedUrl] = useState(null);
+  const [youtubePlayer, setYoutubePlayer] = useState(null); // Store YouTube player instance
+  const youtubePlayerRef = useRef(null); // 使用ref存储YouTube player实例，确保在整个组件生命周期中稳定
+
+  // 提取YouTube视频ID的辅助函数
+  const extractYouTubeVideoId = (url) => {
+    if (!url) return null;
+    
+    try {
+      // 处理/embed/ID格式
+      if (url.includes('/embed/')) {
+        const match = url.match(/\/embed\/([^?&#]+)/);
+        if (match && match[1]) return match[1];
+      }
+      
+      // 处理watch?v=ID格式
+      if (url.includes('watch?v=')) {
+        const urlObj = new URL(url);
+        return urlObj.searchParams.get('v');
+      }
+      
+      // 处理youtu.be/ID短链接
+      if (url.includes('youtu.be/')) {
+        const match = url.match(/youtu\.be\/([^?&#]+)/);
+        if (match && match[1]) return match[1];
+      }
+    } catch (error) {
+      console.error('Error extracting YouTube video ID:', error);
+    }
+    
+    return null;
+  };
+
+  // 添加一个专门处理YouTube时间戳跳转的函数
+  const seekYouTubeVideo = (seconds) => {
+    try {
+      console.log(`VideoPlayer: Seeking YouTube video to ${seconds}s`);
+      
+      // 1. 优先使用YT.Player API (最可靠的方法)
+      if (youtubePlayerRef.current) {
+        console.log(`VideoPlayer: Using stored YouTube player reference to seek to ${seconds}s`);
+        youtubePlayerRef.current.seekTo(seconds, true);
+        youtubePlayerRef.current.playVideo();
+        return true;
+      }
+      
+      // 2. 尝试使用全局YT API对象
+      if (window.YT && window.YT.Player && document.getElementById('youtube-player-iframe')) {
+        console.log(`VideoPlayer: Using global YT API to seek`);
+        try {
+          // 如果没有初始化过播放器，尝试创建一个新的播放器实例
+          const iframe = document.getElementById('youtube-player-iframe');
+          const player = new window.YT.Player('youtube-player-iframe', {
+            events: {
+              'onReady': (event) => {
+                console.log('YouTube player ready, seeking immediately');
+                event.target.seekTo(seconds, true);
+                event.target.playVideo();
+                // 保存player引用以便后续使用
+                youtubePlayerRef.current = event.target;
+              }
+            }
+          });
+          return true;
+        } catch (error) {
+          console.error('Error creating YouTube player instance:', error);
+        }
+      }
+      
+      // 3. 回退到iframe src更新方法
+      // 获取视频ID
+      let videoId = '';
+      
+      // 尝试从当前iframe src获取
+      const iframe = document.getElementById('youtube-player-iframe');
+      if (iframe && iframe.src) {
+        videoId = extractYouTubeVideoId(iframe.src);
+      }
+      
+      // 如果上面没成功，从embedUrl尝试获取
+      if (!videoId && embedUrl) {
+        videoId = extractYouTubeVideoId(embedUrl);
+      }
+      
+      if (!videoId) {
+        console.error('VideoPlayer: Could not extract YouTube video ID');
+        return false;
+      }
+      
+      // 构建新的嵌入URL（添加随机参数避免缓存）
+      const newSrc = `https://www.youtube.com/embed/${videoId}?start=${Math.floor(seconds)}&autoplay=1&enablejsapi=1&t=${Date.now()}`;
+      console.log(`VideoPlayer: Updating YouTube iframe src to ${newSrc}`);
+      
+      // 强制iframe重新加载 - 最可靠的方法
+      if (iframe) {
+        iframe.src = newSrc;
+        
+        // 在iframe上添加一次性加载事件，确认加载完成
+        const onLoadHandler = () => {
+          console.log('VideoPlayer: YouTube iframe successfully reloaded');
+          iframe.removeEventListener('load', onLoadHandler);
+          
+          // 尝试在iframe加载后重新初始化播放器API
+          setTimeout(() => {
+            if (window.YT && window.YT.Player) {
+              try {
+                const player = new window.YT.Player('youtube-player-iframe', {
+                  events: {
+                    'onReady': (event) => {
+                      console.log('YouTube player ready after iframe reload');
+                      youtubePlayerRef.current = event.target;
+                    }
+                  }
+                });
+              } catch (error) {
+                console.error('Error initializing player after reload:', error);
+              }
+            }
+          }, 1000);
+        };
+        iframe.addEventListener('load', onLoadHandler);
+        
+        return true;
+      } else {
+        console.error('VideoPlayer: No YouTube iframe found');
+        return false;
+      }
+    } catch (error) {
+      console.error('VideoPlayer: Error seeking YouTube video:', error);
+      return false;
+    }
+  };
 
   // Allow parent component (Studio) to get the video element ref if needed (for VttPreviewer sync)
-  useImperativeHandle(ref, () => videoRef.current);
+  useImperativeHandle(ref, () => ({
+    // 直接暴露DOM节点引用和必要的方法
+    video: videoRef.current, // 直接提供对video元素的引用，不要展开属性
+    
+    // 时间戳跳转功能
+    seekToTimestamp: (timestamp) => {
+      // 时间戳合法性检查
+      if (!timestamp) return;
+      
+      console.log(`VideoPlayer: Attempting to seek to timestamp: ${timestamp}`);
+      
+      // 将[00:00:59]格式的时间戳转换为秒数
+      let seconds = 0;
+      if (typeof timestamp === 'string') {
+        // 处理带方括号的格式 [00:00:59]
+        if (timestamp.startsWith('[') && timestamp.endsWith(']')) {
+          const timeStr = timestamp.substring(1, timestamp.length - 1);
+          const timeParts = timeStr.split(':');
+          
+          // 处理时:分:秒格式
+          if (timeParts.length === 3) {
+            seconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
+          } 
+          // 处理分:秒格式
+          else if (timeParts.length === 2) {
+            seconds = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1]);
+          }
+        } 
+        // 处理不带方括号的格式 00:00:59
+        else if (timestamp.includes(':')) {
+          const timeParts = timestamp.split(':');
+          
+          // 处理时:分:秒格式
+          if (timeParts.length === 3) {
+            seconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
+          } 
+          // 处理分:秒格式
+          else if (timeParts.length === 2) {
+            seconds = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1]);
+          }
+        }
+        // 处理数字字符串
+        else if (!isNaN(timestamp)) {
+          seconds = parseInt(timestamp);
+        }
+      } else if (typeof timestamp === 'number') {
+        // 如果已经是秒数，直接使用
+        seconds = timestamp;
+      }
+      
+      console.log(`VideoPlayer: Converted timestamp ${timestamp} to ${seconds} seconds`);
+      
+      // 根据播放模式处理时间跳转
+      if (shouldShowLocal && videoRef.current) {
+        // 本地视频模式 - 直接设置currentTime
+        console.log(`VideoPlayer: Seeking local video to ${seconds}s`);
+        videoRef.current.currentTime = seconds;
+        videoRef.current.play().catch(err => console.log('Auto-play prevented:', err));
+      } else if (!shouldShowLocal) {
+        // YouTube嵌入模式 - 使用优化的跳转方法
+        seekYouTubeVideo(seconds);
+      }
+    }
+  }));
 
   // --- Determine available sources and construct full local URL ---
   const localVideoAvailable = Boolean(localVideoPath);
@@ -142,7 +332,7 @@ const VideoPlayer = forwardRef(({
   // --- Determine which source to USE based on preference passed from parent ---
   // Corrected logic: Only show local if preferred AND available
   // (修正逻辑: 仅当倾向本地且本地源可用时显示)
-  const shouldShowLocal = preferLocalVideo && localVideoSrc;
+  const shouldShowLocal = preferLocalVideo && !!localVideoSrc;
 
   // --- 添加JavaScript直接处理字幕样式的代码 ---
   useEffect(() => {
@@ -150,7 +340,11 @@ const VideoPlayer = forwardRef(({
     if (!shouldShowLocal) return;
     
     const videoElement = videoRef.current;
-    if (!videoElement) return;
+    // 严格检查videoElement是否为有效的HTML视频元素
+    if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
+      console.log("VideoPlayer: videoElement is not a valid HTMLVideoElement, skipping cuechange setup");
+      return;
+    }
     
     // 辅助函数：判断文本是否包含中文
     const containsChinese = (text) => {
@@ -199,13 +393,26 @@ const VideoPlayer = forwardRef(({
       }
     };
     
-    // 为视频添加cuechange事件监听
-    videoElement.textTracks.addEventListener('cuechange', handleCueChange);
+    console.log("VideoPlayer: Adding cuechange listener to video element");
+    
+    // 使用try-catch包裹事件监听代码，避免可能的错误
+    try {
+      // 为视频元素添加cuechange事件监听
+      videoElement.addEventListener('cuechange', handleCueChange);
+    } catch (error) {
+      console.error("VideoPlayer: Error adding cuechange event listener:", error);
+      return; // 如果添加失败，直接返回，避免后续清理代码出错
+    }
     
     // 清理函数
     return () => {
-      if (videoElement && videoElement.textTracks) {
-        videoElement.textTracks.removeEventListener('cuechange', handleCueChange);
+      try {
+        if (videoElement) {
+          videoElement.removeEventListener('cuechange', handleCueChange);
+          console.log("VideoPlayer: Removed cuechange listener from video element");
+        }
+      } catch (error) {
+        console.error("VideoPlayer: Error removing cuechange event listener:", error);
       }
     };
   }, [shouldShowLocal]);
@@ -572,6 +779,197 @@ const VideoPlayer = forwardRef(({
     };
   }, []);
 
+  // --- 添加YouTube API加载功能 ---
+  useEffect(() => {
+    // 仅在显示YouTube视频时加载API
+    if (!shouldShowLocal && embedVideoAvailable) {
+      console.log("VideoPlayer: Setting up YouTube iframe API");
+      
+      // 如果YT对象已经存在，不重复加载脚本
+      if (window.YT) {
+        console.log("VideoPlayer: YouTube API already loaded");
+        return;
+      }
+      
+      // 添加YouTube API脚本
+      if (!document.getElementById('youtube-iframe-api')) {
+        const tag = document.createElement('script');
+        tag.id = 'youtube-iframe-api';
+        tag.src = 'https://www.youtube.com/iframe_api';
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        console.log("VideoPlayer: Added YouTube IFrame API script");
+      }
+      
+      // 保存原有回调以避免覆盖
+      const originalOnYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady;
+      
+      // 设置API就绪回调
+      window.onYouTubeIframeAPIReady = function() {
+        console.log("VideoPlayer: YouTube IFrame API is ready");
+        
+        // 如果存在原始回调，也执行它
+        if (typeof originalOnYouTubeIframeAPIReady === 'function') {
+          originalOnYouTubeIframeAPIReady();
+        }
+        
+        // 初始化YouTube播放器
+        initializeYouTubePlayer();
+      };
+    }
+    
+    // 清理函数 - 避免内存泄漏
+    return () => {
+      if (youtubePlayerRef.current) {
+        try {
+          // 尝试销毁播放器实例
+          youtubePlayerRef.current.destroy();
+          youtubePlayerRef.current = null;
+        } catch (error) {
+          console.error('Error destroying YouTube player:', error);
+        }
+      }
+    };
+  }, [shouldShowLocal, embedVideoAvailable]);
+  
+  // 初始化YouTube播放器
+  const initializeYouTubePlayer = () => {
+    // 确保API和iframe都已就绪
+    if (!window.YT || !window.YT.Player) {
+      console.log("VideoPlayer: YouTube API not loaded yet");
+      return false;
+    }
+    
+    const iframe = document.getElementById('youtube-player-iframe');
+    if (!iframe) {
+      console.log("VideoPlayer: YouTube iframe not found");
+      return false;
+    }
+    
+    try {
+      // 提取视频ID
+      const videoId = extractYouTubeVideoId(iframe.src);
+      if (!videoId) {
+        console.error("VideoPlayer: Could not extract video ID from iframe");
+        return false;
+      }
+      
+      console.log(`VideoPlayer: Initializing YouTube player for video ID: ${videoId}`);
+      
+      // 创建新的播放器实例
+      const player = new window.YT.Player('youtube-player-iframe', {
+        events: {
+          'onReady': (event) => {
+            console.log('VideoPlayer: YouTube player ready via API');
+            youtubePlayerRef.current = event.target;
+          },
+          'onStateChange': (event) => {
+            console.log(`VideoPlayer: YouTube player state changed to: ${event.data}`);
+          },
+          'onError': (event) => {
+            console.error(`VideoPlayer: YouTube player error: ${event.data}`);
+          }
+        }
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error initializing YouTube player:', error);
+      return false;
+    }
+  };
+  
+  // 当iframe加载完成时初始化播放器
+  useEffect(() => {
+    if (!shouldShowLocal && embedVideoAvailable) {
+      // 给iframe加载事件添加监听器
+      const iframe = document.getElementById('youtube-player-iframe');
+      if (iframe) {
+        const handleIframeLoad = () => {
+          console.log('VideoPlayer: YouTube iframe loaded, initializing player');
+          // 如果API已加载，立即初始化播放器
+          if (window.YT && window.YT.Player) {
+            initializeYouTubePlayer();
+          }
+          // 否则，等待API加载完成后会自动初始化
+        };
+        
+        iframe.addEventListener('load', handleIframeLoad);
+        return () => iframe.removeEventListener('load', handleIframeLoad);
+      }
+    }
+  }, [shouldShowLocal, embedVideoAvailable, formattedEmbedUrl]);
+
+  // 处理YouTube URL格式转换
+  useEffect(() => {
+    if (embedUrl) {
+      try {
+        // 检查是否为YouTube URL
+        let youtubeVideoId = extractYouTubeVideoId(embedUrl);
+        let startTime = 0;
+        
+        // 尝试从URL提取开始时间
+        if (embedUrl.includes('watch?v=')) {
+          // 解析watch?v=格式
+          const url = new URL(embedUrl);
+          
+          // 获取时间参数
+          const timeParam = url.searchParams.get('t');
+          if (timeParam) {
+            if (timeParam.includes('s')) {
+              // 处理格式如 59s, 1m30s
+              if (timeParam.includes('h')) {
+                const hours = parseInt(timeParam.match(/(\d+)h/)?.[1] || '0');
+                startTime += hours * 3600;
+              }
+              if (timeParam.includes('m')) {
+                const minutes = parseInt(timeParam.match(/(\d+)m/)?.[1] || '0');
+                startTime += minutes * 60;
+              }
+              const seconds = parseInt(timeParam.match(/(\d+)s/)?.[1] || '0');
+              startTime += seconds;
+            } else {
+              // 纯数字格式
+              startTime = parseInt(timeParam);
+            }
+          }
+        } else if (embedUrl.includes('youtube.com/embed/')) {
+          // 从URL参数提取开始时间
+          if (embedUrl.includes('start=')) {
+            const startMatch = embedUrl.match(/[?&]start=(\d+)/);
+            if (startMatch && startMatch[1]) {
+              startTime = parseInt(startMatch[1]);
+            }
+          }
+        }
+        
+        // 如果成功提取了视频ID，构建嵌入URL
+        if (youtubeVideoId) {
+          let formattedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?rel=0&enablejsapi=1`;
+          
+          // 如果有开始时间，添加到URL
+          if (startTime > 0) {
+            formattedUrl += `&start=${startTime}`;
+          }
+          
+          // 添加自动播放
+          formattedUrl += '&autoplay=1';
+          
+          console.log(`VideoPlayer: Formatted YouTube URL: ${formattedUrl}`);
+          setFormattedEmbedUrl(formattedUrl);
+        } else {
+          console.warn(`VideoPlayer: Could not extract YouTube video ID from ${embedUrl}`);
+          setFormattedEmbedUrl(embedUrl);
+        }
+      } catch (error) {
+        console.error("VideoPlayer: Error formatting URL:", error);
+        setFormattedEmbedUrl(embedUrl);
+      }
+    } else {
+      setFormattedEmbedUrl(null);
+    }
+  }, [embedUrl]);
+
   return (
     // Removed outer div wrapper, parent will handle layout
     <div className="aspect-video w-full bg-black rounded-lg overflow-hidden shadow-lg"> 
@@ -591,13 +989,18 @@ const VideoPlayer = forwardRef(({
         </video>
       ) : embedVideoAvailable ? ( // Show iframe if embed is available and local wasn't chosen
         <iframe 
-          src={embedUrl} 
+          // 使用格式化后的嵌入URL
+          src={formattedEmbedUrl || embedUrl} 
           title={title}
           frameBorder="0" 
+          id="youtube-player-iframe"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
           allowFullScreen
           className="w-full h-full"
-          key={embedUrl} 
+          // YouTube API 需要的属性
+          name="youtube-player"
+          loading="eager"
+          onLoad={() => console.log("VideoPlayer: YouTube iframe loaded")} 
         ></iframe>
       ) : (
         <div className="w-full h-full flex items-center justify-center bg-gray-800 text-gray-400">

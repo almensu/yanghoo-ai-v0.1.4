@@ -465,14 +465,29 @@ Invalid end time.`
   useEffect(() => {
     const video = videoPlayerRef.current;
     const actualVideoElement = video?.querySelector('video') || video;
-    if (actualVideoElement) {
-      actualVideoElement.addEventListener('timeupdate' , handleTimeUpdate);
+    
+    // 严格检查videoElement是否为有效的HTML视频元素
+    if (!actualVideoElement || !(actualVideoElement instanceof HTMLVideoElement)) {
+      console.log("TestPage_VttPreviewer: Video element ref is not a valid HTMLVideoElement, listener not added");
+      return;
+    }
+    
+    try {
+      actualVideoElement.addEventListener('timeupdate', handleTimeUpdate);
       handleTimeUpdate(); // Initial check
+      
       return () => {
-        if (actualVideoElement) { // Check again in cleanup
-             actualVideoElement.removeEventListener('timeupdate', handleTimeUpdate);
+        try {
+          if (actualVideoElement) { // Check again in cleanup
+            actualVideoElement.removeEventListener('timeupdate', handleTimeUpdate);
+          }
+        } catch (error) {
+          console.error("TestPage_VttPreviewer: Error removing timeupdate event listener:", error);
         }
       };
+    } catch (error) {
+      console.error("TestPage_VttPreviewer: Error adding timeupdate event listener:", error);
+      return;
     }
   }, [handleTimeUpdate]); // Dependency is correct
 
