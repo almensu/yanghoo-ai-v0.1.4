@@ -1203,6 +1203,9 @@ function Studio({ taskUuid, apiBaseUrl }) {
                     vttUrl={preferLocalVideo ? vttBlobUrl : null} // Only pass URL if local video is preferred
                     vttLang={trackLangCode !== 'none' ? trackLangCode : null} // Pass language code (e.g., 'en', 'zh'), null if none
                     // -----------------------------------------------------------
+                    // --- Pass cues array for timestamp navigation ---
+                    cues={displayedCues}
+                    // -----------------------------------------------------------
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gray-800">

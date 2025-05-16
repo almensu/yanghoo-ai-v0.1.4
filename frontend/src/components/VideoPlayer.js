@@ -1,4 +1,4 @@
-import React, { useEffect, forwardRef, useRef, useImperativeHandle } from 'react';
+import React, { useEffect, forwardRef, useRef, useImperativeHandle, useState } from 'react';
 
 // Custom CSS for subtitles - Updated to position subtitles at the red rectangle area with more specific selectors
 const subtitleStyles = `
@@ -95,6 +95,7 @@ const subtitleStyles = `
 // - vttUrl: NEW - Blob URL for the cleaned VTT file for the native track
 // - vttLang: NEW - Language code (e.g., 'en', 'zh') for the native track
 // - trackKey: Optional - Key to force track update if needed
+// - cues: Optional array of subtitle cues for timestamp navigation
 
 const VideoPlayer = forwardRef(({ 
   localVideoPath, 
@@ -105,10 +106,12 @@ const VideoPlayer = forwardRef(({
   title = 'Video Player',
   vttUrl = null,
   vttLang = null,
-  trackKey = null
+  trackKey = null,
+  cues = null // NEW: Accept cues array for timestamp navigation
 }, ref) => {
   const videoRef = useRef(null); // Ref for the <video> element itself
   const trackRef = useRef(null); // Ref to keep track of the added <track> element
+  const [currentCueIndex, setCurrentCueIndex] = useState(-1); // Track current cue index
 
   // Allow parent component (Studio) to get the video element ref if needed (for VttPreviewer sync)
   useImperativeHandle(ref, () => videoRef.current);
@@ -206,6 +209,153 @@ const VideoPlayer = forwardRef(({
       }
     };
   }, [shouldShowLocal]);
+
+  // --- Add keyboard event handlers for timestamp navigation ---
+  useEffect(() => {
+    // Function to find the current cue index based on video time
+    const findCurrentCueIndex = () => {
+      if (!cues || cues.length === 0 || !videoRef.current) return -1;
+      
+      const currentTime = videoRef.current.currentTime;
+      
+      // First check if we're still in the same cue (optimization)
+      if (currentCueIndex >= 0 && currentCueIndex < cues.length) {
+        const cue = cues[currentCueIndex];
+        if (currentTime >= cue.startTime && currentTime < cue.endTime) {
+          return currentCueIndex;
+        }
+      }
+      
+      // Binary search for efficiency with large cue sets
+      let low = 0;
+      let high = cues.length - 1;
+      
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const cue = cues[mid];
+        
+        if (currentTime >= cue.startTime && currentTime < cue.endTime) {
+          return mid;
+        } else if (currentTime < cue.startTime) {
+          high = mid - 1;
+        } else {
+          low = mid + 1;
+        }
+      }
+      
+      // If we're after the last cue, return the last index
+      if (currentTime >= cues[cues.length - 1].startTime) {
+        return cues.length - 1;
+      }
+      
+      // If we're before the first cue, return first index - 1
+      if (currentTime < cues[0].startTime) {
+        return -1;
+      }
+      
+      // Find closest cue
+      return cues.findIndex(cue => currentTime < cue.endTime);
+    };
+
+    // Function to navigate to next subtitle timestamp
+    const seekToNextCue = () => {
+      if (!cues || cues.length === 0 || !videoRef.current) return;
+      
+      const current = videoRef.current.currentTime;
+      const nextIndex = cues.findIndex(cue => cue.startTime > current);
+      
+      if (nextIndex !== -1) {
+        console.log(`VideoPlayer: Seeking to next cue at ${cues[nextIndex].startTime}s`);
+        videoRef.current.currentTime = cues[nextIndex].startTime;
+        setCurrentCueIndex(nextIndex);
+      }
+    };
+
+    // Function to navigate to previous subtitle timestamp
+    const seekToPrevCue = () => {
+      if (!cues || cues.length === 0 || !videoRef.current) return;
+      
+      const current = videoRef.current.currentTime;
+      
+      // Find the last cue that starts before the current time
+      const prevCues = cues.filter(cue => cue.startTime < current);
+      
+      if (prevCues.length > 0) {
+        // Get the last cue that starts before current time (closest one)
+        const prevCue = prevCues[prevCues.length - 1];
+        const prevIndex = cues.findIndex(c => c.startTime === prevCue.startTime);
+        
+        // If we're already at start of current cue, go to previous one
+        if (Math.abs(current - prevCue.startTime) < 0.5 && prevIndex > 0) {
+          console.log(`VideoPlayer: At current cue start, seeking to previous cue at ${cues[prevIndex-1].startTime}s`);
+          videoRef.current.currentTime = cues[prevIndex-1].startTime;
+          setCurrentCueIndex(prevIndex-1);
+        } else {
+          // Otherwise, go to the start of the current cue
+          console.log(`VideoPlayer: Seeking to current cue start at ${prevCue.startTime}s`);
+          videoRef.current.currentTime = prevCue.startTime;
+          setCurrentCueIndex(prevIndex);
+        }
+      } else if (cues.length > 0) {
+        // If we're before first cue, go to first cue
+        console.log(`VideoPlayer: Before first cue, seeking to first cue at ${cues[0].startTime}s`);
+        videoRef.current.currentTime = cues[0].startTime;
+        setCurrentCueIndex(0);
+      }
+    };
+
+    // Update current cue index when time updates
+    const handleTimeUpdate = () => {
+      const newIndex = findCurrentCueIndex();
+      if (newIndex !== currentCueIndex) {
+        setCurrentCueIndex(newIndex);
+      }
+    };
+
+    // Keyboard event handler
+    const handleKeyDown = (e) => {
+      // Only handle if local video is showing
+      if (!shouldShowLocal) return;
+      
+      // Skip if modifier keys are pressed (to avoid interfering with browser shortcuts)
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      
+      if (e.key === 'ArrowRight') {
+        e.preventDefault(); // Prevent default browser behavior
+        seekToNextCue();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault(); // Prevent default browser behavior
+        seekToPrevCue();
+      } else if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault(); // Prevent page scrolling
+        // Toggle play/pause
+        if (videoRef.current) {
+          if (videoRef.current.paused) {
+            videoRef.current.play().catch(err => console.error("Error playing video:", err));
+            console.log('VideoPlayer: Playing video after spacebar');
+          } else {
+            videoRef.current.pause();
+            console.log('VideoPlayer: Paused video after spacebar');
+          }
+        }
+      }
+    };
+
+    // Add event listeners
+    if (shouldShowLocal && videoRef.current) {
+      console.log('VideoPlayer: Adding time update and keyboard event listeners');
+      videoRef.current.addEventListener('timeupdate', handleTimeUpdate);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    // Cleanup function
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.removeEventListener('timeupdate', handleTimeUpdate);
+      }
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [cues, shouldShowLocal, currentCueIndex]);
 
   // --- Effect to Dynamically Manage the <track> Element (TEMPORARILY DISABLED) ---
   useEffect(() => {
