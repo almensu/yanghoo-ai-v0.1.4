@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { WebVTTParser } from 'webvtt-parser';
+import { useNavigate } from 'react-router-dom';
 import VideoPlayer from './VideoPlayer';
 import VttPreviewer from './VttPreviewer';
 import MarkdownViewer from './MarkdownViewer';
@@ -8,6 +9,167 @@ import MarkdownWithTimestamps from './MarkdownWithTimestamps';
 import StudioWorkSpace from './StudioWorkSpace';
 import AIChat from './AIChat';
 import TimestampFormatTest from './TimestampFormatTest';
+
+// 视频任务选择器组件
+function VideoTaskSelector({ apiBaseUrl, currentTaskUuid }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchTasks();
+    }
+  }, [isOpen]);
+
+  const fetchTasks = async () => {
+    setIsLoading(true);
+    try {
+      const response = await axios.get(`${apiBaseUrl}/api/tasks`);
+      if (response.status === 200) {
+        // 筛选有视频的任务
+        const tasksWithVideo = response.data.filter(task => 
+          task.media_files && typeof task.media_files === 'object' && 
+          Object.values(task.media_files).some(path => path !== null)
+        );
+        setTasks(tasksWithVideo);
+      }
+    } catch (error) {
+      console.error("获取任务列表失败:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSelectTask = (taskUuid) => {
+    navigate(`/studio/${taskUuid}`);
+    setIsOpen(false);
+  };
+
+  const filteredTasks = tasks.filter(task => 
+    !searchTerm || 
+    (task.title && task.title.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  // 缩略图失败时的后备图标
+  const ThumbnailFallback = () => (
+    <div className="flex items-center justify-center w-full h-full bg-gray-200 text-gray-400">
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+      </svg>
+    </div>
+  );
+
+  // 渲染缩略图组件
+  const Thumbnail = ({ task }) => {
+    const [imgError, setImgError] = useState(false);
+    const thumbnailUrl = task.thumbnail_path 
+      ? `${apiBaseUrl}/api/tasks/${task.uuid}/files/${task.thumbnail_path.split('/').pop()}`
+      : null;
+
+    if (!thumbnailUrl || imgError) {
+      return <ThumbnailFallback />;
+    }
+
+    return (
+      <img 
+        src={thumbnailUrl}
+        alt=""
+        className="w-full h-full object-cover"
+        onError={() => setImgError(true)}
+      />
+    );
+  };
+
+  return (
+    <div className="relative z-50">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="btn btn-sm btn-outline flex items-center gap-1 h-8"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
+        </svg>
+        切换视频
+      </button>
+
+      {isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-lg font-semibold">选择视频</h3>
+              <button 
+                onClick={() => setIsOpen(false)}
+                className="btn btn-sm btn-circle btn-ghost"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-4 border-b border-gray-200">
+              <input
+                type="text"
+                placeholder="搜索视频标题..."
+                className="input input-bordered w-full"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            
+            <div className="overflow-y-auto flex-grow p-2">
+              {isLoading ? (
+                <div className="p-4 text-center">加载中...</div>
+              ) : filteredTasks.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">
+                  {searchTerm ? "没有找到匹配的视频" : "没有可用的视频"}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-2">
+                  {filteredTasks.map(task => (
+                    <div 
+                      key={task.uuid}
+                      onClick={() => handleSelectTask(task.uuid)}
+                      className={`
+                        flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-base-100 transition-colors
+                        ${task.uuid === currentTaskUuid ? 'border-primary bg-primary/5' : 'border-gray-200'}
+                      `}
+                    >
+                      <div className="w-16 h-12 rounded overflow-hidden flex-shrink-0 bg-gray-100">
+                        <Thumbnail task={task} />
+                      </div>
+                      <div className="flex-grow min-w-0">
+                        <h4 className="font-medium text-sm line-clamp-2" title={task.title}>
+                          {task.title || '无标题'}
+                        </h4>
+                        <div className="flex gap-2 mt-1 text-xs text-gray-500">
+                          <span className="badge badge-sm">{task.platform || 'N/A'}</span>
+                          {task.created_at && (
+                            <span>{new Date(task.created_at).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-gray-200 flex justify-end">
+              <button 
+                onClick={() => setIsOpen(false)}
+                className="btn btn-sm"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Add scrollbar styling with !important to ensure they override other styles
 const scrollbarStyles = `
@@ -455,6 +617,9 @@ const logger = {
 // - apiBaseUrl: The base URL for the API.
 
 function Studio({ taskUuid, apiBaseUrl }) {
+  // 添加 navigate hook
+  const navigate = useNavigate();
+  
   // Refs
   const videoElementRef = useRef(null);
 
@@ -1188,7 +1353,10 @@ function Studio({ taskUuid, apiBaseUrl }) {
         <div className="flex flex-col w-2/5 flex-shrink-0 gap-4 overflow-hidden">
           {/* Video Player Section */}
           <div className="flex flex-col flex-shrink-0">
-            <h2 className="text-xl font-semibold mb-2 text-gray-800">Video / Preview</h2>
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-xl font-semibold text-gray-800">Video / Preview</h2>
+              <VideoTaskSelector apiBaseUrl={apiBaseUrl} currentTaskUuid={taskUuid} />
+            </div>
             <div className="relative bg-black rounded shadow-md aspect-video">
               <div className="absolute top-0 left-0 w-full h-full">
                 {(localVideoAvailable || embedVideoAvailable) ? (
