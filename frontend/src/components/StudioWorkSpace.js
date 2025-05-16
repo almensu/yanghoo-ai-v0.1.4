@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios'; // Needed for fetching
 import MarkdownViewer from './MarkdownViewer';
+import MarkdownWithTimestamps from './MarkdownWithTimestamps'; // Import timestamp component
 import MarkdownEditor from './MarkdownEditor'; // Import the editor component
 import PlaceholderComponent1 from './PlaceholderComponent1';
 import PlaceholderComponent2 from './PlaceholderComponent2';
@@ -27,6 +28,9 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const contentRef = useRef(null);
   const selectedFileRef = useRef(selectedFile);
+
+  // New state to track if content has timestamps
+  const [hasTimestamps, setHasTimestamps] = useState(false);
 
   const handleExpandToggle = () => {
     const scrollPosition = contentRef.current?.scrollTop || 0;
@@ -140,11 +144,17 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
         const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`, {
              responseType: 'text' // Ensure we get raw text
         });
-        setCurrentMarkdownContent(response.data || '');
+        const content = response.data || '';
+        setCurrentMarkdownContent(content);
+        
+        // Check for timestamps in the content
+        // Looking for patterns like [00:00:00] or [hh:mm:ss]
+        setHasTimestamps(/\[\d{2}:\d{2}:\d{2}\]/.test(content));
       } catch (err) {
         console.error(`Error fetching markdown content for ${selectedFile}:`, err); // Keep error log
         setError(`Failed to load content for ${selectedFile}.`);
         setCurrentMarkdownContent(''); // Clear content on error
+        setHasTimestamps(false);
       } finally {
         setIsLoadingContent(false);
       }
@@ -152,6 +162,13 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
 
     fetchFileContent();
   }, [selectedFile, taskUuid, apiBaseUrl, markdownContent]); // Re-run if selected file, task, or API URL changes
+
+  // Check for timestamps in markdownContent when it changes
+  useEffect(() => {
+    if (markdownContent && !selectedFile) {
+      setHasTimestamps(/\[\d{2}:\d{2}:\d{2}\]/.test(markdownContent));
+    }
+  }, [markdownContent, selectedFile]);
 
   const handleCreateNew = () => {
     setIsCreatingNew(true);
@@ -344,22 +361,36 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
                     Edit
                   </button>
                 </div>
-                <MarkdownViewer 
-                  key={`viewer-${selectedFile}`}
-                  markdownContent={currentMarkdownContent} 
-                  videoRef={videoRef}
-                />
+                {hasTimestamps && videoRef ? (
+                  <MarkdownWithTimestamps
+                    key={`viewer-timestamps-${selectedFile}`}
+                    markdownContent={currentMarkdownContent}
+                    videoRef={videoRef}
+                  />
+                ) : (
+                  <MarkdownViewer 
+                    key={`viewer-${selectedFile}`}
+                    markdownContent={currentMarkdownContent} 
+                  />
+                )}
               </div>
             ) : !isLoadingList && markdownFiles.length > 0 ? (
               <p className="text-gray-500 text-sm italic">Select a markdown file above to view its content.</p>
             ) : markdownContent ? (
               <div>
                 <p className="text-xs text-gray-500 mb-2 italic">Displaying default markdown content:</p>
-                <MarkdownViewer 
-                  key="default-content"
-                  markdownContent={markdownContent} 
-                  videoRef={videoRef}
-                />
+                {hasTimestamps && videoRef ? (
+                  <MarkdownWithTimestamps
+                    key="default-content-timestamps"
+                    markdownContent={markdownContent}
+                    videoRef={videoRef}
+                  />
+                ) : (
+                  <MarkdownViewer 
+                    key="default-content"
+                    markdownContent={markdownContent} 
+                  />
+                )}
               </div>
             ) : null}
           </div>

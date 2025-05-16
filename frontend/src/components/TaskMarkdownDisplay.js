@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import MarkdownViewer from './MarkdownViewer'; // Import the viewer component
+import MarkdownWithTimestamps from './MarkdownWithTimestamps'; // Import the timestamp-enabled component
 
 // Props:
 // - taskUuid: The UUID of the task whose Markdown file we want to display.
 // - apiBaseUrl: The base URL for the API.
+// - videoRef: The ref of the video player (optional, for timestamp navigation)
 
-function TaskMarkdownDisplay({ taskUuid, apiBaseUrl }) {
+function TaskMarkdownDisplay({ taskUuid, apiBaseUrl, videoRef }) {
   const [markdownContent, setMarkdownContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [hasTimestamps, setHasTimestamps] = useState(false);
 
   useEffect(() => {
     // Fetch markdown content when the UUID changes
@@ -29,13 +32,19 @@ function TaskMarkdownDisplay({ taskUuid, apiBaseUrl }) {
         const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/markdown`);
         
         // Adjust based on how your backend returns the data:
+        let content = '';
         if (typeof response.data === 'string') {
-          setMarkdownContent(response.data); 
+          content = response.data; 
         } else if (response.data && typeof response.data.content === 'string') {
-          setMarkdownContent(response.data.content);
+          content = response.data.content;
         } else {
            throw new Error('Unexpected response format for markdown content');
         }
+
+        // Check if the markdown contains timestamps [00:00:00] format
+        const hasTimeStamps = /\[\d{2}:\d{2}:\d{2}\]/.test(content);
+        setHasTimestamps(hasTimeStamps);
+        setMarkdownContent(content);
 
       } catch (err) {
         console.error(`Error fetching markdown for task ${taskUuid}:`, err);
@@ -71,8 +80,15 @@ function TaskMarkdownDisplay({ taskUuid, apiBaseUrl }) {
         </div>
       )}
       {!isLoading && !error && (
-        // Render the fetched markdown using the MarkdownViewer component
-        <MarkdownViewer markdownContent={markdownContent} />
+        // Use MarkdownWithTimestamps if timestamps are detected, otherwise use regular MarkdownViewer
+        hasTimestamps && videoRef ? (
+          <MarkdownWithTimestamps 
+            markdownContent={markdownContent} 
+            videoRef={videoRef} 
+          />
+        ) : (
+          <MarkdownViewer markdownContent={markdownContent} />
+        )
       )}
     </div>
   );
