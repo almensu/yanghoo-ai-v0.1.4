@@ -153,6 +153,18 @@ const MarkdownWithTimestamps = ({
     console.log("[DEBUG] 开始处理Markdown内容中的时间戳");
     
     // 添加对时间戳格式的全面支持
+
+    // 0. 处理时间范围格式 (HH:MM:SS - HH:MM:SS) or [HH:MM:SS - HH:MM:SS]
+    // The button will display the full range, but data-time will be the start time.
+    const timeRegexPartForRange = '\\d{1,2}:\\d{2}:\\d{2}(?:\\.\\d+)?'; // HH:MM:SS or H:MM:SS, optional .ms
+    const timeRangeRegex = new RegExp(`(?:\\(|\\[)(${timeRegexPartForRange})\\s*-\\s*${timeRegexPartForRange}(?:\\)|\\])`, 'g');
+    processed = processed.replace(
+      timeRangeRegex,
+      (match, startTime) => { // startTime is the first captured group (the start HH:MM:SS)
+        console.log(`[DEBUG] 匹配时间范围: ${match}, 将使用开始时间: ${startTime}`);
+        return `<button class="${finalButtonClass}" style="${inlineStyle}" data-time="${startTime}" type="button">⏱️ ${match}</button>`;
+      }
+    );
     
     // 1. 处理所有格式的HH:MM:SS时间戳（包括括号、中括号、带或不带毫秒）
     // 匹配 [00:00:00], [00:00:00.000], (00:00:00), (00:00:00.000)
@@ -167,7 +179,7 @@ const MarkdownWithTimestamps = ({
     
     // 2. 处理短格式MM:SS时间戳（包括括号、中括号、带或不带毫秒）
     // 匹配 [MM:SS], [MM:SS.mmm], (MM:SS), (MM:SS.mmm)
-    const shortTimeRegex = /(?:(?:\[|\()(\d{1,2}:\d{2}(?:\.\d+)?)(?:\]|\)))/g;
+    const shortTimeRegex = /(?:(?:\[|\\()(\\d{1,2}:\\d{2}(?:\\.\\d+)?)(?:\]|\\)))/g;
     processed = processed.replace(
       shortTimeRegex,
       (match, timeStr) => {
@@ -177,8 +189,8 @@ const MarkdownWithTimestamps = ({
     );
     
     // 3. 处理转义的格式
-    // 匹配 \[00:00:00\], \[MM:SS\]
-    const escapedTimeRegex = /\\\[((?:\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d+)?)\\\]/g;
+    // 匹配 \\\[00:00:00\\\], \\\[MM:SS\\\]
+    const escapedTimeRegex = /\\\\\\[((?:\\d{1,2}:\\d{2}(?::\\d{2})?)(?:\\.\\d+)?)\\\\\\]/g;
     processed = processed.replace(
       escapedTimeRegex,
       (match, timeStr) => {
