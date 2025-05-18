@@ -17,7 +17,8 @@
     "react-scripts": "5.0.1",
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "webvtt-parser": "^0.5.0"
   },
   "scripts": {
     "start": "react-scripts start",
