@@ -52,7 +52,7 @@ function CardView({
   tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio,
   onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt,
   onDeleteVtt, onMergeVtt, onCreateVideo,
-  onTranscribeWhisperX, onDeleteWhisperX, onOpenFolder, onGoToStudio,
+  onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX, onOpenFolder, onGoToStudio,
   // Sorting props
   sortField,
   sortOrder,
@@ -430,6 +430,21 @@ function CardView({
                                    }
                                >
                                   {isTranscribing ? "转录中..." : (whisperXJsonExists ? "已完成" : "开始转录")}
+                               </button>
+                               <button
+                                   className={cn(
+                                       "btn btn-outline btn-xs btn-accent", 
+                                       (!hasAudioForTranscription || whisperXJsonExists || isTranscribing) && 'btn-disabled'
+                                   )}
+                                   onClick={() => onSplitTranscribeWhisperX(task.uuid, selectedWhisperXModel)}
+                                   disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing}
+                                   title={
+                                      !hasAudioForTranscription ? "需要音频文件" :
+                                      whisperXJsonExists ? `已转录 (${task.transcription_model})` :
+                                      isTranscribing ? "正在转录..." : `使用 ${selectedWhisperXModel} 模型切分转录`
+                                   }
+                               >
+                                  切分转录
                                </button>
                                <button
                                    className={cn(

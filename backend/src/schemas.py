@@ -65,7 +65,7 @@ class TranscriptionModel(str, Enum):
     LARGE_V3 = "large-v3"
 
 class TranscribeRequest(BaseModel):
-    model: Optional[TranscriptionModel] = Field(TranscriptionModel.MEDIUM_EN, description="WhisperX model to use for non-YouTube sources")
+    model: Optional[TranscriptionModel] = Field(TranscriptionModel.LARGE_V3, description="WhisperX model to use for non-YouTube sources")
 
 class TranscribeResponse(BaseModel):
     task_uuid: UUID

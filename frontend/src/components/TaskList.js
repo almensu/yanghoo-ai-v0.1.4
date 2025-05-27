@@ -21,6 +21,7 @@ function TaskList({
   onMergeVtt,
   onTranscribeWhisperX,
   onDeleteWhisperX,
+  onSplitTranscribeWhisperX,
   onCreateVideo,
   onOpenFolder,
   onGoToStudio, // Add the new prop here
@@ -87,6 +88,7 @@ function TaskList({
               onMergeVtt={onMergeVtt}
               onTranscribeWhisperX={onTranscribeWhisperX}
               onDeleteWhisperX={onDeleteWhisperX}
+              onSplitTranscribeWhisperX={onSplitTranscribeWhisperX}
               onCreateVideo={onCreateVideo}
               onOpenFolder={onOpenFolder}
               onGoToStudio={onGoToStudio}
@@ -111,6 +113,7 @@ function TaskList({
               onMergeVtt={onMergeVtt}
               onTranscribeWhisperX={onTranscribeWhisperX}
               onDeleteWhisperX={onDeleteWhisperX}
+              onSplitTranscribeWhisperX={onSplitTranscribeWhisperX}
               onCreateVideo={onCreateVideo}
               // Pass sorting props
               sortField={sortField}

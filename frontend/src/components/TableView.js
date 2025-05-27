@@ -53,7 +53,7 @@ function TableView({
   tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, 
   onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, 
   onDeleteVtt, onMergeVtt, onCreateVideo,
-  onTranscribeWhisperX, onDeleteWhisperX,
+  onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX,
   // Sorting props
   sortField,
   sortOrder,
@@ -333,53 +333,57 @@ function TableView({
                 </td>
                 
                 {/* WhisperX Column */} 
-                <td className="p-3 text-xs">
-                  <div className="flex flex-col gap-1 items-start w-full max-w-[180px]">
-                     {/* Status */} 
-                     <div className="flex items-center gap-1 w-full">
-                         <IconWrapper icon={Mic} className={cn(whisperXJsonExists ? 'text-success' : 'text-base-content/40')}/>
-                         <span className={cn(!whisperXJsonExists && 'text-base-content/60', 'flex-grow')}>
-                             {whisperXJsonExists ? `完成 (${task.transcription_model})` : '未转录'}
-                         </span>
-                         {isTranscribing && <span className="loading loading-spinner loading-xs text-primary ml-1"></span>}
-                     </div>
-                     {/* Model Select */} 
-                     <select
-                         className={cn("select select-bordered select-xs w-full font-normal", (!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived) && 'select-disabled opacity-60')}
-                         value={selectedWhisperXModel}
-                         onChange={(e) => handleWhisperXModelChange(task.uuid, e.target.value)}
-                         disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived}
-                         title={
-                             task.archived ? "任务已归档" :
-                             !hasAudioForTranscription ? "需音频" :
-                             whisperXJsonExists ? "已转录" :
-                             isTranscribing ? "转录中..." : "选择模型"
-                         }
-                     >
-                         {whisperXModelChoices.map(model => (
-                             <option key={model} value={model}>{model}</option>
-                         ))}
-                     </select>
-                     {/* Action Buttons */} 
-                     <div className="flex justify-end gap-1 w-full mt-0.5">
-                          <button
-                             className={cn("btn btn-outline btn-xs", whisperXJsonExists ? "btn-success" : "btn-primary", (!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived) && 'btn-disabled')}
-                             onClick={() => onTranscribeWhisperX(task.uuid, selectedWhisperXModel)}
-                             disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived}
-                             title={ task.archived ? "任务已归档" : !hasAudioForTranscription ? "需要音频文件" : whisperXJsonExists ? "已转录" : isTranscribing ? "转录中..." : `使用 ${selectedWhisperXModel} 转录`}
-                         >
-                             {isTranscribing ? "..." : (whisperXJsonExists ? "已完成" : "开始")}
-                         </button>
-                         <button
-                             className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (!whisperXJsonExists || isTranscribing || task.archived) && 'btn-disabled')}
-                             onClick={() => onDeleteWhisperX(task.uuid)}
-                             disabled={!whisperXJsonExists || isTranscribing || task.archived}
-                             data-tip="删除转录文件"
-                         >
-                            <IconWrapper icon={Trash2} className="text-error/70"/>
-                         </button>
-                     </div>
-                  </div>
+                <td className={cn("p-3 flex flex-col gap-1 text-xs min-w-28 max-w-40", task.archived && "opacity-60")}>
+                    <div className="flex items-center gap-1">
+                        <IconWrapper icon={Mic} className={cn(whisperXJsonExists ? 'text-success' : 'text-base-content/40')}/>
+                        <span className={cn(!whisperXJsonExists && 'text-base-content/60', 'flex-grow')}>
+                            {whisperXJsonExists ? `完成 (${task.transcription_model})` : '未转录'}
+                        </span>
+                        {isTranscribing && <span className="loading loading-spinner loading-xs text-primary"></span>}
+                    </div>
+                    
+                    <select 
+                        className={cn("select select-bordered select-xs w-full font-normal", (!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived) && 'select-disabled opacity-60')}
+                        value={selectedWhisperXModel}
+                        onChange={(e) => handleWhisperXModelChange(task.uuid, e.target.value)}
+                        disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived}
+                        title={
+                            !hasAudioForTranscription ? "需要先下载或提取音频" :
+                            whisperXJsonExists ? "已转录" :
+                            isTranscribing ? "正在转录中..." : "选择 WhisperX 模型"
+                        }
+                    >
+                        {whisperXModelChoices.map(model => (
+                            <option key={model} value={model}>{model}</option>
+                        ))}
+                    </select>
+                    
+                    <div className="flex items-center gap-1 mt-1">
+                        <button 
+                            className={cn("btn btn-outline btn-xs", whisperXJsonExists ? "btn-success" : "btn-primary", (!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived) && 'btn-disabled')}
+                            onClick={() => onTranscribeWhisperX(task.uuid, selectedWhisperXModel)}
+                            disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived}
+                            title={ task.archived ? "任务已归档" : !hasAudioForTranscription ? "需要音频文件" : whisperXJsonExists ? "已转录" : isTranscribing ? "转录中..." : `使用 ${selectedWhisperXModel} 转录`}
+                        >
+                            {isTranscribing ? "..." : (whisperXJsonExists ? "已完成" : "开始")}
+                        </button>
+                        <button
+                            className={cn("btn btn-outline btn-xs btn-accent", (!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived) && 'btn-disabled')}
+                            onClick={() => onSplitTranscribeWhisperX(task.uuid, selectedWhisperXModel)}
+                            disabled={!hasAudioForTranscription || whisperXJsonExists || isTranscribing || task.archived}
+                            title={ task.archived ? "任务已归档" : !hasAudioForTranscription ? "需要音频文件" : whisperXJsonExists ? "已转录" : isTranscribing ? "转录中..." : `使用 ${selectedWhisperXModel} 切分转录`}
+                        >
+                            切分
+                        </button>
+                        <button 
+                            className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (!whisperXJsonExists || isTranscribing || task.archived) && 'btn-disabled')}
+                            onClick={() => onDeleteWhisperX(task.uuid)}
+                            disabled={!whisperXJsonExists || isTranscribing || task.archived}
+                            data-tip="删除转录文件"
+                        >
+                            <IconWrapper icon={Trash2} className="w-3.5 h-3.5 text-error/70" />
+                        </button>
+                    </div>
                 </td>
                 
                 {/* Action Column */} 

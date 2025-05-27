@@ -21,12 +21,16 @@ from pydantic import BaseModel, Field # Import BaseModel and Field
 import re
 import copy
 import httpx # Add httpx for async HTTP requests
+import time
+import platform
+from concurrent.futures import ThreadPoolExecutor
+from starlette.concurrency import run_in_threadpool
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect, Query, Path as PathParam
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 # from pathlib import Path # Remove Path import
@@ -1406,10 +1410,6 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
 
 # --- END: Merge VTT Endpoint ---
 
-# --- Define Request Body Model for WhisperX ---
-class TranscribeWhisperXRequest(BaseModel):
-    model: Literal['tiny.en', 'small.en', 'medium.en', 'large-v3']
-
 # --- Helper Function to Run Transcription Script and Broadcast --- 
 # MODIFIED to return the relative path of the generated JSON, or None on failure
 def run_transcription_script_and_notify(uuid: str, model: str) -> Optional[str]:
@@ -1476,7 +1476,7 @@ def run_transcription_script_and_notify(uuid: str, model: str) -> Optional[str]:
 @app.post("/api/tasks/{task_uuid}/transcribe_whisperx", response_model=TaskMetadata)
 async def transcribe_whisperx_endpoint(
     task_uuid: UUID,
-    request: TranscribeWhisperXRequest # Removed BackgroundTasks
+    request: TranscribeRequest # Changed from TranscribeWhisperXRequest to TranscribeRequest
 ):
     uuid_str = str(task_uuid)
     model = request.model
@@ -2873,8 +2873,10 @@ async def get_cut_job_status(task_uuid: UUID, job_id: str):
 
 # <<< Add New Endpoints Here >>> (Place the new endpoints above this marker if it exists)
 
-from .routes import chat
+from .routes import chat, tasks
 app.include_router(chat.router)
+app.include_router(tasks.router)
+app.include_router(tasks.router)
 
 # --- START: Add POST endpoint for file creation/update ---
 @app.post("/api/tasks/{task_uuid}/files/{filename}", status_code=200)

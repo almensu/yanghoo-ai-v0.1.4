@@ -356,6 +356,27 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
     }
   };
 
+  const handleSplitTranscribeWhisperX = async (taskUuid, model) => {
+    if (!taskUuid || !model) { alert("UUID/Model required."); return; }
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/tasks/${taskUuid}/split_transcribe_whisperx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Started split-transcribe job for ${taskUuid} using model ${model}`);
+        setTasks(ts => ts.map(t => t.uuid === taskUuid ? { ...t, transcription_status: "processing", transcription_model: model } : t));
+      } else {
+        const data = await res.json();
+        throw new Error(data.detail || `Split-transcribe WhisperX failed: ${res.status}`);
+      }
+    } catch (e) {
+      alert(`Failed split-transcribe WhisperX for ${taskUuid}: ${e.message}`);
+    }
+  };
+
   const handleCreateVideo = async (taskUuid) => {
     try {
       const res = await fetch(`${apiBaseUrl}/api/tasks/${taskUuid}/create_video`, { method: 'POST' });
@@ -418,6 +439,7 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
           onMergeVtt={handleMergeVtt}
           onTranscribeWhisperX={handleTranscribeWhisperX}
           onDeleteWhisperX={handleDeleteWhisperX}
+          onSplitTranscribeWhisperX={handleSplitTranscribeWhisperX}
           onCreateVideo={handleCreateVideo}
           onOpenFolder={handleOpenFolder}
           onGoToStudio={handleGoToStudio}

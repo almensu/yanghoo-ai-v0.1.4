@@ -13,7 +13,7 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Transcribe audio using WhisperX')
     parser.add_argument('--uuid', required=True, help='Content UUID from metadata.json')
-    parser.add_argument('--model', default='medium.en', choices=['tiny.en', 'small.en', 'medium.en', 'large-v3'], help='WhisperX model to use')
+    parser.add_argument('--model', default='large-v3', choices=['tiny.en', 'small.en', 'medium.en', 'large-v3'], help='WhisperX model to use')
     args = parser.parse_args()
     
     # Define paths relative to the script location
