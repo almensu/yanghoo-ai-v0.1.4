@@ -662,6 +662,9 @@ function Studio({ taskUuid, apiBaseUrl }) {
 
   // Define subtitleLangToEmbed at the component scope level
   const [embeddingSubtitleLang, setEmbeddingSubtitleLang] = useState('none');
+  
+  // --- NEW: State for output format ---
+  const [outputFormat, setOutputFormat] = useState('video'); // 'video' or 'wav'
 
   // --- Data Fetching Effect (数据获取 Effect - 修改以重置 Blob URL) ---
   useEffect(() => {
@@ -1208,6 +1211,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
         media_identifier: videoRelativePath, 
         segments: segmentsToKeep,
         embed_subtitle_lang: subtitleLangToEmbed, // New parameter for backend
+        output_format: outputFormat // 添加输出格式参数
       });
 
       const { job_id, message } = response.data;
@@ -1224,7 +1228,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
       setCuttingMessage('提交剪辑请求失败: ' + (error.response?.data?.detail || error.message));
       setCutOutputPath(null);
     }
-  }, [selectedCueIds, displayedCues, taskUuid, videoRelativePath, apiBaseUrl, cuttingStatus, pollCutStatus, vttMode, displayLang, parsedCuesByLang]);
+  }, [selectedCueIds, displayedCues, taskUuid, videoRelativePath, apiBaseUrl, cuttingStatus, pollCutStatus, vttMode, displayLang, parsedCuesByLang, outputFormat]);
 
   // --- Handler to toggle VTT mode ---
   const toggleVttMode = (newMode) => {
@@ -1505,12 +1509,24 @@ function Studio({ taskUuid, apiBaseUrl }) {
             {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
               <div className="p-4 border-t border-gray-200 flex-shrink-0 space-y-3">
                 <div className="flex items-center gap-3">
+                  <select 
+                    className="select select-bordered select-sm"
+                    value={outputFormat}
+                    onChange={(e) => setOutputFormat(e.target.value)}
+                  >
+                    <option value="video">视频片段</option>
+                    <option value="wav">WAV 音频</option>
+                  </select>
+                  
                   <button
                     className={`btn btn-primary flex-grow ${cuttingStatus === 'processing' ? 'loading' : ''}`}
                     onClick={handleCutVideoClick}
                     disabled={selectedCueIds.size === 0 || cuttingStatus === 'processing'}
                   >
-                    {cuttingStatus === 'processing' ? '正在处理...' : `剪辑选中的 ${selectedCueIds.size} 个片段`}
+                    {cuttingStatus === 'processing' ? '正在处理...' : 
+                      outputFormat === 'video' ? 
+                        `剪辑选中的 ${selectedCueIds.size} 个片段` : 
+                        `提取选中的 ${selectedCueIds.size} 个片段的音频`}
                   </button>
                 </div>
 
@@ -1523,7 +1539,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
                       className="btn btn-sm btn-success w-full"
                       download
                     >
-                      下载剪辑结果
+                      下载{outputFormat === 'video' ? '视频' : '音频'}片段
                     </a>
                   </div>
                 )}

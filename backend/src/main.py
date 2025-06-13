@@ -1915,6 +1915,10 @@ class CutRequest(BaseModel):
         default='none', 
         description="Language of subtitles to embed/burn into the video. 'none' for no subtitles."
     )
+    output_format: Literal['video', 'wav'] = Field(
+        default='video',
+        description="Output format: 'video' for MP4 video, 'wav' for WAV audio"
+    )
 
 class CutResponse(BaseModel):
     job_id: str
@@ -2259,17 +2263,25 @@ def run_ffmpeg_cut(
     segments: List[Dict], 
     job_id: str, 
     embed_subtitle_lang: Optional[str],
-    vtt_files: Dict[str, Optional[str]] # Pass the task's vtt_files dict
+    vtt_files: Dict[str, Optional[str]], # Pass the task's vtt_files dict
+    output_format: str = 'video'
 ):
     """Runs the ffmpeg cut command in the background, potentially embedding subtitles."""
     global cut_job_statuses
-    logger.info(f"[Job {job_id}] Starting ffmpeg cut for {task_uuid_str} (Embed: {embed_subtitle_lang})")
+    logger.info(f"[Job {job_id}] Starting ffmpeg cut for {task_uuid_str} (Embed: {embed_subtitle_lang}, Format: {output_format})")
     cut_job_statuses[job_id]["status"] = "processing"
 
     # 临时文件列表，用于后续清理
     temp_files_to_clean = []
     # 输出文件列表，用于跟踪生成的文件
-    output_files = {"video": str(output_path.relative_to(DATA_DIR))}
+    output_files = {}
+
+    # 根据输出格式修改输出路径
+    if output_format == 'wav':
+        output_path = output_path.with_suffix('.wav')
+        output_files["audio"] = str(output_path.relative_to(DATA_DIR))
+    else:
+        output_files["video"] = str(output_path.relative_to(DATA_DIR))
 
     # 确保在任何情况下都清理临时文件的函数
     def cleanup_temp_files():
@@ -2596,21 +2608,36 @@ def run_ffmpeg_cut(
                 duration = end_time - start_time
                 
                 # 切出单个片段到临时文件
-                temp_file = temp_dir / f"segment_{job_id}_{i}.mp4"
+                temp_file_suffix = ".wav" if output_format == 'wav' else ".mp4"
+                temp_file = temp_dir / f"segment_{job_id}_{i}{temp_file_suffix}"
                 temp_segment_files.append(temp_file)
                 temp_files_to_clean.append(temp_file)
                 
-                # 使用简单的-ss和-t参数切分
-                segment_cmd = [
-                    "ffmpeg", "-v", "error",
-                    "-ss", str(start_time),
-                    "-t", str(duration),
-                    "-i", str(input_path),
-                    "-c:v", "libx264", "-preset", "fast",
-                    "-c:a", "aac",
-                    "-avoid_negative_ts", "1",
-                    "-y", str(temp_file)
-                ]
+                # 根据输出格式选择不同的命令
+                if output_format == 'wav':
+                    # WAV 音频提取命令
+                    segment_cmd = [
+                        "ffmpeg", "-v", "error",
+                        "-ss", str(start_time),
+                        "-t", str(duration),
+                        "-i", str(input_path),
+                        "-acodec", "pcm_s16le",  # WAV 编码
+                        "-ar", "16000",          # 采样率
+                        "-ac", "1",              # 单声道
+                        "-y", str(temp_file)
+                    ]
+                else:
+                    # 视频切分命令（保持原有逻辑）
+                    segment_cmd = [
+                        "ffmpeg", "-v", "error",
+                        "-ss", str(start_time),
+                        "-t", str(duration),
+                        "-i", str(input_path),
+                        "-c:v", "libx264", "-preset", "fast",
+                        "-c:a", "aac",
+                        "-avoid_negative_ts", "1",
+                        "-y", str(temp_file)
+                    ]
                 
                 logger.info(f"[Job {job_id}] Extracting segment {i}: {' '.join(shlex.quote(str(c)) for c in segment_cmd)}")
                 
@@ -2648,95 +2675,132 @@ def run_ffmpeg_cut(
         # 拼接所有片段
         logger.info(f"[Job {job_id}] Concatenating segments using segments file")
         
-        # 首先创建无字幕版本
-        temp_concat_file = temp_dir / f"concat_{job_id}.mp4"
-        temp_files_to_clean.append(temp_concat_file)
-        
-        concat_cmd = [
-            "ffmpeg", "-v", "info",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(segments_file_path),
-            "-c", "copy",
-            "-movflags", "+faststart",
-            "-y", str(temp_concat_file)
-        ]
-        
-        logger.info(f"[Job {job_id}] Running concat command: {' '.join(shlex.quote(str(c)) for c in concat_cmd)}")
-        
-        # 执行拼接
-        concat_process = subprocess.run(
-            concat_cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-            encoding='utf-8'
-        )
-        
-        if concat_process.returncode != 0:
-            error_message = f"Failed to concatenate segments. Error: {concat_process.stderr}"
-            logger.error(f"[Job {job_id}] {error_message}")
-            cut_job_statuses[job_id]["status"] = "failed"
-            cut_job_statuses[job_id]["message"] = error_message
-            return
-        
-        # 如果需要添加字幕，处理拼接好的视频
-        if subtitle_filter:
-            logger.info(f"[Job {job_id}] Adding subtitles to concatenated video")
+        # 根据输出格式选择不同的处理流程
+        if output_format == 'wav':
+            # 对于 WAV 格式，直接拼接到最终输出文件
+            temp_concat_file = output_path
             
-            burn_cmd = [
+            concat_cmd = [
                 "ffmpeg", "-v", "info",
-                "-i", str(temp_concat_file),
-                "-vf", subtitle_filter,
-                "-c:v", "libx264", "-preset", "fast",
-                "-c:a", "copy",
-                "-movflags", "+faststart",
-                "-y", str(output_path)
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(segments_file_path),
+                "-c", "copy",
+                "-y", str(temp_concat_file)
             ]
             
-            logger.info(f"[Job {job_id}] Running subtitle burn command: {' '.join(shlex.quote(str(c)) for c in burn_cmd)}")
+            logger.info(f"[Job {job_id}] Running WAV concat command: {' '.join(shlex.quote(str(c)) for c in concat_cmd)}")
             
-            # 执行字幕烧录
-            burn_process = subprocess.run(
-                burn_cmd,
+            # 执行拼接
+            concat_process = subprocess.run(
+                concat_cmd,
                 capture_output=True,
                 text=True,
                 check=False,
                 encoding='utf-8'
             )
             
-            if burn_process.returncode == 0:
-                logger.info(f"[Job {job_id}] Successfully added subtitles to video")
-                output_files["has_burned_subtitles"] = True
-            else:
-                logger.error(f"[Job {job_id}] Failed to add subtitles. Error: {burn_process.stderr}")
-                logger.info(f"[Job {job_id}] Using concatenated video without subtitles")
+            if concat_process.returncode != 0:
+                error_message = f"Failed to concatenate WAV segments. Error: {concat_process.stderr}"
+                logger.error(f"[Job {job_id}] {error_message}")
+                cut_job_statuses[job_id]["status"] = "failed"
+                cut_job_statuses[job_id]["message"] = error_message
+                return
+            
+            # WAV 处理完成，不需要后续字幕处理
+            logger.info(f"[Job {job_id}] WAV processing completed successfully")
+            
+        else:
+            # 视频处理流程（保持原有逻辑）
+            # 首先创建无字幕版本
+            temp_concat_file = temp_dir / f"concat_{job_id}.mp4"
+            temp_files_to_clean.append(temp_concat_file)
+            
+            concat_cmd = [
+                "ffmpeg", "-v", "info",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(segments_file_path),
+                "-c", "copy",
+                "-movflags", "+faststart",
+                "-y", str(temp_concat_file)
+            ]
+            
+            logger.info(f"[Job {job_id}] Running video concat command: {' '.join(shlex.quote(str(c)) for c in concat_cmd)}")
+            
+            # 执行拼接
+            concat_process = subprocess.run(
+                concat_cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                encoding='utf-8'
+            )
+            
+            if concat_process.returncode != 0:
+                error_message = f"Failed to concatenate video segments. Error: {concat_process.stderr}"
+                logger.error(f"[Job {job_id}] {error_message}")
+                cut_job_statuses[job_id]["status"] = "failed"
+                cut_job_statuses[job_id]["message"] = error_message
+                return
+            
+            # 如果需要添加字幕，处理拼接好的视频
+            if subtitle_filter:
+                logger.info(f"[Job {job_id}] Adding subtitles to concatenated video")
                 
-                # 使用无字幕版本
+                burn_cmd = [
+                    "ffmpeg", "-v", "info",
+                    "-i", str(temp_concat_file),
+                    "-vf", subtitle_filter,
+                    "-c:v", "libx264", "-preset", "fast",
+                    "-c:a", "copy",
+                    "-movflags", "+faststart",
+                    "-y", str(output_path)
+                ]
+                
+                logger.info(f"[Job {job_id}] Running subtitle burn command: {' '.join(shlex.quote(str(c)) for c in burn_cmd)}")
+                
+                # 执行字幕烧录
+                burn_process = subprocess.run(
+                    burn_cmd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    encoding='utf-8'
+                )
+                
+                if burn_process.returncode == 0:
+                    logger.info(f"[Job {job_id}] Successfully added subtitles to video")
+                    output_files["has_burned_subtitles"] = True
+                else:
+                    logger.error(f"[Job {job_id}] Failed to add subtitles. Error: {burn_process.stderr}")
+                    logger.info(f"[Job {job_id}] Using concatenated video without subtitles")
+                    
+                    # 使用无字幕版本
+                    try:
+                        import shutil
+                        shutil.copy2(temp_concat_file, output_path)
+                        output_files["has_burned_subtitles"] = False
+                        logger.info(f"[Job {job_id}] Copied non-subtitled video to output")
+                    except Exception as e:
+                        error_message = f"Failed to copy concatenated video: {e}"
+                        logger.error(f"[Job {job_id}] {error_message}")
+                        cut_job_statuses[job_id]["status"] = "failed"
+                        cut_job_statuses[job_id]["message"] = error_message
+                        return
+            else:
+                # 直接使用拼接好的无字幕视频
                 try:
                     import shutil
                     shutil.copy2(temp_concat_file, output_path)
                     output_files["has_burned_subtitles"] = False
-                    logger.info(f"[Job {job_id}] Copied non-subtitled video to output")
+                    logger.info(f"[Job {job_id}] Copied concatenated video to output (no subtitles)")
                 except Exception as e:
                     error_message = f"Failed to copy concatenated video: {e}"
                     logger.error(f"[Job {job_id}] {error_message}")
                     cut_job_statuses[job_id]["status"] = "failed"
                     cut_job_statuses[job_id]["message"] = error_message
                     return
-        else:
-            # 直接使用拼接好的无字幕视频
-            try:
-                import shutil
-                shutil.copy2(temp_concat_file, output_path)
-                output_files["has_burned_subtitles"] = False
-                logger.info(f"[Job {job_id}] Copied concatenated video to output (no subtitles)")
-            except Exception as e:
-                error_message = f"Failed to copy concatenated video: {e}"
-                logger.error(f"[Job {job_id}] {error_message}")
-                cut_job_statuses[job_id]["status"] = "failed"
-                cut_job_statuses[job_id]["message"] = error_message
-                return
                 
         # 检查输出文件
         if not output_path.exists():
@@ -2762,8 +2826,14 @@ def run_ffmpeg_cut(
         cut_job_statuses[job_id]["status"] = "completed"
         cut_job_statuses[job_id]["output_path"] = str(output_path.relative_to(DATA_DIR))
         cut_job_statuses[job_id]["output_files"] = output_files
-        cut_job_statuses[job_id]["message"] = "Video processing completed successfully."
-        logger.info(f"[Job {job_id}] Video processing completed successfully with outputs: {output_files}")
+        
+        # 根据输出格式显示不同的完成消息
+        if output_format == 'wav':
+            cut_job_statuses[job_id]["message"] = "Audio processing completed successfully."
+            logger.info(f"[Job {job_id}] Audio processing completed successfully with outputs: {output_files}")
+        else:
+            cut_job_statuses[job_id]["message"] = "Video processing completed successfully."
+            logger.info(f"[Job {job_id}] Video processing completed successfully with outputs: {output_files}")
 
     except Exception as e:
         error_msg = f"Error during ffmpeg cut task: {e}"
@@ -2787,7 +2857,7 @@ async def start_video_cut(
     """Starts an asynchronous video cutting job."""
     global cut_job_statuses
     task_uuid_str = str(task_uuid)
-    logger.info(f"Received cut request for task {task_uuid_str} with {len(request.segments)} segments. Embed: {request.embed_subtitle_lang}")
+    logger.info(f"Received cut request for task {task_uuid_str} with {len(request.segments)} segments. Embed: {request.embed_subtitle_lang}, Format: {request.output_format}")
 
     # 1. Load Metadata
     all_metadata = await load_metadata()
@@ -2834,7 +2904,8 @@ async def start_video_cut(
         segments=[seg.dict() for seg in request.segments], # Pass segment data
         job_id=job_id,
         embed_subtitle_lang=request.embed_subtitle_lang, # Pass the lang preference
-        vtt_files=task_vtt_files # Pass VTT file info
+        vtt_files=task_vtt_files, # Pass VTT file info
+        output_format=request.output_format
     )
 
     logger.info(f"Queued cut job {job_id} for task {task_uuid_str}. Output target: {output_abs_path}")
