@@ -30,7 +30,7 @@ class VTTCue:
     original_index: int = -1
 
 class VTTProcessor:
-    def __init__(self, merge_threshold: float = 0.8, min_segment_duration: float = 0.5):
+    def __init__(self, merge_threshold: float = 2.0, min_segment_duration: float = 1.0):
         self.merge_threshold = merge_threshold
         self.min_segment_duration = min_segment_duration
         self.nlp = self._init_nlp()
@@ -39,27 +39,27 @@ class VTTProcessor:
         """Initialize NLP model for segmentation"""
         if SPACY_AVAILABLE:
             try:
-                # Try Chinese first, fallback to English
-                nlp = spacy.load("zh_core_web_sm")
-                logger.info("Loaded spaCy Chinese model for segmentation")
+                # Try English first for this use case
+                nlp = spacy.load("en_core_web_sm")
+                logger.info("Loaded spaCy English model for segmentation")
                 return nlp
             except OSError:
                 try:
-                    nlp = spacy.load("en_core_web_sm") 
-                    logger.info("Loaded spaCy English model for segmentation")
+                    nlp = spacy.load("zh_core_web_sm") 
+                    logger.info("Loaded spaCy Chinese model for segmentation")
                     return nlp
                 except OSError:
                     logger.warning("No spaCy models available, using rule-based segmentation")
                     return None
         elif STANZA_AVAILABLE:
             try:
-                nlp = stanza.Pipeline('zh', processors='tokenize')
-                logger.info("Loaded Stanza Chinese model for segmentation")
+                nlp = stanza.Pipeline('en', processors='tokenize')
+                logger.info("Loaded Stanza English model for segmentation")
                 return nlp
             except Exception:
                 try:
-                    nlp = stanza.Pipeline('en', processors='tokenize')
-                    logger.info("Loaded Stanza English model for segmentation")
+                    nlp = stanza.Pipeline('zh', processors='tokenize')
+                    logger.info("Loaded Stanza Chinese model for segmentation")
                     return nlp
                 except Exception:
                     logger.warning("No Stanza models available, using rule-based segmentation")
@@ -89,32 +89,69 @@ class VTTProcessor:
         if not vtt_content or not vtt_content.strip():
             return []
         
-        # Remove WEBVTT header and styling
-        content = re.sub(r'WEBVTT.*?\n\n', '', vtt_content, flags=re.DOTALL)
-        content = re.sub(r'<[^>]+>', '', content)  # Remove HTML tags
-        
+        lines = vtt_content.strip().split('\n')
         cues = []
-        # Pattern to match VTT entries - more flexible
-        pattern = r'(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})\n(.*?)(?=\n\n|\n\d{2}:\d{2}:\d{2}\.\d{3}|\Z)'
-        matches = re.findall(pattern, content, re.DOTALL)
+        i = 0
+        cue_index = 0
         
-        for i, (start_str, end_str, text) in enumerate(matches):
-            # Clean text - remove extra whitespace and newlines
-            clean_text = re.sub(r'\n+', ' ', text.strip())
-            clean_text = re.sub(r'\s+', ' ', clean_text)
+        # Skip header
+        while i < len(lines) and (not lines[i].strip() or 
+                                  lines[i].strip().startswith('WEBVTT') or 
+                                  lines[i].strip().startswith('Language:')):
+            i += 1
+        
+        while i < len(lines):
+            # Skip empty lines
+            while i < len(lines) and not lines[i].strip():
+                i += 1
             
-            if clean_text:  # Only add non-empty cues
+            if i >= len(lines):
+                break
+            
+            # Look for timestamp line
+            timestamp_match = re.match(r'(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})', lines[i])
+            if timestamp_match:
+                start_str, end_str = timestamp_match.groups()
                 start_time = self._parse_vtt_time(start_str)
                 end_time = self._parse_vtt_time(end_str)
+                i += 1
                 
-                # Skip invalid time ranges
-                if end_time > start_time:
-                    cues.append(VTTCue(
-                        start_time=start_time,
-                        end_time=end_time,
-                        text=clean_text,
-                        original_index=i
-                    ))
+                # Collect all text lines for this timestamp
+                text_lines = []
+                while i < len(lines) and lines[i].strip():
+                    line = lines[i].strip()
+                    
+                    # Skip lines with timing markup (contain <> tags)
+                    if '<' in line and '>' in line:
+                        i += 1
+                        continue
+                    
+                    # Skip alignment info
+                    if 'align:start position:' in line:
+                        i += 1
+                        continue
+                    
+                    # This is a clean text line
+                    if line and not re.match(r'\d{2}:\d{2}:\d{2}\.\d{3}', line):
+                        text_lines.append(line)
+                    
+                    i += 1
+                
+                # Join text and create cue
+                if text_lines:
+                    full_text = ' '.join(text_lines)
+                    full_text = re.sub(r'\s+', ' ', full_text).strip()
+                    
+                    if full_text and end_time > start_time:
+                        cues.append(VTTCue(
+                            start_time=start_time,
+                            end_time=end_time,
+                            text=full_text,
+                            original_index=cue_index
+                        ))
+                        cue_index += 1
+            else:
+                i += 1
         
         logger.info(f"Parsed {len(cues)} valid cues from VTT content")
         return cues
@@ -307,7 +344,7 @@ class VTTProcessor:
 async def process_vtt_natural_segmentation(
     task_uuid: str, 
     metadata_file: str = "backend/data/metadata.json",
-    merge_threshold: float = 0.8
+    merge_threshold: float = 2.0
 ) -> Dict[str, any]:
     """
     Process VTT files for natural segmentation
@@ -427,8 +464,8 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="VTT Natural Segmentation Tool")
     parser.add_argument("task_uuid", help="Task UUID to process")
-    parser.add_argument("--threshold", type=float, default=0.8, 
-                       help="Time merge threshold in seconds (default: 0.8)")
+    parser.add_argument("--threshold", type=float, default=2.0, 
+                       help="Time merge threshold in seconds (default: 2.0)")
     parser.add_argument("--metadata", default="backend/data/metadata.json",
                        help="Path to metadata file")
     
