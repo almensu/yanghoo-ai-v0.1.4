@@ -1235,6 +1235,7 @@ async def download_audio_endpoint(task_uuid: UUID):
 # --- NEW: Merge VTT Endpoint ---
 class MergeVttRequest(BaseModel):
     format: Literal['parallel', 'merged', 'en_only', 'zh_only', 'all'] = 'parallel' # 更新格式选项
+    use_segmented: bool = False  # 是否使用自然断句处理后的VTT文件
 
 @app.post("/api/tasks/{task_uuid}/merge_vtt", status_code=200)
 async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
@@ -1286,7 +1287,7 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
             output_abs_path = task_data_dir / output_filename
             en_arg = str(DATA_DIR / en_vtt_rel_path) if en_vtt_rel_path and (DATA_DIR / en_vtt_rel_path).exists() else "MISSING"
             zh_arg = str(DATA_DIR / zh_vtt_rel_path) if zh_vtt_rel_path and (DATA_DIR / zh_vtt_rel_path).exists() else "MISSING"
-            command = [ sys.executable, script_path, en_arg, zh_arg, fmt, str(output_abs_path) ]
+            command = [ sys.executable, script_path, en_arg, zh_arg, fmt, str(output_abs_path), str(request.use_segmented).lower() ]
             process = await run_in_threadpool(
                 subprocess.run,
                 command,
@@ -1354,7 +1355,7 @@ async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
     # IMPORTANT: Assumes merge_vtt.py is updated to handle 5 args: <en_path|MISSING> <zh_path|MISSING> <format> <output_abs_path>
     en_arg = str(en_vtt_abs) if en_vtt_abs else "MISSING" # Convert Path to string
     zh_arg = str(zh_vtt_abs) if zh_vtt_abs else "MISSING" # Convert Path to string
-    command = [ sys.executable, script_path, en_arg, zh_arg, request.format, str(output_abs_path) ]
+    command = [ sys.executable, script_path, en_arg, zh_arg, request.format, str(output_abs_path), str(request.use_segmented).lower() ]
 
     logger.info(f"Running merge script for task {task_uuid_str}: {' '.join(command)}")
 

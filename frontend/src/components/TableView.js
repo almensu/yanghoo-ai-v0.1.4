@@ -3,7 +3,7 @@ import React from 'react';
 import { 
   FileVideo, VideoOff, FileAudio, VolumeX, 
   Download, AudioWaveform, Captions, Languages, Trash2, 
-  Headphones, Combine, Tv, Mic, Archive, Trash,
+  Headphones, Combine, Tv, Mic, Archive, Trash, Scissors,
   ListVideo, ServerCrash, DownloadCloud, CheckCircle2, AlertCircle, XCircle, HelpCircle, MoreVertical,
   ChevronDown, Settings, FileText, ImageOff
 } from 'lucide-react'; 
@@ -52,7 +52,7 @@ const ImageWithFallback = ({ src, alt, className }) => {
 function TableView({ 
   tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, 
   onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, 
-  onDeleteVtt, onMergeVtt, onCreateVideo,
+  onDeleteVtt, onNaturalSegmentVtt, onMergeVtt, onCreateVideo,
   onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX,
   // Sorting props
   sortField,
@@ -291,6 +291,17 @@ function TableView({
                             data-tip={isMerged ? "字幕已合并" : (!canMerge ? (vttEnExists || vttZhExists ? "一键生成全部格式" : "缺少VTT文件") : "一键生成全部格式 (MD)")}
                           >
                             <IconWrapper icon={Combine} className={cn(isMerged ? 'text-success' : (!canMerge ? 'text-base-content/40' : 'text-secondary'))} /> 
+                         </button>
+                         <button 
+                            className={cn(
+                                "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", 
+                                (!vttEnExists && !vttZhExists || task.archived) && "btn-disabled"
+                            )} 
+                            onClick={() => onNaturalSegmentVtt(task.uuid)}
+                            disabled={!vttEnExists && !vttZhExists || task.archived}
+                            data-tip="自然断句处理"
+                         >
+                            <IconWrapper icon={Scissors} className={cn(!vttEnExists && !vttZhExists ? 'text-base-content/40' : 'text-warning')} />
                          </button>
                          <button 
                             className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (!task.info_json_path || task.archived) && "btn-disabled")} 

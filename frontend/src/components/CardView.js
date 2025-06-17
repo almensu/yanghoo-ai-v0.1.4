@@ -3,7 +3,7 @@ import React from 'react';
 import { 
   FileVideo, VideoOff, FileAudio, VolumeX, 
   Download, AudioWaveform, Captions, Languages, Trash2, 
-  Headphones, Combine, Tv, Mic, Archive, 
+  Headphones, Combine, Tv, Mic, Archive, Scissors,
   ListVideo, ServerCrash, DownloadCloud, CheckCircle2, AlertCircle, XCircle, HelpCircle, Trash, MoreVertical, 
   ChevronDown, Settings, FileText, Folder, PlaySquare, ArrowDownUp
 } from 'lucide-react'; 
@@ -51,7 +51,7 @@ const IconWrapper = ({ icon: Icon, className, ...props }) => (
 function CardView({
   tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio,
   onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt,
-  onDeleteVtt, onMergeVtt, onCreateVideo,
+  onDeleteVtt, onNaturalSegmentVtt, onMergeVtt, onCreateVideo,
   onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX, onOpenFolder, onGoToStudio,
   // Sorting props
   sortField,
@@ -329,6 +329,17 @@ function CardView({
                                      data-tip={isMerged ? "字幕已合并" : (!canMerge ? (vttEnExists || vttZhExists ? "一键生成全部格式" : "缺少VTT文件") : "一键生成全部格式 (MD)")}
                                   >
                                      <IconWrapper icon={Combine} className={cn(isMerged ? 'text-success' : (!canMerge ? 'text-base-content/40' : 'text-secondary'))} /> 
+                                  </button>
+                                  <button 
+                                     className={cn(
+                                         "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
+                                         (!vttEnExists && !vttZhExists) && "btn-disabled"
+                                     )} 
+                                     onClick={() => onNaturalSegmentVtt(task.uuid)}
+                                     disabled={!vttEnExists && !vttZhExists}
+                                     data-tip="自然断句处理"
+                                  >
+                                     <IconWrapper icon={Scissors} className={cn(!vttEnExists && !vttZhExists ? 'text-base-content/40' : 'text-warning')} />
                                   </button>
                                   <button 
                                      className={cn(

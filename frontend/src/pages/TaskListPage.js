@@ -304,14 +304,43 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
     }
   };
 
-  const handleMergeVtt = async (uuid, format = 'all') => {
+  const handleNaturalSegmentVtt = async (taskUuid, mergeThreshold = 0.8) => {
+    setFetchLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/tasks/natural-segment-vtt/${taskUuid}?merge_threshold=${mergeThreshold}`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.detail || `HTTP error! status: ${res.status}`);
+      }
+      
+      alert(`VTT自然断句处理完成！处理了 ${Object.keys(data.result.processed_files).length} 个文件`);
+      await fetchTasks();
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Failed VTT natural segmentation.';
+      setFetchError(msg);
+      alert(`VTT自然断句处理失败: ${msg}`);
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
+  const handleMergeVtt = async (uuid, format = 'all', useSegmented = false) => {
     setFetchLoading(true);
     setFetchError(null);
     let mergeError = null;
     try {
-      try { await axios.post(`${apiBaseUrl}/api/tasks/${uuid}/merge_vtt`, { format: format }); } catch (err) { mergeError = err; }
+      try { 
+        await axios.post(`${apiBaseUrl}/api/tasks/${uuid}/merge_vtt`, { 
+          format: format, 
+          use_segmented: useSegmented 
+        }); 
+      } catch (err) { mergeError = err; }
       if (mergeError) throw mergeError;
-      alert('VTT 处理请求已发送。');
+      alert(`VTT ${useSegmented ? '(使用自然断句版本) ' : ''}处理请求已发送。`);
       setTimeout(fetchTasks, 2000);
     } catch (err) {
       const msg = err.response?.data?.detail || 'Failed VTT merge.';
@@ -436,6 +465,7 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
           onDeleteAudio={handleDeleteAudio}
           onDownloadVtt={handleDownloadVtt}
           onDeleteVtt={handleDeleteVtt}
+          onNaturalSegmentVtt={handleNaturalSegmentVtt}
           onMergeVtt={handleMergeVtt}
           onTranscribeWhisperX={handleTranscribeWhisperX}
           onDeleteWhisperX={handleDeleteWhisperX}

@@ -254,16 +254,31 @@ def create_zh_only_doc_with_timestamp(zh_vtt_path, output_file):
         sys.exit(1)
 
 def main():
-    # Expect 5 arguments: script_name, en_vtt, zh_vtt, format, output_file
-    if len(sys.argv) != 5:
-        print(f"Usage: python {os.path.basename(__file__)} <en_vtt_path|{MISSING_SENTINEL}> <zh_vtt_path|{MISSING_SENTINEL}> <format> <output_abs_path>")
+    # Expect 5-6 arguments: script_name, en_vtt, zh_vtt, format, output_file, [use_segmented]
+    if len(sys.argv) not in [5, 6]:
+        print(f"Usage: python {os.path.basename(__file__)} <en_vtt_path|{MISSING_SENTINEL}> <zh_vtt_path|{MISSING_SENTINEL}> <format> <output_abs_path> [use_segmented]")
         print("Format options: merged, parallel, en_only, zh_only, en_only_timestamp, zh_only_timestamp, all")
+        print("use_segmented: true/false - whether to use *_segmented.vtt files if available (default: false)")
         sys.exit(1)
     
     en_vtt_path = sys.argv[1]
     zh_vtt_path = sys.argv[2]
     format_type = sys.argv[3]
     output_file = sys.argv[4] # This is now the absolute output path
+    use_segmented = len(sys.argv) > 5 and sys.argv[5].lower() == 'true'
+    
+    # Check for segmented versions if requested
+    if use_segmented and en_vtt_path != MISSING_SENTINEL:
+        segmented_en = en_vtt_path.replace('.vtt', '_segmented.vtt')
+        if os.path.exists(segmented_en):
+            print(f"Using segmented English VTT: {segmented_en}")
+            en_vtt_path = segmented_en
+    
+    if use_segmented and zh_vtt_path != MISSING_SENTINEL:
+        segmented_zh = zh_vtt_path.replace('.vtt', '_segmented.vtt')
+        if os.path.exists(segmented_zh):
+            print(f"Using segmented Chinese VTT: {segmented_zh}")
+            zh_vtt_path = segmented_zh
     
     # Basic validation
     if en_vtt_path == MISSING_SENTINEL and zh_vtt_path == MISSING_SENTINEL:
