@@ -184,7 +184,7 @@ async def split_transcribe_whisperx(task_uuid: str, model: str = "large-v3"):
         logger.error(f"Error in split_transcribe_whisperx: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to start split-transcribe job: {str(e)}")
 
-@router.post("/natural-segment-vtt/{task_uuid}")
+@router.post("/api/tasks/natural-segment-vtt/{task_uuid}")
 async def natural_segment_vtt_endpoint(task_uuid: str, merge_threshold: float = 0.8):
     """
     对VTT字幕文件进行自然断句处理

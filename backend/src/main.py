@@ -2948,7 +2948,6 @@ async def get_cut_job_status(task_uuid: UUID, job_id: str):
 from .routes import chat, tasks
 app.include_router(chat.router)
 app.include_router(tasks.router)
-app.include_router(tasks.router)
 
 # --- START: Add POST endpoint for file creation/update ---
 @app.post("/api/tasks/{task_uuid}/files/{filename}", status_code=200)
