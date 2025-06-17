@@ -90,7 +90,14 @@ function ClipModePanel({ data, onClose, onFinalizeClip }) {
       if (activeCueIndex !== -1 && syncEnabled) setActiveCueIndex(-1); // Reset if sync is on but no video/cues
       return;
     }
-    const currentVideoTime = videoRef.current.currentTime;
+    
+    // Fix: Access the actual video element through VideoPlayer's ref structure
+    const videoPlayerRef = videoRef.current;
+    const video = videoPlayerRef?.video; // VideoPlayer exposes video element through .video property
+    
+    if (!video) return;
+    
+    const currentVideoTime = video.currentTime;
     setCurrentTime(currentVideoTime);
 
     let foundIndex = -1;
@@ -124,7 +131,9 @@ function ClipModePanel({ data, onClose, onFinalizeClip }) {
   const handleTimeUpdateThrottled = useMemo(() => throttle(timeUpdateLogic, 200), [timeUpdateLogic]);
 
   useEffect(() => {
-    const videoElement = videoRef?.current;
+    // Fix: Access the actual video element through VideoPlayer's ref structure
+    const videoPlayerRef = videoRef?.current;
+    const videoElement = videoPlayerRef?.video; // VideoPlayer exposes video element through .video property
     
     // 严格检查videoElement是否为有效的HTML视频元素
     if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
@@ -172,7 +181,12 @@ function ClipModePanel({ data, onClose, onFinalizeClip }) {
     const clickPercentage = Math.max(0, Math.min(1, clickX / totalWidth));
     const newTime = videoDuration * clickPercentage;
     setCurrentTime(newTime);
-    if (videoRef?.current && syncEnabled) videoRef.current.currentTime = newTime;
+    
+    // Fix: Access the actual video element through VideoPlayer's ref structure
+    const videoPlayerRef = videoRef?.current;
+    const video = videoPlayerRef?.video; // VideoPlayer exposes video element through .video property
+    
+    if (video && syncEnabled) video.currentTime = newTime;
   };
 
   const handleTimelineScroll = (e) => setTimelineOffset(e.target.scrollLeft);
@@ -233,9 +247,14 @@ function ClipModePanel({ data, onClose, onFinalizeClip }) {
   // --- Transcript Cue Interaction Logic ---
   const handleCueTimestampClick = (startTime) => {
     setCurrentTime(startTime);
-    if (videoRef?.current) {
-      videoRef.current.currentTime = startTime;
-      if (videoRef.current.paused) videoRef.current.play().catch(console.error);
+    
+    // Fix: Access the actual video element through VideoPlayer's ref structure
+    const videoPlayerRef = videoRef?.current;
+    const video = videoPlayerRef?.video; // VideoPlayer exposes video element through .video property
+    
+    if (video) {
+      video.currentTime = startTime;
+      if (video.paused) video.play().catch(console.error);
     }
   };
   
@@ -367,10 +386,23 @@ function ClipModePanel({ data, onClose, onFinalizeClip }) {
           <div className="flex items-center gap-2">
             {videoRef?.current && (
               <button 
-                onClick={() => videoRef.current.paused ? videoRef.current.play() : videoRef.current.pause()}
+                onClick={() => {
+                  // Fix: Access the actual video element through VideoPlayer's ref structure
+                  const videoPlayerRef = videoRef.current;
+                  const video = videoPlayerRef?.video; // VideoPlayer exposes video element through .video property
+                  
+                  if (video) {
+                    video.paused ? video.play() : video.pause();
+                  }
+                }}
                 className="btn btn-xs btn-outline"
               >
-                {videoRef.current.paused ? '播放' : '暂停'}
+                {(() => {
+                  // Fix: Access the actual video element through VideoPlayer's ref structure
+                  const videoPlayerRef = videoRef.current;
+                  const video = videoPlayerRef?.video; // VideoPlayer exposes video element through .video property
+                  return video?.paused ? '播放' : '暂停';
+                })()}
               </button>
             )}
             <button onClick={handleAddCue} className="btn btn-xs btn-primary">+ 添加字幕</button>

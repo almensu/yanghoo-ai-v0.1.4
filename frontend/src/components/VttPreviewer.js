@@ -62,7 +62,10 @@ function VttPreviewer({ cues = [], videoRef, syncEnabled = true, onCueSelect, se
         return;
     }
 
-    const video = videoRef.current;
+    // Fix: Access the actual video element through VideoPlayer's ref structure
+    const videoPlayerRef = videoRef.current;
+    const video = videoPlayerRef?.video; // VideoPlayer exposes video element through .video property
+    
     if (!video || !cues || cues.length === 0) {
       if (activeCueIndex !== -1) setActiveCueIndex(-1);
       return;
@@ -134,7 +137,9 @@ function VttPreviewer({ cues = [], videoRef, syncEnabled = true, onCueSelect, se
 
   // Effect: Add/Remove 'timeupdate' listener (添加/移除监听器)
   useEffect(() => {
-    const videoElement = videoRef?.current;
+    // Fix: Access the actual video element through VideoPlayer's ref structure
+    const videoPlayerRef = videoRef?.current;
+    const videoElement = videoPlayerRef?.video; // VideoPlayer exposes video element through .video property
     
     // 严格检查videoElement是否为有效的HTML视频元素
     if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
@@ -178,7 +183,10 @@ function VttPreviewer({ cues = [], videoRef, syncEnabled = true, onCueSelect, se
   const handleCueClickForSeek = useCallback((startTime) => {
     // Only seek if onCueSelect is NOT provided (i.e., not in selection mode)
     if (!onCueSelect) {
-      const video = videoRef?.current;
+      // Fix: Access the actual video element through VideoPlayer's ref structure
+      const videoPlayerRef = videoRef?.current;
+      const video = videoPlayerRef?.video; // VideoPlayer exposes video element through .video property
+      
       if (video) {
         video.currentTime = startTime; // 设置视频播放时间
         if (video.paused) { 
