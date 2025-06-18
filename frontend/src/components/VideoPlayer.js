@@ -351,6 +351,59 @@ const VideoPlayer = forwardRef(({
       return /[\u4e00-\u9fa5]/.test(text);
     };
     
+    // 更主动地处理字幕样式，不仅依赖cuechange事件
+    const applySubtitleStyles = () => {
+      try {
+        // 尝试查找字幕显示元素
+        const subtitleElements = document.querySelectorAll('::-webkit-media-text-track-display-node');
+        
+        if (subtitleElements.length > 0) {
+          subtitleElements.forEach(element => {
+            // 检查元素内容是否包含中文
+            if (containsChinese(element.textContent)) {
+              // 对中文设置黄色
+              element.style.color = '#FFEB3B';
+              element.style.fontWeight = 'bold';
+              element.classList.add('chinese-subtitle'); // 添加类以确保CSS规则应用
+            }
+          });
+          
+          // 备用方法：尝试通过DOM操作直接修改字幕容器样式
+          const displayContainer = document.querySelector('::-webkit-media-text-track-display');
+          if (displayContainer) {
+            // 添加自定义样式类
+            displayContainer.classList.add('custom-subtitle-style');
+            
+            // 直接修改字幕容器内的所有文本节点
+            const processTextNodes = (node) => {
+              if (node.nodeType === Node.TEXT_NODE) {
+                if (containsChinese(node.textContent)) {
+                  // 创建一个 span 替换文本节点
+                  const span = document.createElement('span');
+                  span.textContent = node.textContent;
+                  span.style.color = '#FFEB3B';
+                  span.style.fontWeight = 'bold';
+                  span.classList.add('chinese-subtitle');
+                  
+                  if (node.parentNode) {
+                    node.parentNode.replaceChild(span, node);
+                  }
+                }
+              } else if (node.childNodes) {
+                // 递归处理子节点
+                node.childNodes.forEach(processTextNodes);
+              }
+            };
+            
+            // 处理字幕容器内的所有节点
+            displayContainer.childNodes.forEach(processTextNodes);
+          }
+        }
+      } catch (e) {
+        console.error("Error processing subtitle styles:", e);
+      }
+    };
+    
     // 监听字幕更新事件
     const handleCueChange = () => {
       try {
@@ -362,30 +415,11 @@ const VideoPlayer = forwardRef(({
           
           // 只处理显示中的轨道
           if (track.mode === 'showing' && track.activeCues) {
-            for (let j = 0; j < track.activeCues.length; j++) {
-              const cue = track.activeCues[j];
-              
-              // 查找字幕显示容器
-              setTimeout(() => {
-                // 尝试查找字幕显示元素
-                const subtitleElements = document.querySelectorAll('::-webkit-media-text-track-display-node');
-                
-                subtitleElements.forEach(element => {
-                  // 检查元素内容是否包含中文
-                  if (containsChinese(element.textContent)) {
-                    // 对中文设置黄色
-                    element.style.color = '#FFEB3B';
-                  }
-                });
-                
-                // 备用方法：尝试通过DOM操作直接修改字幕容器样式
-                const displayContainer = document.querySelector('::-webkit-media-text-track-display');
-                if (displayContainer) {
-                  // 添加自定义样式类
-                  displayContainer.classList.add('custom-subtitle-style');
-                }
-              }, 50); // 短暂延迟以确保DOM更新
-            }
+            // 立即应用样式
+            applySubtitleStyles();
+            
+            // 再次应用样式（以防DOM更新延迟）
+            setTimeout(applySubtitleStyles, 10);
           }
         }
       } catch (e) {
@@ -395,24 +429,49 @@ const VideoPlayer = forwardRef(({
     
     console.log("VideoPlayer: Adding cuechange listener to video element");
     
-    // 使用try-catch包裹事件监听代码，避免可能的错误
+    // 为视频元素添加事件监听
+    videoElement.addEventListener('cuechange', handleCueChange);
+    videoElement.addEventListener('timeupdate', applySubtitleStyles);
+    
+    // 初始应用一次样式
+    applySubtitleStyles();
+    
+    // 设置周期性检查（每100ms检查一次）
+    const styleInterval = setInterval(applySubtitleStyles, 100);
+    
+    // 使用 MutationObserver 监听字幕 DOM 变化
+    let observer = null;
     try {
-      // 为视频元素添加cuechange事件监听
-      videoElement.addEventListener('cuechange', handleCueChange);
-    } catch (error) {
-      console.error("VideoPlayer: Error adding cuechange event listener:", error);
-      return; // 如果添加失败，直接返回，避免后续清理代码出错
+      observer = new MutationObserver((mutations) => {
+        // 当字幕 DOM 发生变化时立即应用样式
+        applySubtitleStyles();
+      });
+      
+      // 监听整个文档的子树变化，以捕获字幕元素的添加
+      observer.observe(document.body, { 
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+      
+      console.log("VideoPlayer: MutationObserver setup for subtitle DOM changes");
+    } catch (e) {
+      console.error("Error setting up MutationObserver:", e);
     }
     
     // 清理函数
     return () => {
-      try {
-        if (videoElement) {
-          videoElement.removeEventListener('cuechange', handleCueChange);
-          console.log("VideoPlayer: Removed cuechange listener from video element");
+      if (videoElement) {
+        videoElement.removeEventListener('cuechange', handleCueChange);
+        videoElement.removeEventListener('timeupdate', applySubtitleStyles);
+        clearInterval(styleInterval);
+        
+        // 断开 MutationObserver
+        if (observer) {
+          observer.disconnect();
         }
-      } catch (error) {
-        console.error("VideoPlayer: Error removing cuechange event listener:", error);
+        
+        console.log("VideoPlayer: Removed event listeners and observers");
       }
     };
   }, [shouldShowLocal]);
@@ -772,6 +831,12 @@ const VideoPlayer = forwardRef(({
       ::-webkit-media-text-track-display-node:has(span:lang(zh-CN)),
       ::-webkit-media-text-track-display-node:has(span:lang(zh-Hans)) {
         color: #FFEB3B !important;
+      }
+      
+      /* 添加新的选择器，用于即时应用样式 */
+      .chinese-subtitle {
+        color: #FFEB3B !important;
+        font-weight: bold !important;
       }
     `;
     
