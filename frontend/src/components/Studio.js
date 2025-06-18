@@ -540,6 +540,212 @@ const parseVtt = (vttString, lang) => {
 };
 // --------------------------------------------------------------------
 
+// --- NEW: SRT Parsing Functions ---
+
+/**
+ * Parse SRT subtitle format
+ * @param {string} srtString - Raw SRT content
+ * @param {string} lang - Language identifier for IDs
+ * @returns {Object} - { cues: Array, error: string|null }
+ */
+const parseSrt = (srtString, lang) => {
+  if (!srtString || srtString.trim() === '') return { cues: [], error: null };
+
+  console.log(`[parseSrt ${lang}] Starting SRT parsing...`);
+  
+  try {
+    const lines = srtString.trim().split(/\r?\n/);
+    const cues = [];
+    let currentCue = null;
+    let lineIndex = 0;
+
+    while (lineIndex < lines.length) {
+      const line = lines[lineIndex].trim();
+      
+      // Skip empty lines
+      if (!line) {
+        lineIndex++;
+        continue;
+      }
+
+      // Check if line is a sequence number
+      if (/^\d+$/.test(line)) {
+        // Save previous cue if exists
+        if (currentCue && currentCue.text) {
+          cues.push(currentCue);
+        }
+        
+        // Start new cue
+        currentCue = {
+          id: `${lang}-srt-cue-${line}`,
+          text: '',
+          startTime: 0,
+          endTime: 0
+        };
+        lineIndex++;
+        continue;
+      }
+
+      // Check if line is a timestamp
+      const timestampMatch = line.match(/^(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})$/);
+      if (timestampMatch && currentCue) {
+        const [, startH, startM, startS, startMs, endH, endM, endS, endMs] = timestampMatch;
+        currentCue.startTime = parseInt(startH) * 3600 + parseInt(startM) * 60 + parseInt(startS) + parseInt(startMs) / 1000;
+        currentCue.endTime = parseInt(endH) * 3600 + parseInt(endM) * 60 + parseInt(endS) + parseInt(endMs) / 1000;
+        lineIndex++;
+        continue;
+      }
+
+      // Otherwise, it's subtitle text
+      if (currentCue) {
+        if (currentCue.text) {
+          currentCue.text += '\n' + line;
+        } else {
+          currentCue.text = line;
+        }
+      }
+      lineIndex++;
+    }
+
+    // Add the last cue
+    if (currentCue && currentCue.text) {
+      cues.push(currentCue);
+    }
+
+    console.log(`[parseSrt ${lang}] Parsed ${cues.length} SRT cues`);
+    return { cues, error: null };
+
+  } catch (error) {
+    console.error(`[parseSrt ${lang}] Error parsing SRT:`, error);
+    return { cues: [], error: `SRT parsing failed: ${error.message}` };
+  }
+};
+
+/**
+ * Detect SRT content type and parse accordingly
+ * @param {string} srtString - Raw SRT content
+ * @param {string} lang - Language identifier
+ * @returns {Object} - { cues: Array, error: string|null, detectedType: string }
+ */
+const detectAndParseSrt = (srtString, lang) => {
+  if (!srtString || srtString.trim() === '') {
+    return { cues: [], error: null, detectedType: 'empty' };
+  }
+
+  console.log(`[detectAndParseSrt ${lang}] Analyzing SRT content...`);
+  
+  // First parse normally
+  const { cues: rawCues, error } = parseSrt(srtString, lang);
+  if (error || rawCues.length === 0) {
+    return { cues: rawCues, error, detectedType: 'unknown' };
+  }
+
+  // Analyze the content to detect type
+  const sampleSize = Math.min(20, rawCues.length); // Sample first 20 cues
+  const sampleCues = rawCues.slice(0, sampleSize);
+  
+  let englishCount = 0;
+  let chineseCount = 0;
+  let bilingualPairs = 0;
+
+  // Check for bilingual pattern (pairs of cues with same timestamp)
+  for (let i = 0; i < sampleCues.length - 1; i++) {
+    const current = sampleCues[i];
+    const next = sampleCues[i + 1];
+    
+    // Check if consecutive cues have same timestamp (bilingual pattern)
+    if (Math.abs(current.startTime - next.startTime) < 0.1 && 
+        Math.abs(current.endTime - next.endTime) < 0.1) {
+      
+      // Check language of each
+      const currentIsEnglish = /^[a-zA-Z0-9\s\[\].,!?'"()-]+$/.test(current.text.replace(/[^\w\s\[\].,!?'"()-]/g, ''));
+      const nextIsChinese = /[\u4e00-\u9fff]/.test(next.text);
+      
+      if (currentIsEnglish && nextIsChinese) {
+        bilingualPairs++;
+      }
+    }
+    
+    // Count language types
+    if (/^[a-zA-Z0-9\s\[\].,!?'"()-]+$/.test(current.text.replace(/[^\w\s\[\].,!?'"()-]/g, ''))) {
+      englishCount++;
+    }
+    if (/[\u4e00-\u9fff]/.test(current.text)) {
+      chineseCount++;
+    }
+  }
+
+  console.log(`[detectAndParseSrt ${lang}] Analysis: English=${englishCount}, Chinese=${chineseCount}, BilingualPairs=${bilingualPairs}`);
+
+  // Determine type and process accordingly
+  if (bilingualPairs > sampleSize * 0.3) { // If >30% are bilingual pairs
+    console.log(`[detectAndParseSrt ${lang}] Detected bilingual SRT, merging pairs...`);
+    
+    // Merge bilingual pairs
+    const mergedCues = [];
+    for (let i = 0; i < rawCues.length - 1; i += 2) {
+      const englishCue = rawCues[i];
+      const chineseCue = rawCues[i + 1];
+      
+      // Verify they have similar timestamps
+      if (chineseCue && 
+          Math.abs(englishCue.startTime - chineseCue.startTime) < 0.1 && 
+          Math.abs(englishCue.endTime - chineseCue.endTime) < 0.1) {
+        
+        mergedCues.push({
+          id: `${lang}-bilingual-srt-${i/2}`,
+          startTime: englishCue.startTime,
+          endTime: englishCue.endTime,
+          enText: englishCue.text,
+          zhText: chineseCue.text,
+          isBilingual: true
+        });
+      } else {
+        // If not a pair, add as regular cue
+        mergedCues.push({
+          ...englishCue,
+          isBilingual: false
+        });
+        if (chineseCue) {
+          mergedCues.push({
+            ...chineseCue,
+            isBilingual: false
+          });
+        }
+      }
+    }
+    
+    // Handle odd number of cues
+    if (rawCues.length % 2 === 1) {
+      const lastCue = rawCues[rawCues.length - 1];
+      mergedCues.push({
+        ...lastCue,
+        isBilingual: false
+      });
+    }
+    
+    console.log(`[detectAndParseSrt ${lang}] Merged ${rawCues.length} cues into ${mergedCues.length} bilingual cues`);
+    return { cues: mergedCues, error, detectedType: 'bilingual' };
+    
+  } else if (chineseCount > englishCount) {
+    console.log(`[detectAndParseSrt ${lang}] Detected Chinese SRT`);
+    return { 
+      cues: rawCues.map(cue => ({ ...cue, isBilingual: false })), 
+      error, 
+      detectedType: 'chinese' 
+    };
+  } else {
+    console.log(`[detectAndParseSrt ${lang}] Detected English SRT`);
+    return { 
+      cues: rawCues.map(cue => ({ ...cue, isBilingual: false })), 
+      error, 
+      detectedType: 'english' 
+    };
+  }
+};
+
+// --- End SRT Parsing Functions ---
+
 // --- NEW: Format Cues to VTT String (将处理后的 cues 转回 VTT 字符串) ---
 const formatCuesToVttString = (cues) => {
   if (!cues || cues.length === 0) {
@@ -733,66 +939,143 @@ function Studio({ taskUuid, apiBaseUrl }) {
             console.log(`Studio: Final video path state: '${relativePath}', Embed URL state: ${details.embed_url || null}`);
             // --------------------------------------------------------
 
-            // --- 2. Fetch All Available VTTs and Markdown Concurrently --- 
-            console.log("Studio: Fetching VTTs and Markdown...");
+            // --- 2. Fetch All Available Subtitles (VTT and SRT) and Markdown Concurrently --- 
+            console.log("Studio: Fetching subtitles and Markdown...");
             const vttFilesToFetch = details.vtt_files || {};
-            const langCodes = Object.keys(vttFilesToFetch).filter(lang => vttFilesToFetch[lang]); // Get valid lang codes
-            setAvailableLangs(langCodes); // Update available languages state
-            console.log("Studio: Available VTT languages:", langCodes);
+            const vttLangCodes = Object.keys(vttFilesToFetch).filter(lang => vttFilesToFetch[lang]);
+            
+            // Detect SRT files - simplified approach: just look for any .srt file
+            const srtFilesToFetch = {};
+            
+            // Try to find any SRT file using common patterns
+            const possibleSrtNames = [
+                // Try the specific pattern from your example first
+                `(75)_73_Questions_With_Blake_Lively___Vogue_-_YouTube-zh-CN-dual-double.srt`,
+                // Try common patterns
+                `${taskUuid}.srt`,
+                `transcript.srt`,
+                `${taskUuid}_dual.srt`,
+                `${taskUuid}_bilingual.srt`,
+                `${taskUuid}_zh-CN-dual.srt`,
+                `${taskUuid}_zh-CN-dual-double.srt`,
+                // Try with title
+                ...(details.title ? [
+                    `${details.title.replace(/[^\w]/g, '_')}.srt`,
+                    `${details.title.replace(/[^\w]/g, '_')}_dual.srt`,
+                ] : [])
+            ];
 
-            const vttPromises = langCodes.map(lang => {
-                const vttFilePath = vttFilesToFetch[lang]; // e.g., "<uuid>/transcript_en.vtt"
-                if (!vttFilePath) {
-                    console.error(`Studio: No VTT file path found for lang ${lang} in task details.`);
-                    return Promise.resolve({ lang, status: 'rejected', reason: `No VTT file path found for ${lang}` });
-                }
-                // Extract only the filename (the part after the last '/')
+
+
+            console.log("Studio: Available subtitle files:", { vtt: vttLangCodes });
+
+            // Create promises for VTT files
+            const vttPromises = vttLangCodes.map(lang => {
+                const vttFilePath = vttFilesToFetch[lang];
                 const vttFilename = vttFilePath.split('/').pop();
-                if (!vttFilename) { // Basic check in case the path is weird
+                if (!vttFilename) {
                     console.error(`Studio: Could not extract filename from VTT path '${vttFilePath}' for lang ${lang}.`);
-                    return Promise.resolve({ lang, status: 'rejected', reason: `Invalid VTT file path format for ${lang}` });
+                    return Promise.resolve({ lang, type: 'vtt', status: 'rejected', reason: `Invalid VTT file path format for ${lang}` });
                 }
 
-                // Construct URL using the generic file endpoint and *only* the filename
                 const vttFileUrl = `${apiBaseUrl}/api/tasks/${taskUuid}/files/${vttFilename}`;
                 console.log(`Studio: Fetching VTT for ${lang} from ${vttFileUrl}`);
                 return axios.get(vttFileUrl, { responseType: 'text' })
-                    .then(response => ({ lang, status: 'fulfilled', data: response.data }))
-                    .catch(err => ({ lang, status: 'rejected', reason: err.response?.data?.detail || err.message }))
+                    .then(response => ({ lang, type: 'vtt', status: 'fulfilled', data: response.data }))
+                    .catch(err => ({ lang, type: 'vtt', status: 'rejected', reason: err.response?.data?.detail || err.message }));
             });
+
+            // Create promise for SRT file if it exists
+            const srtPromises = [];
+            let srtData = null;
+            let srtFileName = null;
+            
+            // Check if we already found and loaded SRT data during detection
+            for (const filename of possibleSrtNames) {
+                try {
+                    console.log(`Studio: Trying to find SRT file: ${filename}`);
+                    const checkResponse = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${filename}`, { 
+                        responseType: 'text',
+                        timeout: 5000 // 5 second timeout
+                    });
+                    if (checkResponse.status === 200 && checkResponse.data) {
+                        srtData = checkResponse.data;
+                        srtFileName = filename;
+                        console.log(`Studio: Found and loaded SRT file: ${filename}`);
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`Studio: SRT file ${filename} not found:`, e.response?.status || e.message);
+                    // File doesn't exist, continue
+                }
+            }
+            
+            if (srtData && srtFileName) {
+                srtPromises.push(
+                    Promise.resolve({ lang: 'srt', type: 'srt', status: 'fulfilled', data: srtData })
+                );
+            }
+
+            const subtitlePromises = [...vttPromises, ...srtPromises];
 
             const markdownPromise = axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/markdown/parallel`, { responseType: 'text' })
                 .then(response => ({ status: 'fulfilled', data: response.data }))
                 .catch(err => ({ status: 'rejected', reason: err.response?.data?.detail || err.message }));
 
-            const allPromises = [...vttPromises, markdownPromise];
+            const allPromises = [...subtitlePromises, markdownPromise];
             const results = await Promise.allSettled(allPromises); // Use allSettled
 
-            console.log("Studio: VTT and Markdown fetch results:", results);
+            console.log("Studio: Subtitle and Markdown fetch results:", results);
 
-            // --- Process VTT Results --- 
+            // --- Process Subtitle Results --- 
             const newParsedCues = {};
             const newVttErrors = {};
-            results.slice(0, vttPromises.length).forEach((result, index) => {
-                const lang = langCodes[index]; // Get lang code corresponding to promise index
+            const processedLangs = [];
+            
+            results.slice(0, subtitlePromises.length).forEach((result, index) => {
                 if (result.status === 'fulfilled' && result.value.status === 'fulfilled') {
-                    const rawVtt = result.value.data;
-                    const { cues, error: parsingError } = parseVtt(rawVtt, lang); // USE THE FIXED parseVtt
+                    const rawContent = result.value.data;
+                    const fileType = result.value.type;
+                    const lang = result.value.lang;
+                    
+                    let cues, parsingError;
+                    
+                    if (fileType === 'vtt') {
+                        const parseResult = parseVtt(rawContent, lang);
+                        cues = parseResult.cues;
+                        parsingError = parseResult.error;
+                    } else if (fileType === 'srt') {
+                        const parseResult = detectAndParseSrt(rawContent, 'srt');
+                        cues = parseResult.cues;
+                        parsingError = parseResult.error;
+                        if (parseResult.detectedType) {
+                            console.log(`Studio: SRT detected as ${parseResult.detectedType}`);
+                        }
+                    } else {
+                        cues = [];
+                        parsingError = `Unknown file type: ${fileType}`;
+                    }
+                    
                     newParsedCues[lang] = cues;
+                    processedLangs.push(lang);
                     if (parsingError) {
-                        console.warn(`Studio: VTT parsing issues for ${lang}:`, parsingError);
+                        console.warn(`Studio: ${fileType.toUpperCase()} parsing issues for ${lang}:`, parsingError);
                         newVttErrors[lang] = parsingError;
                     }
-                    console.log(`Studio: VTT for ${lang} loaded and parsed successfully (${cues.length} cues).`);
+                    console.log(`Studio: ${fileType.toUpperCase()} for ${lang} loaded and parsed successfully (${cues.length} cues).`);
                 } else {
                     const reason = result.status === 'fulfilled' ? result.value.reason : (result.reason || 'Unknown fetch error');
-                    console.error(`Studio: Failed to fetch or process VTT for ${lang}:`, reason);
+                    const fileType = result.status === 'fulfilled' ? result.value.type : 'unknown';
+                    const lang = result.status === 'fulfilled' ? result.value.lang : 'unknown';
+                    console.error(`Studio: Failed to fetch or process ${fileType.toUpperCase()} for ${lang}:`, reason);
                     newVttErrors[lang] = `Failed to load: ${reason}`;
                 }
             });
+            
+            setAvailableLangs(processedLangs);
             setParsedCuesByLang(newParsedCues);
             setVttErrors(newVttErrors);
-            console.log("Studio Debug: Processed VTT results (VTT 处理结果):", { parsedCuesByLang: newParsedCues, vttErrors: newVttErrors });
+            console.log("Studio Debug: Processed subtitle results (字幕处理结果):", { parsedCuesByLang: newParsedCues, vttErrors: newVttErrors });
 
             // --- Process Markdown Result --- 
             const markdownResult = results[results.length - 1]; // Last result is markdown
@@ -808,10 +1091,11 @@ function Studio({ taskUuid, apiBaseUrl }) {
             }
 
             // Set initial displayLang based on availability
-            if (!displayLang || !langCodes.includes(displayLang)) {
-                if (langCodes.includes('zh-Hans')) setDisplayLang('zh-Hans');
-                else if (langCodes.includes('en')) setDisplayLang('en');
-                else if (langCodes.length > 0) setDisplayLang(langCodes[0]);
+            if (!displayLang || !processedLangs.includes(displayLang)) {
+                if (processedLangs.includes('zh-Hans')) setDisplayLang('zh-Hans');
+                else if (processedLangs.includes('en')) setDisplayLang('en');
+                else if (processedLangs.includes('srt')) setDisplayLang('srt');
+                else if (processedLangs.length > 0) setDisplayLang(processedLangs[0]);
                 else setDisplayLang('none'); // No language available
             }
 
@@ -973,15 +1257,19 @@ function Studio({ taskUuid, apiBaseUrl }) {
         cuesForDisplay = mergedCues;
 
     } else if (parsedCuesByLang[displayLang]?.length > 0) {
-        // Ensure cues have IDs (should already be there from parseVtt)
-        cuesForDisplay = parsedCuesByLang[displayLang].map((cue, index) => ({
+        // For SRT files, the cues might already be bilingual or regular
+        const rawCues = parsedCuesByLang[displayLang];
+        cuesForDisplay = rawCues.map((cue, index) => ({
              ...cue, 
              id: cue.id || `${displayLang}-cue-${index}`, // Fallback ID generation if missing
-             isBilingual: false 
+             // Keep the original isBilingual property from SRT parsing
         }));
     } else {
         cuesForDisplay = [];
     }
+    
+    console.log("Studio Debug: Final displayed cues:", cuesForDisplay.slice(0, 3)); // Log first 3 cues for debugging
+    
     // Reset selection if displayed cues change significantly (e.g., language change)
     // Note: This might be too aggressive, consider if selection should persist across langs
     setSelectedCueIds(new Set()); 
@@ -1323,15 +1611,30 @@ function Studio({ taskUuid, apiBaseUrl }) {
   const trackLangCode = actualTrackLang === 'zh-Hans' ? 'zh' : actualTrackLang; // Map to 'zh' if needed
 
   const langOptions = [...availableLangs];
-  if (availableLangs.includes('en') && availableLangs.includes('zh-Hans')) {
+  // Only add bilingual option for VTT files, not for SRT
+  if (availableLangs.includes('en') && availableLangs.includes('zh-Hans') && !availableLangs.includes('srt')) {
       langOptions.push('bilingual');
   }
 
   const getLangButtonLabel = (lang) => {
-      if (lang === 'en') return 'English';
-      if (lang === 'zh-Hans') return '中文';
-      if (lang === 'bilingual') return '中英双语';
-      return lang;
+      let baseLabel = '';
+      if (lang === 'en') baseLabel = 'English';
+      else if (lang === 'zh-Hans') baseLabel = '中文';
+      else if (lang === 'bilingual') baseLabel = '中英双语';
+      else if (lang === 'srt') baseLabel = '字幕';
+      else baseLabel = lang;
+      
+      // Add file type indicator if available
+      if (parsedCuesByLang[lang]?.length > 0) {
+          const firstCue = parsedCuesByLang[lang][0];
+          if (firstCue.id?.includes('-srt-')) {
+              return `${baseLabel} (SRT)`;
+          } else if (firstCue.id?.includes('-vtt-') || firstCue.id?.includes('-cue-')) {
+              return `${baseLabel} (VTT)`;
+          }
+      }
+      
+      return baseLabel;
   };
 
   const handleLanguageChange = (lang) => {
