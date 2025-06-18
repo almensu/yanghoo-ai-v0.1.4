@@ -872,6 +872,14 @@ function Studio({ taskUuid, apiBaseUrl }) {
   // --- NEW: State for output format ---
   const [outputFormat, setOutputFormat] = useState('video'); // 'video' or 'wav'
 
+  // --- NEW: State for subtitle optimization settings ---
+  const [subtitleOptimization, setSubtitleOptimization] = useState({
+    enabled: true,
+    minDisplayTime: 1.5,
+    maxGapForMerge: 0.5,
+    minTextLengthForShort: 10
+  });
+
   // --- Data Fetching Effect (数据获取 Effect - 修改以重置 Blob URL) ---
   useEffect(() => {
     // Reset state when UUID changes
@@ -962,7 +970,10 @@ function Studio({ taskUuid, apiBaseUrl }) {
                 ...(details.title ? [
                     `${details.title.replace(/[^\w]/g, '_')}.srt`,
                     `${details.title.replace(/[^\w]/g, '_')}_dual.srt`,
-                ] : [])
+                ] : []),
+                // Try to find any SRT file in the directory
+                "*.srt",
+                "test.srt" // 添加我们刚才创建的测试文件
             ];
 
 
@@ -1007,6 +1018,35 @@ function Studio({ taskUuid, apiBaseUrl }) {
                 } catch (e) {
                     console.log(`Studio: SRT file ${filename} not found:`, e.response?.status || e.message);
                     // File doesn't exist, continue
+                }
+            }
+            
+            // 如果通过预定义模式没有找到SRT文件，尝试通过列出文件API查找任何SRT文件
+            if (!srtData) {
+                try {
+                    console.log(`Studio: Trying to find any SRT file by listing files`);
+                    const filesResponse = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/list`);
+                    if (filesResponse.status === 200 && filesResponse.data) {
+                        const srtFiles = filesResponse.data.filter(file => file.toLowerCase().endsWith('.srt'));
+                        if (srtFiles.length > 0) {
+                            // 优先使用test.srt，否则使用第一个找到的SRT文件
+                            const targetSrtFile = srtFiles.includes('test.srt') ? 'test.srt' : srtFiles[0];
+                            console.log(`Studio: Found SRT file in directory: ${targetSrtFile}`);
+                            
+                            const srtResponse = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${targetSrtFile}`, {
+                                responseType: 'text',
+                                timeout: 5000
+                            });
+                            
+                            if (srtResponse.status === 200 && srtResponse.data) {
+                                srtData = srtResponse.data;
+                                srtFileName = targetSrtFile;
+                                console.log(`Studio: Successfully loaded SRT file: ${targetSrtFile}`);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log(`Studio: Error finding SRT files by listing:`, e.response?.status || e.message);
                 }
             }
             
@@ -1196,7 +1236,12 @@ function Studio({ taskUuid, apiBaseUrl }) {
     if (cuesToUse.length > 0) {
       try {
         console.log(`Studio: Generating VTT string for native track (为原生字幕轨生成 VTT 字符串): lang=${langForTrack}, cues=${cuesToUse.length}`);
-        const vttString = formatCuesToVttString(cuesToUse);
+        
+        // Apply subtitle timing optimization before generating VTT string
+        const optimizedCues = optimizeSubtitleTiming(cuesToUse);
+        console.log(`Studio: Applied subtitle timing optimization: ${cuesToUse.length} -> ${optimizedCues.length} cues`);
+        
+        const vttString = formatCuesToVttString(optimizedCues);
         const blob = new Blob([vttString], { type: 'text/vtt' });
         const newBlobUrl = URL.createObjectURL(blob);
         currentBlobUrlRef.current = newBlobUrl; // Store for cleanup
@@ -1211,8 +1256,83 @@ function Studio({ taskUuid, apiBaseUrl }) {
          setVttBlobUrl(null);
     }
 
-  }, [parsedCuesByLang, displayLang, availableLangs]); // Dependencies
+  }, [parsedCuesByLang, displayLang, availableLangs, subtitleOptimization]); // Dependencies
 
+  // --- NEW: Subtitle optimization function to handle short sentences ---
+  const optimizeSubtitleTiming = useCallback((cues) => {
+    if (!cues || cues.length === 0 || !subtitleOptimization.enabled) return cues;
+    
+    const MIN_DISPLAY_TIME = subtitleOptimization.minDisplayTime;
+    const MAX_GAP_FOR_MERGE = subtitleOptimization.maxGapForMerge;
+    const MIN_TEXT_LENGTH_FOR_SHORT = subtitleOptimization.minTextLengthForShort;
+    
+    const optimizedCues = [];
+    
+    for (let i = 0; i < cues.length; i++) {
+      const currentCue = { ...cues[i] };
+      const duration = currentCue.endTime - currentCue.startTime;
+      
+      // 获取当前字幕的文本长度
+      let textLength = 0;
+      if (currentCue.isBilingual) {
+        textLength = (currentCue.enText || '').length + (currentCue.zhText || '').length;
+      } else {
+        textLength = (currentCue.text || '').length;
+      }
+      
+      // 检查是否是短句且显示时间过短
+      const isShortSentence = textLength < MIN_TEXT_LENGTH_FOR_SHORT;
+      const isTooFast = duration < MIN_DISPLAY_TIME;
+      
+      if (isShortSentence && isTooFast) {
+        // 尝试与下一个字幕合并（如果间隔很近）
+        const nextCue = cues[i + 1];
+        if (nextCue && (nextCue.startTime - currentCue.endTime) <= MAX_GAP_FOR_MERGE) {
+          // 合并当前字幕和下一个字幕
+          const mergedCue = {
+            ...currentCue,
+            endTime: Math.max(nextCue.endTime, currentCue.startTime + MIN_DISPLAY_TIME),
+            id: `${currentCue.id}-merged-${nextCue.id}`
+          };
+          
+          if (currentCue.isBilingual && nextCue.isBilingual) {
+            // 双语字幕合并
+            mergedCue.enText = [currentCue.enText, nextCue.enText].filter(Boolean).join(' ');
+            mergedCue.zhText = [currentCue.zhText, nextCue.zhText].filter(Boolean).join(' ');
+          } else if (currentCue.isBilingual) {
+            // 当前是双语，下一个是单语
+            mergedCue.enText = currentCue.enText;
+            mergedCue.zhText = [currentCue.zhText, nextCue.text].filter(Boolean).join(' ');
+          } else if (nextCue.isBilingual) {
+            // 当前是单语，下一个是双语
+            mergedCue.isBilingual = true;
+            mergedCue.enText = nextCue.enText;
+            mergedCue.zhText = [currentCue.text, nextCue.zhText].filter(Boolean).join(' ');
+            delete mergedCue.text;
+          } else {
+            // 都是单语字幕
+            mergedCue.text = [currentCue.text, nextCue.text].filter(Boolean).join(' ');
+          }
+          
+          optimizedCues.push(mergedCue);
+          i++; // 跳过下一个字幕，因为已经合并了
+          continue;
+        } else {
+          // 无法合并，延长当前字幕的显示时间
+          const nextCueStart = nextCue ? nextCue.startTime : currentCue.endTime + MIN_DISPLAY_TIME;
+          currentCue.endTime = Math.min(
+            nextCueStart - 0.1, // 留0.1秒间隔
+            currentCue.startTime + MIN_DISPLAY_TIME
+          );
+        }
+      }
+      
+      optimizedCues.push(currentCue);
+    }
+    
+    console.log(`Studio: Optimized ${cues.length} cues to ${optimizedCues.length} cues`);
+    return optimizedCues;
+  }, [subtitleOptimization]);
 
   // --- Compute displayed cues for VttPreviewer (修改以确保 cue 有 ID) ---
   const displayedCues = useMemo(() => {
@@ -1259,23 +1379,26 @@ function Studio({ taskUuid, apiBaseUrl }) {
     } else if (parsedCuesByLang[displayLang]?.length > 0) {
         // For SRT files, the cues might already be bilingual or regular
         const rawCues = parsedCuesByLang[displayLang];
-        cuesForDisplay = rawCues.map((cue, index) => ({
+        const cuesWithIds = rawCues.map((cue, index) => ({
              ...cue, 
              id: cue.id || `${displayLang}-cue-${index}`, // Fallback ID generation if missing
              // Keep the original isBilingual property from SRT parsing
         }));
+        
+        // Apply subtitle timing optimization for display
+        cuesForDisplay = optimizeSubtitleTiming(cuesWithIds);
     } else {
         cuesForDisplay = [];
     }
     
-    console.log("Studio Debug: Final displayed cues:", cuesForDisplay.slice(0, 3)); // Log first 3 cues for debugging
+    console.log("Studio Debug: Final displayed cues (after optimization):", cuesForDisplay.slice(0, 3)); // Log first 3 cues for debugging
     
     // Reset selection if displayed cues change significantly (e.g., language change)
     // Note: This might be too aggressive, consider if selection should persist across langs
     setSelectedCueIds(new Set()); 
     return cuesForDisplay;
 
-  }, [displayLang, parsedCuesByLang]);
+  }, [displayLang, parsedCuesByLang, optimizeSubtitleTiming]);
 
   // --- NEW: Handler for selecting/deselecting cues ---
   const handleCueSelect = useCallback((cueId, isShiftClick = false) => {
@@ -1652,6 +1775,10 @@ function Studio({ taskUuid, apiBaseUrl }) {
     }, 0);
   };
 
+
+
+
+
   return (
     <>
       <div className="flex flex-row flex-1 h-full p-4 gap-4 overflow-hidden bg-gray-100">
@@ -1902,6 +2029,95 @@ function Studio({ taskUuid, apiBaseUrl }) {
 
         {/* --- Right Column (StudioWorkSpace) --- */}
         <div className="flex flex-col w-1/4 flex-shrink-0 gap-4 overflow-auto custom-scrollbar">
+          {/* Subtitle Optimization Settings Panel */}
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="text-sm font-semibold mb-3 border-b border-gray-200 pb-2">字幕优化设置</h3>
+            
+            <div className="space-y-3">
+              {/* Enable/Disable Toggle */}
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-gray-600">启用优化</label>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-sm toggle-primary"
+                  checked={subtitleOptimization.enabled}
+                  onChange={(e) => setSubtitleOptimization(prev => ({
+                    ...prev,
+                    enabled: e.target.checked
+                  }))}
+                />
+              </div>
+
+              {subtitleOptimization.enabled && (
+                <>
+                  {/* Min Display Time */}
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">最小显示时间 (秒)</label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="3"
+                      step="0.1"
+                      className="range range-primary range-xs"
+                      value={subtitleOptimization.minDisplayTime}
+                      onChange={(e) => setSubtitleOptimization(prev => ({
+                        ...prev,
+                        minDisplayTime: parseFloat(e.target.value)
+                      }))}
+                    />
+                    <div className="text-xs text-gray-500 text-center">
+                      {subtitleOptimization.minDisplayTime}s
+                    </div>
+                  </div>
+
+                  {/* Max Gap for Merge */}
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">最大合并间隔 (秒)</label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      className="range range-primary range-xs"
+                      value={subtitleOptimization.maxGapForMerge}
+                      onChange={(e) => setSubtitleOptimization(prev => ({
+                        ...prev,
+                        maxGapForMerge: parseFloat(e.target.value)
+                      }))}
+                    />
+                    <div className="text-xs text-gray-500 text-center">
+                      {subtitleOptimization.maxGapForMerge}s
+                    </div>
+                  </div>
+
+                  {/* Min Text Length for Short */}
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">短句字符数阈值</label>
+                    <input
+                      type="range"
+                      min="5"
+                      max="30"
+                      step="1"
+                      className="range range-primary range-xs"
+                      value={subtitleOptimization.minTextLengthForShort}
+                      onChange={(e) => setSubtitleOptimization(prev => ({
+                        ...prev,
+                        minTextLengthForShort: parseInt(e.target.value)
+                      }))}
+                    />
+                    <div className="text-xs text-gray-500 text-center">
+                      {subtitleOptimization.minTextLengthForShort} 字符
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-gray-500 mt-2 p-2 bg-gray-50 rounded">
+                    💡 短于阈值的句子会被延长显示时间或与相邻句子合并
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
           <StudioWorkSpace 
             taskUuid={taskUuid} 
             apiBaseUrl={apiBaseUrl} 

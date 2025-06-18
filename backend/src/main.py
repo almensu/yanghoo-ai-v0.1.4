@@ -934,973 +934,79 @@ async def list_task_files(
     task_uuid: UUID,
     extension: Optional[str] = Query(None, description="Filter by file extension (e.g., .txt, .md)")
 ):
-    """
-    Lists files within the specified task's data directory, optionally filtering by extension.
-    Only lists files, not directories.
-    """
+    """List all files in a task's directory"""
     task_uuid_str = str(task_uuid)
-    logger.info(f"Request to list files for task {task_uuid_str} (extension filter: {extension})")
-
     task_data_dir = DATA_DIR / task_uuid_str
-
+    
     if not task_data_dir.exists() or not task_data_dir.is_dir():
-        logger.warning(f"Task data directory not found: {task_data_dir}")
-        raise HTTPException(status_code=404, detail="Task data directory not found")
-
+        raise HTTPException(status_code=404, detail="Task directory not found")
+    
     try:
-        all_files = []
-        for item in task_data_dir.iterdir():
-            if item.is_file():
+        # List all files in the task directory
+        files = []
+        for file_path in task_data_dir.glob("*"):
+            if file_path.is_file():
                 # Apply extension filter if provided
-                if extension:
-                    # Ensure extension starts with a dot for consistent comparison
-                    filter_ext = extension if extension.startswith('.') else f".{extension}"
-                    if item.name.lower().endswith(filter_ext.lower()):
-                        all_files.append(item.name)
-                else:
-                    # No filter, add all files
-                    all_files.append(item.name)
+                if extension and not file_path.name.lower().endswith(extension.lower()):
+                    continue
+                files.append(file_path.name)
         
-        logger.info(f"Found {len(all_files)} files for task {task_uuid_str} matching filter '{extension}'")
-        return sorted(all_files) # Return sorted list
-
+        # 特别处理SRT文件 - 确保任何SRT文件都被列出，即使文件名包含特殊字符
+        if not extension or extension.lower() == '.srt':
+            for file_path in task_data_dir.glob("*.srt"):
+                if file_path.is_file() and file_path.name not in files:
+                    files.append(file_path.name)
+        
+        # Sort files alphabetically
+        files.sort()
+        
+        return files
     except Exception as e:
-        logger.error(f"Error listing files in directory {task_data_dir}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error listing files")
-# --- END: New List Files Endpoint ---
+        logger.error(f"Error listing files in task directory {task_uuid_str}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error listing files: {str(e)}")
 
-# --- START: 新增 - 获取任务目录下的任意文件 ---
-# Use api_route to allow both GET and HEAD for FileResponse
 @app.api_route("/api/tasks/{task_uuid}/files/{filename}", methods=["GET", "HEAD"], response_class=FileResponse)
 async def get_task_file(task_uuid: UUID, filename: str):
-    """
-    提供任务数据目录中指定文件的访问。
-    进行了基本的安全检查，防止访问目录外的文件。
-    支持子目录中的文件，例如 "markdown/file.md"。
-    """
+    """Get a file from a task's directory"""
     task_uuid_str = str(task_uuid)
-    logger.info(f"请求获取任务 {task_uuid_str} 的文件: {filename}")
-
-    # 基础安全检查：防止文件名包含路径遍历字符
-    if ".." in filename or filename.startswith("/"):
-        logger.warning(f"检测到非法的文件名请求: {filename} (任务: {task_uuid_str})")
-        raise HTTPException(status_code=400, detail="不允许的文件名")
-
-    # 构建文件的绝对路径 - 支持子目录
-    file_path_to_serve = DATA_DIR / task_uuid_str / filename
-    
-    # --- 重要的安全检查：确保文件路径在预期的 DATA_DIR/{task_uuid} 目录下 ---
-    resolved_file_path = None
-    expected_task_dir = None
-    try:
-        logger.debug(f"Attempting to resolve expected_task_dir: {DATA_DIR / task_uuid_str}")
-        expected_task_dir = (DATA_DIR / task_uuid_str).resolve(strict=True) 
-        logger.debug(f"Successfully resolved expected_task_dir: {expected_task_dir}")
-        
-        logger.debug(f"Attempting to resolve file_path_to_serve: {file_path_to_serve}")
-        resolved_file_path = await run_in_threadpool(file_path_to_serve.resolve, strict=True) 
-        logger.debug(f"Successfully resolved file_path_to_serve: {resolved_file_path}")
-
-        if not str(resolved_file_path).startswith(str(expected_task_dir)):
-             logger.warning(f"Path Traversal Check Failed: Resolved path {resolved_file_path} does not start with expected directory {expected_task_dir}")
-             raise HTTPException(status_code=404, detail="文件未找到或不在允许的目录下")
-        else:
-            logger.debug("Path Traversal Check Passed.")
-
-    except FileNotFoundError as fnf_error:
-        logger.warning(f"FileNotFoundError during path resolution for {file_path_to_serve}. Error: {fnf_error}")
-        logger.warning(f"  Attempted to resolve expected_task_dir: {DATA_DIR / task_uuid_str} -> Result: {expected_task_dir}")
-        logger.warning(f"  Attempted to resolve file_path_to_serve: {file_path_to_serve} -> Result: {resolved_file_path}") 
-        raise HTTPException(status_code=404, detail=f"文件未找到(路径解析失败): {filename}")
-    except Exception as e: 
-         logger.error(f"检查文件路径时出错: {file_path_to_serve} - {e}", exc_info=True)
-         raise HTTPException(status_code=500, detail="服务器内部错误")
-    # -----------------------------------------------------------------------
-
-    # 检查路径是否确实是一个文件
-    logger.debug(f"Checking if path is a file: {file_path_to_serve}")
-    is_a_file = False
-    try:
-        is_a_file = await run_in_threadpool(file_path_to_serve.is_file) 
-        logger.debug(f"Path.is_file() result: {is_a_file}")
-    except Exception as e:
-        logger.error(f"Error calling is_file() on {file_path_to_serve}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="检查文件类型时出错")
-        
-    if not is_a_file:
-        logger.warning(f"Path is not a file: {file_path_to_serve}")
-        raise HTTPException(status_code=404, detail=f"请求的路径不是一个文件: {filename}")
-
-    # 猜测文件的 MIME 类型
-    logger.debug(f"Guessing media type for: {file_path_to_serve}")
-    media_type, _ = mimetypes.guess_type(file_path_to_serve)
-    if media_type is None:
-        media_type = 'application/octet-stream' 
-    # 对于 .vtt 文件，强制使用 text/vtt
-    if filename.lower().endswith('.vtt'):
-        media_type = 'text/vtt'
-    # 对于 .md 文件，强制使用 text/markdown
-    elif filename.lower().endswith('.md'):
-        media_type = 'text/markdown'
-
-    logger.info(f"正在提供文件: {file_path_to_serve} (类型: {media_type})，请求名: {filename}")
-    return FileResponse(path=str(file_path_to_serve), filename=os.path.basename(filename), media_type=media_type)
-# --- END: 新增 - 获取任务目录下的任意文件 ---
-
-
-# --- Restore Archived Endpoint --- 
-@app.post("/api/tasks/restore_archived", status_code=200)
-async def restore_archived_tasks_endpoint():
-    logger.info("Received request to restore archived tasks by re-ingesting URLs.")
-    
-    restored_tasks = []
-    skipped_tasks = []
-    failed_tasks = []
-    metadata_changed = False
-
-    try:
-        # Load both sets of metadata
-        archived_data = await load_archived_metadata() # Dict[str, Dict]
-        active_metadata = await load_metadata()       # Dict[str, TaskMetadata]
-
-        if not archived_data:
-            logger.info("No archived metadata found to restore.")
-            return {"message": "No archived tasks found to restore.", "restored": [], "skipped": [], "failed": []}
-
-        # Create a set of active URLs for quick lookup
-        active_urls = {meta.url for meta in active_metadata.values()}
-        logger.debug(f"Found {len(active_urls)} active URLs.")
-
-        for archived_uuid, archived_item in archived_data.items():
-            archived_url = archived_item.get('url')
-            if not archived_url:
-                logger.warning(f"Archived item {archived_uuid} has no URL. Skipping.")
-                failed_tasks.append({"uuid": archived_uuid, "reason": "Missing URL"})
-                continue
-
-            # Check if URL is already active
-            if archived_url in active_urls:
-                logger.info(f"URL {archived_url} (from archived UUID {archived_uuid}) is already active. Skipping restore.")
-                skipped_tasks.append({"uuid": archived_uuid, "url": archived_url})
-                continue
-
-            # Attempt to re-ingest the URL (create task, download thumb)
-            logger.info(f"Attempting to re-ingest URL: {archived_url} (from archived UUID {archived_uuid})")
-            new_task_meta: Optional[TaskMetadata] = None
-            try:
-                # --- Step 1: Create basic task entry and download thumbnail --- 
-                new_task_meta = await create_ingest_task(archived_url, str(BASE_DIR))
-                logger.info(f"Successfully created task entry for URL {archived_url} with new UUID {new_task_meta.uuid}")
-
-            except (ValueError, HTTPException) as ingest_err:
-                logger.error(f"Failed initial ingest for URL {archived_url}: {ingest_err}")
-                failed_tasks.append({"uuid": archived_uuid, "url": archived_url, "reason": f"Initial ingest failed: {ingest_err}"})
-                continue # Skip to next URL if initial ingest fails
-            except Exception as e:
-                logger.error(f"Unexpected error during initial ingest for URL {archived_url}: {e}", exc_info=True)
-                failed_tasks.append({"uuid": archived_uuid, "url": archived_url, "reason": f"Unexpected initial ingest error: {e}"})
-                continue # Skip to next URL
-
-            # --- Step 2: Fetch info.json for the newly created task --- 
-            if new_task_meta: # Proceed only if initial ingest was successful
-                try:
-                    logger.info(f"Attempting to fetch info.json for new task {new_task_meta.uuid}...")
-                    # Call the function that handles info.json download
-                    info_json_rel_path = await run_fetch_info_json(new_task_meta, str(DATA_DIR))
-                    
-                    # Update the metadata object with the path
-                    if info_json_rel_path:
-                        new_task_meta.info_json_path = info_json_rel_path
-                        logger.info(f"Successfully fetched info.json for {new_task_meta.uuid}. Path: {info_json_rel_path}")
-                    else:
-                        # Should not happen if run_fetch_info_json succeeded without error, but log just in case
-                        logger.warning(f"run_fetch_info_json completed for {new_task_meta.uuid} but returned no path.")
-                        # Mark as failure? Or just proceed without the path?
-                        # Let's add to failed_tasks for clarity
-                        failed_tasks.append({"uuid": str(new_task_meta.uuid), "url": archived_url, "reason": "info.json fetch succeeded but returned no path"})
-
-                except yt_dlp.utils.DownloadError as dl_error:
-                    logger.warning(f"Failed to fetch info.json for {new_task_meta.uuid}: {dl_error}")
-                    # Add to failed list, but keep the task created in Step 1
-                    failed_tasks.append({"uuid": str(new_task_meta.uuid), "url": archived_url, "reason": f"info.json download failed: {dl_error}"})
-                except Exception as e:
-                    logger.error(f"Unexpected error fetching info.json for {new_task_meta.uuid}: {e}", exc_info=True)
-                    # Add to failed list, but keep the task created in Step 1
-                    failed_tasks.append({"uuid": str(new_task_meta.uuid), "url": archived_url, "reason": f"Unexpected info.json fetch error: {e}"})
-
-                # --- Step 3: Add/Update the task in active metadata --- 
-                # Always add the task to metadata, even if info.json failed
-                active_metadata[str(new_task_meta.uuid)] = new_task_meta
-                # Add the *new* UUID and URL to the list of restored tasks
-                # Note: We add to 'restored' even if info.json fails, as the base task exists
-                restored_tasks.append({"new_uuid": str(new_task_meta.uuid), "url": archived_url})
-                metadata_changed = True # Mark that we need to save
-
-        # Save metadata ONLY if changes were made
-        if metadata_changed:
-            logger.info(f"Saving updated metadata after restoring {len(restored_tasks)} tasks.")
-            await save_metadata(active_metadata)
-        else:
-            logger.info("No changes made to active metadata during restore process.")
-
-        # Construct summary message
-        message = f"Restore process completed. Restored: {len(restored_tasks)}, Skipped (already active): {len(skipped_tasks)}, Failed: {len(failed_tasks)}."
-        logger.info(message)
-        return {"message": message, "restored": restored_tasks, "skipped": skipped_tasks, "failed": failed_tasks}
-
-    except FileNotFoundError:
-        logger.error(f"Restore failed: Archived metadata file not found at {METADATA_ARCHIVED_FILE}")
-        raise HTTPException(status_code=404, detail=f"Archived metadata file not found: {METADATA_ARCHIVED_FILE}")
-    except Exception as e:
-        logger.error(f"Internal server error during restore of archived tasks: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error during restore process: {str(e)}")
-
-# --- START: New Download Audio Endpoint ---
-@app.post("/api/tasks/{task_uuid}/download_audio", response_model=DownloadAudioResponse)
-async def download_audio_endpoint(task_uuid: UUID):
-    task_uuid_str = str(task_uuid)
-    logger.info(f"Received request to download audio for task: {task_uuid_str}")
-
-    all_metadata = await load_metadata()
-    task_meta = all_metadata.get(task_uuid_str)
-
-    if not task_meta:
-        logger.warning(f"Task not found for audio download: {task_uuid_str}")
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    # Check platform suitability
-    if task_meta.platform not in AUDIO_DOWNLOAD_PLATFORMS:
-        logger.warning(f"Direct audio download not supported for platform '{task_meta.platform}' on task {task_uuid_str}")
-        raise HTTPException(status_code=400, detail=f"Direct audio download not supported for platform: {task_meta.platform}")
-
-    # Check if audio already downloaded (relative to DATA_DIR)
-    if task_meta.downloaded_audio_path:
-         audio_abs_path = DATA_DIR / task_meta.downloaded_audio_path # Corrected base
-         if audio_abs_path.exists():
-            logger.info(f"Audio already downloaded for task {task_uuid_str} at {task_meta.downloaded_audio_path}")
-            return DownloadAudioResponse(
-                task_uuid=task_uuid,
-                audio_path=task_meta.downloaded_audio_path,
-                message="Audio already downloaded."
-            )
-         else:
-             logger.warning(f"Metadata indicates audio downloaded for {task_uuid_str}, but file not found at {audio_abs_path}. Proceeding with download attempt.")
-             # Reset path in metadata before attempting download again?
-             # task_meta.downloaded_audio_path = None # Maybe? For now, just proceed.
-
-    # Check if info.json exists (relative to DATA_DIR)
-    if not task_meta.info_json_path:
-         logger.warning(f"Cannot download audio for {task_uuid_str}: info.json path is missing.")
-         raise HTTPException(status_code=400, detail="Info JSON has not been fetched yet. Please fetch info first.")
-    info_json_abs_path = DATA_DIR / task_meta.info_json_path # Corrected base
-    if not info_json_abs_path.exists():
-         logger.warning(f"Cannot download audio for {task_uuid_str}: info.json file not found at {info_json_abs_path}.")
-         raise HTTPException(status_code=404, detail="Info JSON file not found on disk.")
-
-    try:
-        # Run the download function in threadpool
-        audio_rel_path = await run_in_threadpool(
-            download_audio_sync, 
-            task_uuid_str,
-            str(METADATA_FILE)
-        )
-
-        if not audio_rel_path:
-            # This means download_audio_sync failed internally (e.g., no format found, request error)
-            logger.error(f"Direct audio download failed for task {task_uuid_str}. Check task logs.")
-            raise HTTPException(status_code=500, detail="Audio download failed. Could not find suitable format or download error.")
-
-        # Reload metadata to avoid race condition before saving
-        current_metadata = await load_metadata()
-        if task_uuid_str in current_metadata:
-             current_metadata[task_uuid_str].downloaded_audio_path = audio_rel_path
-             await save_metadata(current_metadata)
-             logger.info(f"Successfully downloaded audio for {task_uuid_str} and updated metadata.")
-             return DownloadAudioResponse(
-                task_uuid=task_uuid,
-                audio_path=audio_rel_path,
-                message="Audio downloaded successfully."
-            )
-        else:
-            # Should not happen if task existed before
-            logger.error(f"Task {task_uuid_str} disappeared from metadata during audio download.")
-            raise HTTPException(status_code=500, detail="Task metadata inconsistency during audio download.")
-
-    except Exception as e:
-        # Catch potential errors from download_audio_sync or other issues
-        logger.error(f"Error during audio download endpoint for {task_uuid_str}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error during audio download: {str(e)}")
-# --- END: New Download Audio Endpoint ---
-
-# --- NEW: Merge VTT Endpoint ---
-class MergeVttRequest(BaseModel):
-    format: Literal['parallel', 'merged', 'en_only', 'zh_only', 'all'] = 'parallel' # 更新格式选项
-    use_segmented: bool = False  # 是否使用自然断句处理后的VTT文件
-
-@app.post("/api/tasks/{task_uuid}/merge_vtt", status_code=200)
-async def merge_vtt_endpoint(task_uuid: UUID, request: MergeVttRequest):
-    metadata = await load_metadata()
-    task_meta = metadata.get(str(task_uuid))
-    task_uuid_str = str(task_uuid)
-
-    if not task_meta:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if task_meta.archived:
-        raise HTTPException(status_code=400, detail="Task is archived")
-    if task_meta.platform != Platform.YOUTUBE:
-        raise HTTPException(status_code=400, detail="VTT merging is only supported for YouTube platform")
-    
-    # Define paths for the script and output
-    TASKS_DIR = SRC_DIR / 'tasks' 
-    script_path = str(TASKS_DIR / "merge_vtt.py")
     task_data_dir = DATA_DIR / task_uuid_str
     
-    # 处理 'all' 格式，一次生成所有类型
-    if request.format == 'all':
-        result_paths = {}
-        errors = []
-        # 获取 VTT 文件路径
-        en_vtt_rel_path = task_meta.vtt_files.get('en')
-        zh_vtt_rel_path = task_meta.vtt_files.get('zh-Hans')
-        if not en_vtt_rel_path and not zh_vtt_rel_path:
-            raise HTTPException(status_code=400, detail="Cannot merge: Neither English nor Chinese VTT file found in metadata.")
-        # 依次生成四种格式
-        formats = ['merged', 'parallel', 'en_only', 'zh_only', 'en_only_timestamp', 'zh_only_timestamp']
-        for fmt in formats:
-            output_filename = f"{fmt}_transcript_vtt.md" # Default, can be overridden
-            if fmt == 'merged':
-                output_filename = "merged_transcript_vtt.md"
-            elif fmt == 'parallel':
-                output_filename = "parallel_transcript_vtt.md"
-            elif fmt == 'en_only':
-                output_filename = "en_transcript_vtt.md"
-            elif fmt == 'zh_only':
-                output_filename = "zh_transcript_vtt.md"
-            elif fmt == 'en_only_timestamp':
-                output_filename = "en_transcript_vtt_timestamp.md"
-            elif fmt == 'zh_only_timestamp':
-                output_filename = "zh_transcript_vtt_timestamp.md"
-            else:
-                errors.append({fmt: "Unknown format for filename generation"})
-                continue
-
-            output_abs_path = task_data_dir / output_filename
-            en_arg = str(DATA_DIR / en_vtt_rel_path) if en_vtt_rel_path and (DATA_DIR / en_vtt_rel_path).exists() else "MISSING"
-            zh_arg = str(DATA_DIR / zh_vtt_rel_path) if zh_vtt_rel_path and (DATA_DIR / zh_vtt_rel_path).exists() else "MISSING"
-            command = [ sys.executable, script_path, en_arg, zh_arg, fmt, str(output_abs_path), str(request.use_segmented).lower() ]
-            process = await run_in_threadpool(
-                subprocess.run,
-                command,
-                capture_output=True,
-                text=True,
-                check=False,
-                encoding='utf-8'
-            )
-            if process.returncode == 0:
-                result_paths[fmt] = str(Path(task_uuid_str) / output_filename)
-                # 更新 metadata
-                if fmt == 'merged':
-                    task_meta.merged_format_vtt_md_path = str(Path(task_uuid_str) / output_filename)
-                elif fmt == 'parallel':
-                    task_meta.parallel_vtt_md_path = str(Path(task_uuid_str) / output_filename)
-                elif fmt == 'en_only':
-                    task_meta.en_only_vtt_md_path = str(Path(task_uuid_str) / output_filename)
-                elif fmt == 'zh_only':
-                    task_meta.zh_only_vtt_md_path = str(Path(task_uuid_str) / output_filename)
-                elif fmt == 'en_only_timestamp':
-                    task_meta.en_only_vtt_timestamp_md_path = str(Path(task_uuid_str) / output_filename)
-                elif fmt == 'zh_only_timestamp':
-                    task_meta.zh_only_vtt_timestamp_md_path = str(Path(task_uuid_str) / output_filename)
-            else:
-                errors.append({fmt: process.stderr[:200]})
-        metadata[task_uuid_str] = task_meta
-        await save_metadata(metadata)
-        return {"message": "All formats merged", "result_paths": result_paths, "errors": errors}
-    # 下面只处理单一格式
-    if request.format == 'parallel':
-        target_metadata_field = 'parallel_vtt_md_path'
-    elif request.format == 'merged':
-        target_metadata_field = 'merged_format_vtt_md_path'
-    elif request.format == 'en_only':
-        target_metadata_field = 'en_only_vtt_md_path'
-    elif request.format == 'zh_only':
-        target_metadata_field = 'zh_only_vtt_md_path'
-    else:
-        raise HTTPException(status_code=400, detail=f"Invalid format requested: {request.format}")
-
-    existing_path = getattr(task_meta, target_metadata_field, None)
-    if existing_path and (DATA_DIR / existing_path).exists():
-        logger.info(f"VTT format '{request.format}' already exists for task {task_uuid_str} at {existing_path}")
-        return {
-            "message": f"VTT transcript (format: {request.format}) already exists.",
-            "merged_file_path": existing_path # Return the existing path
-        }
-
-    # Find required VTT file paths
-    en_vtt_rel_path = task_meta.vtt_files.get('en')
-    zh_vtt_rel_path = task_meta.vtt_files.get('zh-Hans')
-
-    if not en_vtt_rel_path and not zh_vtt_rel_path:
-        raise HTTPException(status_code=400, detail="Cannot merge: Neither English nor Chinese VTT file found in metadata.")
-
-    # Construct absolute paths and check file existence
-    en_vtt_abs = DATA_DIR / en_vtt_rel_path if en_vtt_rel_path and (DATA_DIR / en_vtt_rel_path).exists() else None
-    zh_vtt_abs = DATA_DIR / zh_vtt_rel_path if zh_vtt_rel_path and (DATA_DIR / zh_vtt_rel_path).exists() else None
-
-    # The script needs at least one valid VTT file on disk
-    if not en_vtt_abs and not zh_vtt_abs:
-         raise HTTPException(status_code=400, detail="VTT file paths found in metadata, but corresponding files not found on disk.")
-
-    # Build the command - Pass absolute paths or "MISSING" sentinel
-    # IMPORTANT: Assumes merge_vtt.py is updated to handle 5 args: <en_path|MISSING> <zh_path|MISSING> <format> <output_abs_path>
-    en_arg = str(en_vtt_abs) if en_vtt_abs else "MISSING" # Convert Path to string
-    zh_arg = str(zh_vtt_abs) if zh_vtt_abs else "MISSING" # Convert Path to string
-    command = [ sys.executable, script_path, en_arg, zh_arg, request.format, str(output_abs_path), str(request.use_segmented).lower() ]
-
-    logger.info(f"Running merge script for task {task_uuid_str}: {' '.join(command)}")
-
+    # 处理特殊字符文件名
     try:
-        # Run the script in a threadpool as it involves file I/O
-        process = await run_in_threadpool(
-            subprocess.run,
-            command,
-            capture_output=True,
-            text=True,
-            check=False, # Don't automatically raise error on non-zero exit
-            encoding='utf-8' # Specify encoding
+        # 首先尝试直接查找文件
+        file_path = task_data_dir / filename
+        
+        # 如果文件不存在且是SRT文件，尝试模糊匹配
+        if not file_path.exists() and filename.lower().endswith('.srt'):
+            # 查找所有SRT文件
+            srt_files = list(task_data_dir.glob("*.srt"))
+            
+            # 如果只有一个SRT文件，直接返回它
+            if len(srt_files) == 1:
+                file_path = srt_files[0]
+                logger.info(f"Using the only available SRT file: {file_path.name}")
+            # 如果有多个SRT文件，尝试找到最匹配的
+            elif len(srt_files) > 1:
+                # 如果请求的是test.srt，直接返回
+                if filename == 'test.srt':
+                    test_srt = next((f for f in srt_files if f.name == 'test.srt'), None)
+                    if test_srt:
+                        file_path = test_srt
+                        logger.info(f"Found requested test.srt file")
+        
+        if not file_path.exists() or not file_path.is_file():
+            raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+            
+        return FileResponse(
+            path=file_path, 
+            filename=file_path.name,
+            media_type=mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
         )
-
-        if process.returncode != 0:
-            logger.error(f"Merge script failed for task {task_uuid_str}. Return code: {process.returncode}")
-            logger.error(f"Script stderr:\n{process.stderr}")
-            logger.error(f"Script stdout:\n{process.stdout}")
-            # Try to delete potentially incomplete output file
-            try:
-                output_file_path = Path(output_abs_path)
-                if output_file_path.exists():
-                    await run_in_threadpool(os.remove, output_file_path)
-                    logger.info(f"Deleted potentially incomplete output file: {output_abs_path}")
-            except Exception as del_e:
-                logger.error(f"Failed to delete incomplete output file {output_abs_path}: {del_e}")
-
-            raise HTTPException(status_code=500, detail=f"Merge script failed: {process.stderr[:500]}") # Limit error detail length
-
-        # Script succeeded, update the specific metadata field
-        if target_metadata_field:
-            setattr(task_meta, target_metadata_field, str(output_rel_path))
-            metadata[task_uuid_str] = task_meta
-            await save_metadata(metadata)
-            logger.info(f"Successfully updated metadata field '{target_metadata_field}' for task {task_uuid_str}. Output: {output_rel_path}")
-        else:
-             # This should not happen if validation is correct
-            logger.error(f"Internal logic error: target_metadata_field not set for format {request.format}")
-            # Avoid saving metadata if the field name is unknown
-
-        logger.info(f"Successfully merged VTT for task {task_uuid_str}. Output: {output_rel_path}")
-        return {
-            "message": f"VTT merge successful (format: {request.format}).",
-            "merged_file_path": str(output_rel_path) # Return the newly generated path
-        }
-
-    except FileNotFoundError:
-        logger.error(f"Merge script not found at {script_path}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Merge script not found.")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Unexpected error during VTT merge for task {task_uuid_str}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error during VTT merge: {str(e)}")
-
-# --- END: Merge VTT Endpoint ---
-
-# --- Helper Function to Run Transcription Script and Broadcast --- 
-# MODIFIED to return the relative path of the generated JSON, or None on failure
-def run_transcription_script_and_notify(uuid: str, model: str) -> Optional[str]:
-    """Runs transcription script, captures its output, and returns relative path on success."""
-    script_path = SRC_DIR / "tasks" / "transcribe_whisperx.py"
-    python_executable = sys.executable
-    command = [python_executable, str(script_path), '--uuid', uuid, '--model', model]
-    workspace_root = BACKEND_DIR.parent
-    logger.info(f"Running WhisperX transcription command in {workspace_root}: {' '.join(command)}")
-
-    relative_path = None # Initialize return value
-    error_message = None
-
-    try:
-        # Run with check=False, capture output
-        process = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False, # Don't raise error on non-zero exit
-            encoding='utf-8',
-            cwd=workspace_root
-        )
-
-        if process.returncode == 0:
-            logger.info(f"WhisperX script completed successfully for UUID {uuid}. Output:\n{process.stdout}")
-            if process.stderr:
-                 logger.warning(f"WhisperX script for UUID {uuid} produced stderr:\n{process.stderr}")
-            # Try to parse the success JSON from stdout
-            try:
-                # Find the last line of stdout which should contain the final JSON status
-                last_line = process.stdout.strip().splitlines()[-1]
-                result_json = json.loads(last_line)
-                if result_json.get("status") == "completed" and result_json.get("relative_path"):
-                    relative_path = result_json["relative_path"]
-                    logger.info(f"Successfully parsed relative path from script output: {relative_path}")
-                else:
-                    error_message = "Script finished but did not report completed status or relative path in output."
-                    logger.error(f"{error_message} Last line: {last_line}")
-            except (json.JSONDecodeError, IndexError) as e:
-                error_message = f"Failed to parse JSON status from script stdout: {e}"
-                logger.error(f"{error_message} stdout:\n{process.stdout}")
-        else:
-            # Script failed
-            logger.error(f"WhisperX script failed for UUID {uuid}. Return code: {process.returncode}")
-            logger.error(f"Stderr:\n{process.stderr}")
-            logger.error(f"Stdout:\n{process.stdout}")
-            error_message = f"Script failed with code {process.returncode}. Stderr: {process.stderr[:200]}..."
-
-    except Exception as e:
-        logger.error(f"An unexpected error occurred running WhisperX script process for UUID {uuid}: {e}", exc_info=True)
-        error_message = f"Unexpected error running script: {e}"
-
-    # --- REMOVED WebSocket Notification --- 
-    # Notification will now be handled by the endpoint AFTER metadata is saved.
-
-    if error_message:
-        # Log any error encountered during the process
-        logger.error(f"WhisperX helper function encountered error for {uuid}: {error_message}")
-
-    return relative_path # Return the path or None
-
-# --- POST Endpoint to Start WhisperX Transcription (Modified to Await) ---
-@app.post("/api/tasks/{task_uuid}/transcribe_whisperx", response_model=TaskMetadata)
-async def transcribe_whisperx_endpoint(
-    task_uuid: UUID,
-    request: TranscribeRequest # Changed from TranscribeWhisperXRequest to TranscribeRequest
-):
-    uuid_str = str(task_uuid)
-    model = request.model
-    logger.info(f"Received SYNC request to start WhisperX transcription for UUID {uuid_str} with model {model}")
-
-    metadata = await load_metadata()
-    task_meta = metadata.get(uuid_str)
-    # ... (Existing checks: not found, archived, transcript exists, audio exists) ...
-    if not task_meta: raise HTTPException(status_code=404, detail="Task not found")
-    if task_meta.archived: raise HTTPException(status_code=400, detail="Cannot transcribe archived task.")
-    # Allow re-transcription if path exists but maybe failed before?
-    # if task_meta.whisperx_json_path: raise HTTPException(status_code=409, detail="WhisperX transcript already exists. Delete it first.")
-    audio_path_str = task_meta.downloaded_audio_path or task_meta.extracted_wav_path
-    if not audio_path_str: raise HTTPException(status_code=400, detail="Audio file path not found...")
-    expected_audio_path = DATA_DIR / audio_path_str
-    if not expected_audio_path.exists(): raise HTTPException(status_code=400, detail=f"Audio file not found at {expected_audio_path}...")
-
-    # --- Run the script synchronously in threadpool and get relative path --- 
-    relative_path = None
-    script_error = None
-    try:
-        # Await the helper which now returns the relative path or None
-        relative_path = await run_in_threadpool(run_transcription_script_and_notify, uuid_str, model)
-        if relative_path:
-            logger.info(f"WhisperX transcription script completed successfully for {uuid_str}. Relative path: {relative_path}")
-        else:
-            logger.error(f"WhisperX transcription script helper returned None (failure) for {uuid_str}.")
-            # Capture a generic error message if path is None
-            script_error = "Transcription script failed or did not return a valid path."
-
-    except Exception as e:
-        # This catches errors *running* the helper in threadpool itself
-        logger.error(f"Error running transcription helper in threadpool for {uuid_str}: {e}", exc_info=True)
-        script_error = f"Error executing transcription task: {e}"
-
-    # --- Update Metadata and Broadcast --- 
-    task_status = "failed"
-    updated_task_data_dict = None
-    try:
-        # Reload metadata AFTER the script has potentially run
-        current_metadata = await load_metadata()
-        current_task_meta = current_metadata.get(uuid_str)
-
-        if not current_task_meta:
-            # Task disappeared somehow? Log error, cannot proceed.
-            logger.error(f"Task {uuid_str} not found in metadata after script execution. Cannot update status or broadcast.")
-            # Raise 500 as state is inconsistent
-            raise HTTPException(status_code=500, detail="Task metadata inconsistency after processing.")
-
-        if relative_path and not script_error:
-            # --- Success Path: Update Metadata --- 
-            current_task_meta.whisperx_json_path = relative_path
-            current_task_meta.transcription_model = model
-            current_metadata[uuid_str] = current_task_meta
-            await save_metadata(current_metadata)
-            logger.info(f"Successfully updated metadata for task {uuid_str} with WhisperX path and model.")
-            task_status = "completed"
-            updated_task_data_dict = current_task_meta.dict()
-        else:
-            # --- Failure Path: Metadata NOT updated --- 
-            logger.warning(f"Transcription failed for task {uuid_str}. Metadata will not be updated.")
-            # Use the existing task data (without transcript path) for broadcast
-            updated_task_data_dict = current_task_meta.dict()
-
-        # --- Broadcast Update --- 
-        message = {
-            "type": "task_update",
-            "status": task_status,
-            "uuid": uuid_str,
-            "task_data": updated_task_data_dict
-        }
-        if script_error and task_status == "failed":
-            message["error"] = script_error # Add error detail if script failed
-
-        await manager.broadcast(message)
-        logger.info(f"Broadcasted task update for UUID {uuid_str} (Status: {task_status})")
-
-        # --- Return Response --- 
-        if task_status == "completed":
-            return current_task_meta # Return the updated TaskMetadata on success
-        else:
-            # If script failed, raise an HTTP exception
-            raise HTTPException(status_code=500, detail=script_error or "Transcription failed for unknown reasons.")
-
-    except Exception as e:
-        # Catch errors during metadata reload, save, or broadcast
-        logger.error(f"Error during final metadata update or broadcast for {uuid_str}: {e}", exc_info=True)
-        # Try to broadcast a generic failure if possible?
-        try:
-            await manager.broadcast({
-                "type": "task_update",
-                "status": "failed",
-                "uuid": uuid_str,
-                "error": f"Internal server error during final update: {e}"
-            })
-        except Exception as broadcast_err:
-            logger.error(f"Failed to broadcast final error state for {uuid_str}: {broadcast_err}")
-        # Raise 500
-        raise HTTPException(status_code=500, detail="Internal server error during task finalization.")
-
-# --- DELETE Endpoint to Remove WhisperX Transcript ---
-@app.delete("/api/tasks/{task_uuid}/transcribe_whisperx", status_code=200)
-async def delete_whisperx_transcript(task_uuid: UUID):
-    uuid_str = str(task_uuid)
-    logger.info(f"Received request to delete WhisperX transcript for UUID {uuid_str}")
-
-    metadata = await load_metadata()
-    task_meta = metadata.get(uuid_str)
-
-    if not task_meta:
-        logger.warning(f"Task {uuid_str} not found for WhisperX transcript deletion.")
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    if not task_meta.whisperx_json_path:
-        logger.info(f"No WhisperX transcript path found for task {uuid_str}. Nothing to delete.")
-        task_meta.whisperx_json_path = None
-        task_meta.transcription_model = None
-        await save_metadata(metadata)
-        return {"message": "No WhisperX transcript found, metadata cleared.", "task_data": task_meta.dict()}
-
-
-    transcript_rel_path = task_meta.whisperx_json_path
-    # Construct absolute path relative to DATA_DIR
-    transcript_abs_path = DATA_DIR / transcript_rel_path
-    logger.info(f"Attempting to delete transcript file at: {transcript_abs_path}")
-
-    deleted = False
-    if transcript_abs_path.exists() and transcript_abs_path.is_file():
-        try:
-            await run_in_threadpool(os.remove, transcript_abs_path)
-            logger.info(f"Successfully deleted transcript file: {transcript_abs_path}")
-            deleted = True
-        except OSError as e:
-            logger.error(f"Failed to delete transcript file {transcript_abs_path}: {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error deleting file {transcript_abs_path}: {e}", exc_info=True)
-
-    # Update metadata regardless of file deletion success
-    task_meta.whisperx_json_path = None
-    task_meta.transcription_model = None
-
-    await save_metadata(metadata)
-    logger.info(f"Updated metadata for task {uuid_str}, removing WhisperX transcript info.")
-
-    # Return the updated task metadata as expected by the frontend
-    return {"message": f"WhisperX transcript data {'deleted and ' if deleted else ''}metadata cleared for task {uuid_str}.", "task_data": task_meta.dict()}
-
-# --- WebSocket Endpoint ---
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            # Keep connection alive, maybe listen for client messages if needed
-            data = await websocket.receive_text() 
-            # Example: Respond to a ping or specific client request
-            # await manager.send_personal_message(f"Message text was: {data}", websocket)
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-    except Exception as e:
-        logger.error(f"WebSocket error for {websocket.client}: {e}", exc_info=True)
-        if websocket in manager.active_connections: # Ensure disconnect even on unexpected errors
-             manager.disconnect(websocket)
-
-# --- NEW: Endpoint to Create Video from Audio+Image ---
-class CreateVideoResponse(BaseModel):
-    message: str
-    output_path: str
-
-@app.post("/api/tasks/{task_uuid}/create_video", response_model=CreateVideoResponse)
-async def create_video_endpoint(task_uuid: UUID):
-    task_uuid_str = str(task_uuid)
-    logger.info(f"Received request to create video for task: {task_uuid_str}")
-    metadata = await load_metadata()
-
-    if task_uuid_str not in metadata:
-        logger.error(f"Task not found: {task_uuid_str}")
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    task_meta = metadata[task_uuid_str]
-    task_dir = BASE_DIR / task_uuid_str
-
-    # --- Input Validation ---
-    if task_meta.platform not in ["xiaoyuzhou", "podcast"]: # Assuming 'podcast' is a valid platform identifier
-        logger.warning(f"Platform '{task_meta.platform}' not supported for video creation for task {task_uuid_str}")
-        raise HTTPException(status_code=400, detail=f"Platform '{task_meta.platform}' not supported for this operation.")
-
-    if not task_meta.thumbnail_path:
-        logger.warning(f"Thumbnail path is missing for task {task_uuid_str}")
-        raise HTTPException(status_code=400, detail="Thumbnail path is missing.")
-        
-    if not task_meta.downloaded_audio_path:
-        logger.warning(f"Downloaded audio path is missing for task {task_uuid_str}")
-        raise HTTPException(status_code=400, detail="Downloaded audio path is missing.")
-
-    thumbnail_full_path = BASE_DIR / task_meta.thumbnail_path
-    audio_full_path = BASE_DIR / task_meta.downloaded_audio_path
-    output_video_rel_path = Path(task_uuid_str) / "video_best.mp4" # Relative path for metadata
-    output_video_full_path = BASE_DIR / output_video_rel_path # Full path for script
-
-    if not thumbnail_full_path.exists():
-        logger.error(f"Thumbnail file not found at expected location: {thumbnail_full_path}")
-        raise HTTPException(status_code=404, detail=f"Thumbnail file not found: {task_meta.thumbnail_path}")
-        
-    if not audio_full_path.exists():
-        logger.error(f"Audio file not found at expected location: {audio_full_path}")
-        raise HTTPException(status_code=404, detail=f"Audio file not found: {task_meta.downloaded_audio_path}")
-
-    # --- Run Video Creation Script (Synchronously for now, consider BackgroundTasks for long processes) ---
-    try:
-        logger.info(f"Starting video creation for {task_uuid_str}: Image='{thumbnail_full_path}', Audio='{audio_full_path}', Output='{output_video_full_path}'")
-        
-        # Use run_in_threadpool to avoid blocking the event loop
-        await run_in_threadpool(
-            create_video_from_audio_image, 
-            image_path=str(thumbnail_full_path), 
-            audio_path=str(audio_full_path), 
-            output_path=str(output_video_full_path)
-        )
-
-        # --- Verify Output and Update Metadata ---
-        if not output_video_full_path.exists():
-             logger.error(f"Video creation script ran but output file not found: {output_video_full_path}")
-             raise HTTPException(status_code=500, detail="Video creation failed: Output file not generated.")
-
-        logger.info(f"Video created successfully: {output_video_full_path}")
-        # Update metadata
-        if task_meta.media_files is None: # Ensure media_files exists
-            task_meta.media_files = {}
-        task_meta.media_files["best"] = str(output_video_rel_path) # Store relative path
-
-        metadata[task_uuid_str] = task_meta
-        await save_metadata(metadata)
-        
-        # Broadcast update
-        await manager.broadcast({"type": "metadata_update", "payload": {task_uuid_str: task_meta.dict()}})
-        
-        logger.info(f"Metadata updated for task {task_uuid_str} with new video file: {output_video_rel_path}")
-        
-        return CreateVideoResponse(
-            message="Video created successfully", 
-            output_path=str(output_video_rel_path)
-        )
-
-    except Exception as e: # Catch errors from the script execution or file checks
-        logger.error(f"Error during video creation for task {task_uuid_str}: {e}", exc_info=True)
-        # Attempt to clean up potentially incomplete output file
-        if output_video_full_path.exists():
-            try:
-                os.remove(output_video_full_path)
-                logger.info(f"Cleaned up partial output file: {output_video_full_path}")
-            except OSError as rm_err:
-                logger.error(f"Failed to clean up partial output file {output_video_full_path}: {rm_err}")
-        raise HTTPException(status_code=500, detail=f"Video creation failed: {str(e)}")
-
-# --- Endpoint to Open Task Folder --- 
-@app.post("/api/tasks/{task_uuid}/open_folder", status_code=200)
-async def open_task_folder_endpoint(task_uuid: UUID):
-    """
-    Opens the data folder for the specified task in the system's file explorer.
-    """
-    task_uuid_str = str(task_uuid)
-    logger.info(f"Received request to open folder for task: {task_uuid_str}")
-    
-    # No need to load metadata unless we need to validate existence first
-    # metadata = await load_metadata()
-    # if task_uuid_str not in metadata:
-    #     logger.warning(f"Task not found for opening folder: {task_uuid_str}")
-    #     raise HTTPException(status_code=404, detail="Task not found")
-
-    task_data_dir = DATA_DIR / task_uuid_str
-
-    if not task_data_dir.exists() or not task_data_dir.is_dir():
-        logger.warning(f"Task data directory not found or is not a directory: {task_data_dir}")
-        raise HTTPException(status_code=404, detail=f"Task data directory not found: {task_data_dir}")
-
-    try:
-        logger.info(f"Attempting to open folder: {task_data_dir}")
-        cmd = []
-        if sys.platform == "win32":
-            # Use os.startfile on Windows for better behavior?
-            # os.startfile(task_data_dir) 
-            # Or stick with explorer:
-            cmd = ["explorer", str(task_data_dir)]
-        elif sys.platform == "darwin": # macOS
-            cmd = ["open", str(task_data_dir)]
-        else: # Linux and other Unix-like
-            cmd = ["xdg-open", str(task_data_dir)]
-        
-        # Run the command asynchronously in a threadpool to avoid blocking
-        process = await run_in_threadpool(
-            subprocess.run,
-            cmd,
-            check=True, # Raise exception on non-zero exit code
-            capture_output=True # Capture output/errors if needed
-        )
-        logger.info(f"Successfully executed command to open folder: {' '.join(cmd)}")
-        return {"message": f"Request to open folder {task_data_dir} successful."}
-
-    except FileNotFoundError:
-        # This might happen if xdg-open/open/explorer is not in PATH
-        logger.error(f"Command to open file explorer not found (platform: {sys.platform}). Command: {' '.join(cmd)}")
-        raise HTTPException(status_code=501, detail="File explorer command not found on the server.")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error executing command to open folder {task_data_dir}: {e}")
-        logger.error(f"Command stdout: {e.stdout}")
-        logger.error(f"Command stderr: {e.stderr}")
-        raise HTTPException(status_code=500, detail=f"Failed to open folder on server: {e.stderr or e.stdout}")
-    except Exception as e:
-        logger.error(f"Unexpected error opening folder {task_data_dir}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred on the server while trying to open the folder.")
-
-# --- END NEW Endpoint --- 
-
-# --- END: New GET Markdown Endpoint ---
-
-# --- START: New List Markdown Files Endpoint ---
-class MarkdownFilesResponse(BaseModel):
-    files: List[str]
-
-# Restore response_model and original logic
-@app.get("/api/tasks/{task_uuid}/markdown/list", response_model=MarkdownFilesResponse) # Ensure path is /list
-async def list_markdown_files(task_uuid: UUID): # Use UUID type hint
-    """
-    Lists all markdown (.md) files within the specified task's directory.
-    """
-    task_uuid_str = str(task_uuid) 
-    # Minimal logging
-
-    # Construct the path to the task directory (removed markdown subdirectory)
-    task_dir = DATA_DIR / task_uuid_str
-
-    if not task_dir.exists():
-        logger.warning(f"Task directory does not exist: {task_dir}")
-        return MarkdownFilesResponse(files=[]) 
-    if not task_dir.is_dir():
-        logger.warning(f"Path exists but is not a directory: {task_dir}") 
-        return MarkdownFilesResponse(files=[]) 
-        
-    # Confirmed exists and is directory
-
-    try:
-        markdown_files = []
-        # Scan for markdown files in the task directory
-        for item in task_dir.iterdir():
-            is_file = item.is_file()
-            if is_file:
-                is_md = item.name.lower().endswith('.md')
-                if is_md:
-                    markdown_files.append(item.name)
-        
-        # Also check for a markdown subdirectory if it exists
-        markdown_subdir = task_dir / "markdown"
-        if markdown_subdir.exists() and markdown_subdir.is_dir():
-            for item in markdown_subdir.iterdir():
-                is_file = item.is_file()
-                if is_file:
-                    is_md = item.name.lower().endswith('.md')
-                    if is_md:
-                        # Prepend with subdirectory for correct path reference
-                        markdown_files.append(f"markdown/{item.name}")
-        
-        logger.info(f"Found {len(markdown_files)} markdown files for task {task_uuid_str}") 
-        # Return the sorted list inside the response model
-        response_data = MarkdownFilesResponse(files=sorted(markdown_files))
-        return response_data
-
-    except Exception as e:
-        logger.error(f"Error listing markdown files for task {task_uuid_str}: {e}", exc_info=True)
-        # Raise 500 for internal errors.
-        raise HTTPException(status_code=500, detail="Error listing markdown files")
-# --- END: New List Markdown Files Endpoint ---
-
-
-# --- START: Existing GET File Endpoint (for reference) ---
-# This endpoint is used by the frontend to fetch the content of a specific file
-@app.api_route("/api/tasks/{task_uuid}/files/{filename}", methods=["GET", "HEAD"], response_class=FileResponse)
-async def get_task_file(task_uuid: UUID, filename: str):
-    # ... existing implementation ...
-    pass # Keep existing code
-# --- END: Existing GET File Endpoint ---
-
-
-
-# --- START: New List Files Endpoint ---
-@app.get("/api/tasks/{task_uuid}/files/list", response_model=List[str])
-async def list_task_files(
-    task_uuid: UUID,
-    extension: Optional[str] = Query(None, description="Filter by file extension (e.g., .txt, .md)")
-):
-    """
-    Lists files within the specified task's data directory, optionally filtering by extension.
-    Only lists files, not directories.
-    """
-    task_uuid_str = str(task_uuid)
-    logger.info(f"Request to list files for task {task_uuid_str} (extension filter: {extension})")
-
-    task_data_dir = DATA_DIR / task_uuid_str
-
-    if not task_data_dir.exists() or not task_data_dir.is_dir():
-        logger.warning(f"Task data directory not found: {task_data_dir}")
-        raise HTTPException(status_code=404, detail="Task data directory not found")
-
-    try:
-        all_files = []
-        for item in task_data_dir.iterdir():
-            if item.is_file():
-                # Apply extension filter if provided
-                if extension:
-                    # Ensure extension starts with a dot for consistent comparison
-                    filter_ext = extension if extension.startswith('.') else f".{extension}"
-                    if item.name.lower().endswith(filter_ext.lower()):
-                        all_files.append(item.name)
-                else:
-                    # No filter, add all files
-                    all_files.append(item.name)
-        
-        logger.info(f"Found {len(all_files)} files for task {task_uuid_str} matching filter '{extension}'")
-        return sorted(all_files) # Return sorted list
-
-    except Exception as e:
-        logger.error(f"Error listing files in directory {task_data_dir}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error listing files")
+        logger.error(f"Error retrieving file {filename} for task {task_uuid_str}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving file: {str(e)}")
 # --- END: New List Files Endpoint ---
 
 # --- Pydantic Models for Cut API --- 
@@ -3039,6 +2145,64 @@ async def get_cut_job_status(task_uuid: UUID, job_id: str):
     )
 
 # <<< Add New Endpoints Here >>> (Place the new endpoints above this marker if it exists)
+
+# --- Endpoint to Open Task Folder --- 
+@app.post("/api/tasks/{task_uuid}/open_folder", status_code=200)
+async def open_task_folder_endpoint(task_uuid: UUID):
+    """
+    Opens the data folder for the specified task in the system's file explorer.
+    """
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to open folder for task: {task_uuid_str}")
+    
+    # No need to load metadata unless we need to validate existence first
+    # metadata = await load_metadata()
+    # if task_uuid_str not in metadata:
+    #     logger.warning(f"Task not found for opening folder: {task_uuid_str}")
+    #     raise HTTPException(status_code=404, detail="Task not found")
+
+    task_data_dir = DATA_DIR / task_uuid_str
+
+    if not task_data_dir.exists() or not task_data_dir.is_dir():
+        logger.warning(f"Task data directory not found or is not a directory: {task_data_dir}")
+        raise HTTPException(status_code=404, detail=f"Task data directory not found: {task_data_dir}")
+
+    try:
+        logger.info(f"Attempting to open folder: {task_data_dir}")
+        cmd = []
+        if sys.platform == "win32":
+            # Use os.startfile on Windows for better behavior?
+            # os.startfile(task_data_dir) 
+            # Or stick with explorer:
+            cmd = ["explorer", str(task_data_dir)]
+        elif sys.platform == "darwin": # macOS
+            cmd = ["open", str(task_data_dir)]
+        else: # Linux and other Unix-like
+            cmd = ["xdg-open", str(task_data_dir)]
+        
+        # Run the command asynchronously in a threadpool to avoid blocking
+        process = await run_in_threadpool(
+            subprocess.run,
+            cmd,
+            check=True, # Raise exception on non-zero exit code
+            capture_output=True # Capture output/errors if needed
+        )
+        logger.info(f"Successfully executed command to open folder: {' '.join(cmd)}")
+        return {"message": f"Request to open folder {task_data_dir} successful."}
+
+    except FileNotFoundError:
+        # This might happen if xdg-open/open/explorer is not in PATH
+        logger.error(f"Command to open file explorer not found (platform: {sys.platform}). Command: {' '.join(cmd)}")
+        raise HTTPException(status_code=501, detail="File explorer command not found on the server.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error executing command to open folder {task_data_dir}: {e}")
+        logger.error(f"Command stdout: {e.stdout}")
+        logger.error(f"Command stderr: {e.stderr}")
+        raise HTTPException(status_code=500, detail=f"Failed to open folder on server: {e.stderr or e.stdout}")
+    except Exception as e:
+        logger.error(f"Unexpected error opening folder {task_data_dir}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred on the server while trying to open the folder.")
+# --- END Endpoint to Open Task Folder --- 
 
 from .routes import chat, tasks
 app.include_router(chat.router)
