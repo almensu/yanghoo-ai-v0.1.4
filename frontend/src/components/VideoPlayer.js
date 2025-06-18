@@ -596,7 +596,10 @@ const VideoPlayer = forwardRef(({
 
     // Case 2: Should have a track (local video AND vttUrl is present)
     let currentTrackElement = trackRef.current;
-    const langLabel = vttLang === 'zh' ? '中文' : (vttLang === 'en' ? 'English' : vttLang);
+    // 支持SRT字幕，当vttLang为'srt'时，使用特殊标签
+    const langLabel = vttLang === 'srt' ? '字幕' : 
+                     (vttLang === 'zh' ? '中文' : 
+                     (vttLang === 'en' ? 'English' : vttLang));
     const targetLabel = `${langLabel} (Cleaned)`; 
 
     if (currentTrackElement) {
@@ -604,7 +607,8 @@ const VideoPlayer = forwardRef(({
         if (currentTrackElement.src !== vttUrl || currentTrackElement.srclang !== vttLang) {
             console.log(`VideoPlayer Effect: Updating existing track: lang=${vttLang}, src=${vttUrl}`);
             currentTrackElement.src = vttUrl; 
-            currentTrackElement.srclang = vttLang;
+            // 对于SRT字幕，我们仍然使用'en'作为srclang，因为浏览器需要有效的语言代码
+            currentTrackElement.srclang = vttLang === 'srt' ? 'en' : vttLang;
             currentTrackElement.label = targetLabel; // Use calculated label
             currentTrackElement.default = true; 
             
@@ -629,7 +633,7 @@ const VideoPlayer = forwardRef(({
                     // Find by label first (优先用 label 查找)
                     let targetTrack = [...tracks].find(t => t.label === targetLabel);
                     // Fallback find by lang/src (备用查找)
-                    if (!targetTrack) targetTrack = [...tracks].find(t => t.language === vttLang && t.src === vttUrl);
+                    if (!targetTrack) targetTrack = [...tracks].find(t => t.language === (vttLang === 'srt' ? 'en' : vttLang) && t.src === vttUrl);
                     
                     if(targetTrack) {
                         targetTrack.mode = 'showing';
@@ -656,7 +660,8 @@ const VideoPlayer = forwardRef(({
             const newTrack = document.createElement('track');
             newTrack.kind = 'subtitles';
             newTrack.label = targetLabel; // Use calculated label
-            newTrack.srclang = vttLang;
+            // 对于SRT字幕，我们仍然使用'en'作为srclang，因为浏览器需要有效的语言代码
+            newTrack.srclang = vttLang === 'srt' ? 'en' : vttLang;
             newTrack.src = vttUrl;
             newTrack.default = true;
 
@@ -683,7 +688,7 @@ const VideoPlayer = forwardRef(({
                     }
                     // Find by label first (优先用 label 查找)
                     let targetTrack = [...tracks].find(t => t.label === targetLabel);
-                    if (!targetTrack) targetTrack = [...tracks].find(t => t.language === vttLang && t.src === vttUrl);
+                    if (!targetTrack) targetTrack = [...tracks].find(t => t.language === (vttLang === 'srt' ? 'en' : vttLang) && t.src === vttUrl);
 
                     if(targetTrack) {
                         targetTrack.mode = 'showing';

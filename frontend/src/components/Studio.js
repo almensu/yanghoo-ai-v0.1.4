@@ -1606,7 +1606,9 @@ function Studio({ taskUuid, apiBaseUrl }) {
     else if (availableLangs.length > 0 && parsedCuesByLang[availableLangs[0]]?.length > 0) actualTrackLang = availableLangs[0];
     else actualTrackLang = 'none'; // No track available
   }
-  const trackLangCode = actualTrackLang === 'zh-Hans' ? 'zh' : actualTrackLang; // Map to 'zh' if needed
+  // 为SRT字幕保留'srt'作为语言代码，否则映射'zh-Hans'到'zh'
+  const trackLangCode = actualTrackLang === 'srt' ? 'srt' : 
+                        (actualTrackLang === 'zh-Hans' ? 'zh' : actualTrackLang); // Map to 'zh' if needed
 
   const langOptions = [...availableLangs];
   // Only add bilingual option for VTT files, not for SRT
