@@ -1426,58 +1426,54 @@ function Studio({ taskUuid, apiBaseUrl }) {
 
   // --- MODIFIED: Handler for the 'Cut Video' button ---
   const handleCutVideoClick = useCallback(async () => {
+    if (cuttingStatus === 'processing') return; // Prevent multiple clicks during processing
     if (selectedCueIds.size === 0) {
-      alert("请先在下方字幕预览中点击选择要保留的片段。");
-      return;
-    }
-    if (cuttingStatus === 'processing') {
-      alert("当前有剪辑任务正在处理中，请稍候。");
+      alert('请先选择需要保留的字幕片段');
       return;
     }
 
-    // Clear previous polling and job state before starting a new one
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-    setCuttingJobId(null);
-    setCuttingStatus('idle');
-    setCuttingMessage('');
-    setCutOutputPath(null);
-
-    const segmentsToKeep = displayedCues
-      .filter(cue => selectedCueIds.has(cue.id))
+    const segmentsToKeep = Array.from(selectedCueIds)
+      .map(id => displayedCues.find(cue => cue.id === id))
+      .filter(Boolean)
       .map(cue => ({ start: cue.startTime, end: cue.endTime }))
       .sort((a, b) => a.start - b.start);
 
     // Determine subtitle embedding language based on current displayLang in 'cut' mode
     let subtitleLangToEmbed = 'none'; // Default to no subtitles
+    let subtitleType = 'vtt'; // Default to VTT
+    
     if (vttMode === 'cut') {
-      // 优先使用当前显示的语言，使字幕嵌入选择变得更自然
-      if (displayLang === 'bilingual') {
-        // 若选择双语，检查是否有足够的字幕数据
-        if (parsedCuesByLang['en']?.length > 0 && parsedCuesByLang['zh-Hans']?.length > 0) {
-          subtitleLangToEmbed = 'bilingual';
-        } 
-        // 降级到任一可用语言
-        else if (parsedCuesByLang['zh-Hans']?.length > 0) {
+      // Check if we're using SRT
+      if (displayLang === 'srt' && parsedCuesByLang['srt']?.length > 0) {
+        subtitleLangToEmbed = 'srt';
+        subtitleType = 'srt';
+      } else {
+        // VTT logic
+        if (displayLang === 'bilingual') {
+          // 若选择双语，检查是否有足够的字幕数据
+          if (parsedCuesByLang['en']?.length > 0 && parsedCuesByLang['zh-Hans']?.length > 0) {
+            subtitleLangToEmbed = 'bilingual';
+          } 
+          // 降级到任一可用语言
+          else if (parsedCuesByLang['zh-Hans']?.length > 0) {
+            subtitleLangToEmbed = 'zh-Hans';
+          }
+          else if (parsedCuesByLang['en']?.length > 0) {
+            subtitleLangToEmbed = 'en';
+          }
+        } else if (displayLang === 'en' && parsedCuesByLang['en']?.length > 0) {
+          subtitleLangToEmbed = 'en';
+        } else if (displayLang === 'zh-Hans' && parsedCuesByLang['zh-Hans']?.length > 0) {
           subtitleLangToEmbed = 'zh-Hans';
         }
-        else if (parsedCuesByLang['en']?.length > 0) {
-          subtitleLangToEmbed = 'en';
-        }
-      } else if (displayLang === 'en' && parsedCuesByLang['en']?.length > 0) {
-        subtitleLangToEmbed = 'en';
-      } else if (displayLang === 'zh-Hans' && parsedCuesByLang['zh-Hans']?.length > 0) {
-        subtitleLangToEmbed = 'zh-Hans';
-      }
-      
-      // 如果没有找到匹配的字幕，尝试选择任何可用的字幕
-      if (subtitleLangToEmbed === 'none') {
-        if (parsedCuesByLang['zh-Hans']?.length > 0) {
-          subtitleLangToEmbed = 'zh-Hans';
-        } else if (parsedCuesByLang['en']?.length > 0) {
-          subtitleLangToEmbed = 'en';
+        
+        // 如果没有找到匹配的字幕，尝试选择任何可用的字幕
+        if (subtitleLangToEmbed === 'none') {
+          if (parsedCuesByLang['zh-Hans']?.length > 0) {
+            subtitleLangToEmbed = 'zh-Hans';
+          } else if (parsedCuesByLang['en']?.length > 0) {
+            subtitleLangToEmbed = 'en';
+          }
         }
       }
     }
@@ -1490,6 +1486,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
     logger.info("Video Identifier (for backend):", videoRelativePath);
     logger.info("Selected Segments (sec):", segmentsToKeep);
     logger.info("Subtitle Embedding Language:", subtitleLangToEmbed);
+    logger.info("Subtitle Type:", subtitleType);
 
     setCuttingStatus('processing');
     setCuttingMessage('正在提交剪辑任务...');
@@ -1499,6 +1496,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
         media_identifier: videoRelativePath, 
         segments: segmentsToKeep,
         embed_subtitle_lang: subtitleLangToEmbed, // New parameter for backend
+        subtitle_type: subtitleType, // Add subtitle type information
         output_format: outputFormat // 添加输出格式参数
       });
 

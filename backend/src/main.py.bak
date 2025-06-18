@@ -2350,41 +2350,6 @@ def run_ffmpeg_cut(
                         
                         # For video embedding, we still need to convert SRT to ASS for ffmpeg
                         source_subtitle_path_for_conversion = source_srt_path
-                        
-                        # 创建临时ASS文件用于烧录
-                        temp_ass_path = temp_dir / f"subtitle_{job_id}.ass"
-                        temp_files_to_clean.append(temp_ass_path)
-                        
-                        # 转换SRT到ASS
-                        conversion_success = convert_srt_to_ass(
-                            str(source_srt_path), 
-                            str(temp_ass_path),
-                            segments=segments
-                        )
-                        
-                        if conversion_success:
-                            # 设置字幕过滤器
-                            escaped_ass_path = str(temp_ass_path).replace(':', '\\:').replace('\\', '\\\\')
-                            
-                            # 添加系统字体目录
-                            font_dirs = [
-                                "/System/Library/Fonts",
-                                "/Library/Fonts",
-                                f"{os.path.expanduser('~')}/Library/Fonts"
-                            ]
-                            
-                            valid_font_dirs = [d for d in font_dirs if os.path.exists(d)]
-                            
-                            if valid_font_dirs:
-                                fontsdir_option = f":fontsdir='{valid_font_dirs[0]}'"
-                                subtitle_filter = f"ass='{escaped_ass_path}'{fontsdir_option}" 
-                            else:
-                                subtitle_filter = f"ass='{escaped_ass_path}'" 
-                                
-                            logger.info(f"[Job {job_id}] Using ASS filter for SRT: {subtitle_filter}")
-                        else:
-                            logger.error(f"[Job {job_id}] Failed to convert SRT to ASS. No subtitles will be embedded.")
-                            subtitle_filter = None
                     else:
                         logger.error(f"[Job {job_id}] Failed to create adjusted SRT file")
                 else:
@@ -2930,16 +2895,16 @@ def run_ffmpeg_cut(
                 cut_job_statuses[job_id]["message"] = "Video processing completed successfully."
                 logger.info(f"[Job {job_id}] Video processing completed successfully with outputs: {output_files}")
 
-    except Exception as e:
-        error_msg = f"Error during ffmpeg cut task: {e}"
-        logger.error(f"[Job {job_id}] {error_msg}", exc_info=True)
-        cut_job_statuses[job_id]["status"] = "failed"
-        cut_job_statuses[job_id]["message"] = error_msg
-        cut_job_statuses[job_id].pop("output_path", None)
-    
-    finally:
-        # 确保在所有情况下都执行清理
-        cleanup_temp_files()
+        except Exception as e:
+            error_msg = f"Error during ffmpeg cut task: {e}"
+            logger.error(f"[Job {job_id}] {error_msg}", exc_info=True)
+            cut_job_statuses[job_id]["status"] = "failed"
+            cut_job_statuses[job_id]["message"] = error_msg
+            cut_job_statuses[job_id].pop("output_path", None)
+        
+        finally:
+            # 确保在所有情况下都执行清理
+            cleanup_temp_files()
 
 # --- API Endpoints for Cutting ---
 
