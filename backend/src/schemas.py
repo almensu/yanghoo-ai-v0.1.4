@@ -26,6 +26,7 @@ class TaskMetadata(BaseModel):
     extracted_wav_path: Optional[str] = None
     vtt_files: Dict[str, Optional[str]] = {}
     vtt_files_segmented: Dict[str, Optional[str]] = {}
+    srt_files: Dict[str, Optional[str]] = {}
     whisperx_json_path: Optional[str] = None
     transcription_model: Optional[str] = None
     parallel_vtt_md_path: Optional[str] = None

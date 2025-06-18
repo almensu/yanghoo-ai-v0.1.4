@@ -53,6 +53,8 @@ function CardView({
   onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt,
   onDeleteVtt, onNaturalSegmentVtt, onMergeVtt, onCreateVideo,
   onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX, onOpenFolder, onGoToStudio,
+  // Add SRT processing handlers
+  onProcessSrt, onDeleteSrt,
   // Sorting props
   sortField,
   sortOrder,
@@ -71,6 +73,7 @@ function CardView({
   const hasVideo = (mediaFiles) => mediaFiles && typeof mediaFiles === 'object' && Object.values(mediaFiles).some(path => path !== null);
   const hasAudio = (audioPath) => !!audioPath;
   const hasVtt = (vttFiles, langCode) => vttFiles && typeof vttFiles === 'object' && !!vttFiles[langCode];
+  const hasSrt = (srtFiles, langCode) => srtFiles && typeof srtFiles === 'object' && !!srtFiles[langCode];
   const isAudioPlatform = (platform) => ['xiaoyuzhou', 'podcast'].includes(platform);
 
   const canMergeVtt = (task) => {
@@ -130,6 +133,8 @@ function CardView({
           const canDirectDownloadAudio = isAudioPlatform(task.platform);
           const vttEnExists = hasVtt(task.vtt_files, 'en');
           const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans');
+          const srtEnExists = hasSrt(task.srt_files, 'en');
+          const srtZhExists = hasSrt(task.srt_files, 'zh-Hans');
           const isYouTube = task.platform === 'youtube';
           const canMerge = canMergeVtt(task);
           const isMerged = !!task.merged_vtt_md_path;
@@ -393,6 +398,68 @@ function CardView({
                           </div>
                       </div>
                     )}
+
+                    {/* SRT Section */}
+                    <div className="pt-2 border-t border-base-200/60 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-xs">
+                               <IconWrapper icon={FileText} className={cn((srtEnExists || srtZhExists) ? 'text-orange-500' : 'text-base-content/40')}/>
+                               <span className={cn(!(srtEnExists || srtZhExists) && 'text-base-content/60')}>
+                                   SRT 字幕 {(srtEnExists || srtZhExists) ? '(已处理)' : ''}
+                               </span>
+                            </div>
+                            <div className="flex gap-1">
+                                <button 
+                                   className={cn(
+                                       "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
+                                       (srtEnExists || srtZhExists) && 'btn-disabled'
+                                    )} 
+                                   onClick={() => onProcessSrt(task.uuid)}
+                                   disabled={srtEnExists || srtZhExists}
+                                   data-tip={(srtEnExists || srtZhExists) ? "SRT已处理" : "预处理 SRT"}
+                                >
+                                   <IconWrapper icon={Settings} className={cn((srtEnExists || srtZhExists) ? 'text-base-content/40' : 'text-orange-500')} /> 
+                                </button>
+                            </div>
+                        </div>
+                        {/* Language specifics */}
+                        <div className="pl-6 space-y-1"> 
+                             <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-1 text-xs">
+                                   <IconWrapper icon={Languages} className="text-base-content/50"/> 
+                                   <span className={cn(!srtEnExists && 'text-base-content/60')}>英文</span>
+                               </div>
+                               <button 
+                                   className={cn(
+                                       "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
+                                       (!srtEnExists) && 'btn-disabled'
+                                   )} 
+                                   onClick={() => onDeleteSrt(task.uuid, 'en')}
+                                   disabled={!srtEnExists}
+                                   data-tip="删除英文 SRT"
+                               >
+                                   <IconWrapper icon={Trash} className="w-3 h-3 text-error/70" /> 
+                               </button>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-1 text-xs">
+                                   <IconWrapper icon={Languages} className="text-base-content/50"/> 
+                                   <span className={cn(!srtZhExists && 'text-base-content/60')}>中文</span>
+                               </div>
+                               <button 
+                                   className={cn(
+                                       "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
+                                       (!srtZhExists) && 'btn-disabled'
+                                   )} 
+                                   onClick={() => onDeleteSrt(task.uuid, 'zh-Hans')}
+                                   disabled={!srtZhExists}
+                                   data-tip="删除中文 SRT"
+                               >
+                                   <IconWrapper icon={Trash} className="w-3 h-3 text-error/70" />
+                               </button>
+                            </div>
+                        </div>
+                    </div>
                     
                     {/* WhisperX Section */}
                     <div className="pt-2 border-t border-base-200/60 space-y-2">

@@ -441,6 +441,46 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
     }
   };
 
+  const handleProcessSrt = async (taskUuid) => {
+    setFetchLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/tasks/${taskUuid}/process_srt`, { method: 'POST' });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.detail || `HTTP error! status: ${res.status}`);
+      }
+      
+      const processedCount = Object.keys(data.processed_files || {}).length;
+      alert(`SRT处理完成！生成了 ${processedCount} 个分离文件。统计：${JSON.stringify(data.stats)}`);
+      await fetchTasks();
+    } catch (err) {
+      const msg = err.message || 'Failed SRT processing.';
+      setFetchError(msg);
+      alert(`SRT处理失败: ${msg}`);
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
+  const handleDeleteSrt = async (taskUuid, langCode) => {
+    if (!window.confirm(`Delete ${langCode} SRT?`)) return;
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/tasks/${taskUuid}/srt/${langCode}`, { method: 'DELETE' });
+      if (res.status === 204) {
+        alert(`SRT ${langCode} deleted for ${taskUuid}.`);
+        await fetchTasks();
+      } else {
+        let error = `HTTP ${res.status}`;
+        try { const d = await res.json(); error = d.detail || error; } catch (e) { }
+        throw new Error(error);
+      }
+    } catch (e) {
+      alert(`Failed delete ${langCode} SRT: ${e.message}`);
+    }
+  };
+
   return (
     <div className="container mx-auto p-4 pt-8 flex flex-col h-full">
       <IngestForm
@@ -467,6 +507,8 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
           onDeleteVtt={handleDeleteVtt}
           onNaturalSegmentVtt={handleNaturalSegmentVtt}
           onMergeVtt={handleMergeVtt}
+          onProcessSrt={handleProcessSrt}
+          onDeleteSrt={handleDeleteSrt}
           onTranscribeWhisperX={handleTranscribeWhisperX}
           onDeleteWhisperX={handleDeleteWhisperX}
           onSplitTranscribeWhisperX={handleSplitTranscribeWhisperX}

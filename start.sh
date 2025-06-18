@@ -72,7 +72,7 @@ fi
 
 echo "[信息] Conda 环境 '${CONDA_DEFAULT_ENV}' 已确认。"
 
-PYTHON=python3
+PYTHON=${CONDA_PREFIX}/bin/python
 
 # --- Python Dependencies (from project root) ---
 echo "[Python] 检查/安装依赖 (从 ${PROJECT_ROOT})..."

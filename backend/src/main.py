@@ -2565,6 +2565,126 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         logger.error(f"转换SRT到ASS时发生错误: {e}", exc_info=True)
         return False
 
+# --- END: New GET Markdown Endpoint ---
+
+# --- START: SRT Processing Endpoints ---
+@app.post("/api/tasks/{task_uuid}/process_srt", status_code=200)
+async def process_srt_endpoint(task_uuid: UUID):
+    """Process SRT files for a task - rename, separate bilingual content, and update metadata"""
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to process SRT files for task: {task_uuid_str}")
+
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(task_uuid_str)
+
+    if not task_meta:
+        logger.warning(f"Task not found for SRT processing: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    try:
+        # Import the SRT processing function
+        from .tasks.process_srt import process_srt_files
+        
+        # Process SRT files
+        result = await process_srt_files(task_uuid_str, str(METADATA_FILE))
+        
+        if result["success"]:
+            logger.info(f"Successfully processed SRT files for task: {task_uuid_str}")
+            return {
+                "message": "SRT files processed successfully",
+                "processed_files": result["processed_files"],
+                "stats": result["stats"]
+            }
+        else:
+            logger.error(f"SRT processing failed for task {task_uuid_str}: {result.get('error', 'Unknown error')}")
+            raise HTTPException(status_code=400, detail=result.get("error", "SRT processing failed"))
+
+    except ImportError as e:
+        logger.error(f"Failed to import SRT processing module: {e}")
+        raise HTTPException(status_code=500, detail="SRT processing module not available")
+    except Exception as e:
+        logger.error(f"Error during SRT processing for task {task_uuid_str}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during SRT processing: {str(e)}")
+
+@app.delete("/api/tasks/{task_uuid}/srt/{lang_code}", status_code=204)
+async def delete_srt_file(task_uuid: UUID, lang_code: str):
+    """Delete a specific SRT file by language code"""
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to delete SRT file ({lang_code}) for task: {task_uuid_str}")
+
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(task_uuid_str)
+
+    if not task_meta:
+        logger.warning(f"Task not found for SRT deletion: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task_meta.srt_files or lang_code not in task_meta.srt_files:
+        logger.warning(f"SRT file for language '{lang_code}' not found in metadata for task {task_uuid_str}")
+        raise HTTPException(status_code=404, detail=f"SRT file for language '{lang_code}' not found")
+
+    srt_rel_path_str = task_meta.srt_files.get(lang_code)
+    if not srt_rel_path_str:
+        raise HTTPException(status_code=404, detail=f"SRT path for language '{lang_code}' is empty or invalid in metadata")
+
+    srt_abs_path = DATA_DIR / srt_rel_path_str
+
+    # Attempt to delete the file from filesystem
+    try:
+        if srt_abs_path.exists() and srt_abs_path.is_file():
+            await run_in_threadpool(os.remove, srt_abs_path)
+            logger.info(f"Successfully deleted SRT file from disk: {srt_abs_path}")
+        else:
+            logger.warning(f"SRT file not found on disk at expected path: {srt_abs_path}. Proceeding to update metadata only.")
+
+    except OSError as e:
+        logger.error(f"Error deleting SRT file from disk {srt_abs_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting SRT file from disk: {e}")
+
+    # Update metadata: remove the entry for the deleted language
+    try:
+        del task_meta.srt_files[lang_code]
+        all_metadata[task_uuid_str] = task_meta
+        await save_metadata(all_metadata)
+        logger.info(f"Successfully removed '{lang_code}' SRT entry from metadata for task {task_uuid_str}")
+    except Exception as e:
+        logger.error(f"Failed to update metadata after SRT file deletion for task {task_uuid_str}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update metadata after file operation.")
+
+    return
+
+@app.get("/api/tasks/{task_uuid}/srt/{lang_code}", response_class=FileResponse)
+async def get_srt_file(task_uuid: UUID, lang_code: str):
+    """Get a specific SRT file by language code"""
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to get SRT file ({lang_code}) for task: {task_uuid_str}")
+
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(task_uuid_str)
+
+    if not task_meta:
+        logger.warning(f"Task not found for SRT get: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task_meta.srt_files or lang_code not in task_meta.srt_files:
+        logger.warning(f"SRT file for language '{lang_code}' not found in metadata for task {task_uuid_str}")
+        raise HTTPException(status_code=404, detail=f"SRT file for language '{lang_code}' not found")
+
+    srt_rel_path_str = task_meta.srt_files.get(lang_code)
+    if not srt_rel_path_str:
+        raise HTTPException(status_code=404, detail=f"SRT path for language '{lang_code}' is empty or invalid in metadata")
+
+    srt_abs_path = DATA_DIR / srt_rel_path_str
+
+    if not srt_abs_path.exists() or not srt_abs_path.is_file():
+        logger.error(f"SRT file specified in metadata not found on disk: {srt_abs_path}")
+        raise HTTPException(status_code=404, detail=f"SRT file not found on server at path: {srt_rel_path_str}")
+
+    # Return the file as a response
+    filename = Path(srt_rel_path_str).name 
+    return FileResponse(path=srt_abs_path, filename=filename, media_type='application/x-subrip')
+# --- END: SRT Processing Endpoints ---
+
 if __name__ == "__main__":
     import uvicorn
     # from pydantic import ValidationError # Already imported earlier if needed

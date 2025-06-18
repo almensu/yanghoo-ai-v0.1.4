@@ -54,6 +54,8 @@ function TableView({
   onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, 
   onDeleteVtt, onNaturalSegmentVtt, onMergeVtt, onCreateVideo,
   onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX,
+  // Add SRT processing handlers
+  onProcessSrt, onDeleteSrt,
   // Sorting props
   sortField,
   sortOrder,
@@ -72,6 +74,7 @@ function TableView({
   const hasVideo = (mediaFiles) => mediaFiles && typeof mediaFiles === 'object' && Object.values(mediaFiles).some(path => path !== null);
   const hasAudio = (audioPath) => !!audioPath;
   const hasVtt = (vttFiles, langCode) => vttFiles && typeof vttFiles === 'object' && !!vttFiles[langCode];
+  const hasSrt = (srtFiles, langCode) => srtFiles && typeof srtFiles === 'object' && !!srtFiles[langCode];
   const isAudioPlatform = (platform) => ['xiaoyuzhou', 'podcast'].includes(platform);
 
   const canMergeVtt = (task) => {
@@ -133,6 +136,7 @@ function TableView({
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">视频</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">音频</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">VTT</th>
+            <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">SRT</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">WhisperX</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">操作</th>
           </tr>
@@ -144,6 +148,8 @@ function TableView({
             const isYouTube = task.platform === 'youtube';
             const vttEnExists = isYouTube && hasVtt(task.vtt_files, 'en');
             const vttZhExists = isYouTube && hasVtt(task.vtt_files, 'zh-Hans');
+            const srtEnExists = hasSrt(task.srt_files, 'en');
+            const srtZhExists = hasSrt(task.srt_files, 'zh-Hans');
             const audioDownloaded = !!task.downloaded_audio_path;
             const canDirectDownloadAudio = isAudioPlatform(task.platform);
             const canMerge = canMergeVtt(task);
@@ -341,6 +347,55 @@ function TableView({
                   ) : (
                     <span className="text-base-content/50 italic">N/A</span>
                   )}
+                </td>
+
+                {/* SRT Column */} 
+                <td className="p-3 text-xs">
+                  <div className="flex flex-col gap-1 items-start">
+                    {/* Status and Actions */} 
+                    <div className="flex items-center gap-1 w-full">
+                       <IconWrapper icon={FileText} className={cn((srtEnExists || srtZhExists) ? 'text-orange-500' : 'text-base-content/40')}/>
+                       <span className={cn(!(srtEnExists || srtZhExists) && 'text-base-content/60', 'flex-grow')}>
+                           {(srtEnExists || srtZhExists) ? '已处理' : '无'}
+                       </span>
+                       <button 
+                          className={cn(
+                              "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200 ml-1", 
+                              (srtEnExists || srtZhExists || task.archived) && "btn-disabled"
+                          )} 
+                          onClick={() => onProcessSrt(task.uuid)}
+                          disabled={srtEnExists || srtZhExists || task.archived}
+                          data-tip={task.archived ? "任务已归档" : (srtEnExists || srtZhExists ? "SRT已处理" : "预处理 SRT")}
+                        >
+                          <IconWrapper icon={Settings} className={cn((srtEnExists || srtZhExists || task.archived) ? 'text-base-content/40' : 'text-orange-500')} /> 
+                       </button>
+                    </div>
+                    {/* Language specifics */} 
+                    <div className="pl-5 w-full space-y-0.5">
+                        <div className="flex items-center gap-1">
+                           <IconWrapper icon={Languages} className="w-3 h-3 text-base-content/50"/> 
+                           <span className={cn(!srtEnExists && 'text-base-content/60', 'flex-grow')}>英文</span>
+                           <button 
+                              className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (!srtEnExists || task.archived) && 'btn-disabled')} 
+                              onClick={() => onDeleteSrt(task.uuid, 'en')}
+                              disabled={!srtEnExists || task.archived}
+                              data-tip="删除英文 SRT">
+                             <IconWrapper icon={Trash} className="w-3 h-3 text-error/70"/>
+                           </button>
+                        </div>
+                        <div className="flex items-center gap-1">
+                           <IconWrapper icon={Languages} className="w-3 h-3 text-base-content/50"/> 
+                           <span className={cn(!srtZhExists && 'text-base-content/60', 'flex-grow')}>中文</span>
+                           <button 
+                              className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (!srtZhExists || task.archived) && 'btn-disabled')} 
+                              onClick={() => onDeleteSrt(task.uuid, 'zh-Hans')}
+                              disabled={!srtZhExists || task.archived}
+                              data-tip="删除中文 SRT">
+                             <IconWrapper icon={Trash} className="w-3 h-3 text-error/70"/>
+                           </button>
+                        </div>
+                    </div>
+                  </div>
                 </td>
                 
                 {/* WhisperX Column */} 
