@@ -183,6 +183,20 @@ async def load_metadata() -> Dict[str, TaskMetadata]:
             for uuid_str, meta_dict in data.items():
                 try:
                     task_meta = TaskMetadata(**meta_dict)
+                    
+                    # Dynamic detection of raw SRT files in task directory
+                    task_dir = DATA_DIR / uuid_str
+                    raw_srt_files = []
+                    if task_dir.exists():
+                        for srt_file in task_dir.glob("*.srt"):
+                            # Exclude processed files (transcript.srt, transcript_*.srt)
+                            if not srt_file.name.startswith("transcript"):
+                                raw_srt_files.append(srt_file.name)
+                    
+                    # Add raw_srt_files as a dynamic field (not in schema)
+                    # Since raw_srt_files is not in schema, we'll add it as an attribute
+                    setattr(task_meta, 'raw_srt_files', raw_srt_files)
+                    
                     valid_metadata[uuid_str] = task_meta
                 except ValidationError as e:
                     logger.warning(f"Skipping task {uuid_str} due to validation error: {e}")

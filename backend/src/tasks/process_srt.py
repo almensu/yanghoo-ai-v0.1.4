@@ -143,7 +143,7 @@ async def process_srt_files(task_uuid: str, metadata_file: str) -> Dict:
     if not srt_files:
         return {
             "success": False,
-            "error": "No SRT files found in task directory"
+            "error": "请先手动添加 SRT 文件到任务目录中，然后再点击预处理按钮"
         }
     
     logger.info(f"Found {len(srt_files)} SRT files for task {task_uuid}")
@@ -201,6 +201,10 @@ async def process_srt_files(task_uuid: str, metadata_file: str) -> Dict:
     ass_files = {}
     
     try:
+        # Add main transcript.srt to srt_files tracking
+        srt_files["main"] = str(transcript_srt_path.relative_to(base_dir))
+        logger.info(f"Added main transcript.srt to tracking")
+        
         # Generate English SRT if we have English subtitles
         if english_subs:
             en_srt_path = task_dir / "transcript_en.srt"

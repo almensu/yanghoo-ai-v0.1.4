@@ -20,6 +20,7 @@ router = APIRouter()
 # Import the download_youtube_vtt function
 from ..tasks.download_youtueb_vtt import download_youtube_vtt
 from ..tasks.vtt_natural_segmentation import process_vtt_natural_segmentation
+from ..tasks.process_srt import process_srt_files
 from ..schemas import TaskMetadata
 
 @router.post("/api/tasks/{task_uuid}/download_vtt", response_model=Dict[str, Any])
@@ -253,4 +254,212 @@ async def natural_segment_vtt_endpoint(task_uuid: str, merge_threshold: float = 
         raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
         logger.error(f"Natural segmentation failed for {task_uuid}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Natural segmentation failed: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Natural segmentation failed: {str(e)}")
+
+@router.post("/api/tasks/{task_uuid}/process_srt", response_model=Dict[str, Any])
+async def process_srt_endpoint(task_uuid: str):
+    """
+    Process SRT files for a task:
+    1. Find existing SRT files
+    2. Rename the first one to transcript.srt
+    3. Separate bilingual content into transcript_en.srt and transcript_zh-Hans.srt
+    4. Generate corresponding ASS files
+    5. Update metadata
+    
+    Args:
+        task_uuid: The UUID of the task
+        
+    Returns:
+        Dict with processing status and file information
+    """
+    try:
+        # Validate task_uuid
+        try:
+            uuid_obj = UUID(task_uuid)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid UUID format: {task_uuid}")
+        
+        # Check if task exists in metadata
+        metadata_path = Path(DATA_DIR) / "metadata.json"
+        if not metadata_path.exists():
+            raise HTTPException(status_code=404, detail="Metadata file not found")
+            
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="Failed to parse metadata JSON")
+            
+        if task_uuid not in metadata:
+            raise HTTPException(status_code=404, detail=f"Task {task_uuid} not found in metadata")
+        
+        logger.info(f"Starting SRT processing for task {task_uuid}")
+        
+        # Process SRT files
+        result = await process_srt_files(task_uuid, str(metadata_path))
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to process SRT files: {result.get('error', 'Unknown error')}"
+            )
+        
+        return {
+            "task_uuid": task_uuid,
+            "status": "success",
+            "message": "SRT files processed successfully",
+            "result": result
+        }
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        logger.error(f"SRT processing failed for {task_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"SRT processing failed: {str(e)}")
+
+@router.post("/api/tasks/{task_uuid}/merge_srt", response_model=Dict[str, Any])
+async def merge_srt_endpoint(task_uuid: str):
+    """
+    Merge SRT files to generate MD documents:
+    1. Use existing transcript_en.srt and transcript_zh-Hans.srt files
+    2. Generate various MD formats (merged, parallel, en_only, zh_only, etc.)
+    3. Update metadata with MD file paths
+    
+    Args:
+        task_uuid: The UUID of the task
+        
+    Returns:
+        Dict with merge status and generated file information
+    """
+    try:
+        # Validate task_uuid
+        try:
+            uuid_obj = UUID(task_uuid)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid UUID format: {task_uuid}")
+        
+        # Check if task exists in metadata
+        metadata_path = Path(DATA_DIR) / "metadata.json"
+        if not metadata_path.exists():
+            raise HTTPException(status_code=404, detail="Metadata file not found")
+            
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="Failed to parse metadata JSON")
+            
+        if task_uuid not in metadata:
+            raise HTTPException(status_code=404, detail=f"Task {task_uuid} not found in metadata")
+        
+        task_metadata = metadata[task_uuid]
+        task_dir = Path(DATA_DIR) / task_uuid
+        
+        # Check if transcript.srt exists (should be created by process_srt)
+        transcript_srt_path = task_dir / "transcript.srt"
+        if not transcript_srt_path.exists():
+            raise HTTPException(
+                status_code=400, 
+                detail="transcript.srt not found. Please run SRT processing first."
+            )
+        
+        # Check for language-specific SRT files
+        en_srt_path = task_dir / "transcript_en.srt"
+        zh_srt_path = task_dir / "transcript_zh-Hans.srt"
+        
+        # Prepare paths for merge script
+        en_srt_arg = str(en_srt_path) if en_srt_path.exists() else "MISSING"
+        zh_srt_arg = str(zh_srt_path) if zh_srt_path.exists() else "MISSING"
+        
+        if en_srt_arg == "MISSING" and zh_srt_arg == "MISSING":
+            raise HTTPException(
+                status_code=400,
+                detail="No language-specific SRT files found. Please run SRT processing first."
+            )
+        
+        # Define merge script path
+        merge_script_path = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "tasks" / "merge_srt.py"
+        
+        # Create output directory for MD files
+        md_output_dir = task_dir
+        dummy_output_path = md_output_dir / "dummy.md"  # merge_srt.py needs an output path but we use 'all' format
+        
+        logger.info(f"Starting SRT merge for task {task_uuid}")
+        
+        # Run merge script with 'all' format to generate all MD files
+        command = [
+            "python", str(merge_script_path),
+            en_srt_arg,
+            zh_srt_arg,
+            "all",
+            str(dummy_output_path)
+        ]
+        
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=60  # 60 second timeout
+            )
+            
+            if result.returncode != 0:
+                logger.error(f"SRT merge script failed: {result.stderr}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"SRT merge failed: {result.stderr}"
+                )
+            
+            logger.info(f"SRT merge completed successfully: {result.stdout}")
+            
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=500, detail="SRT merge process timed out")
+        except Exception as e:
+            logger.error(f"Error running SRT merge script: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to run SRT merge: {str(e)}")
+        
+        # Check which MD files were generated and update metadata
+        md_files = {}
+        expected_files = {
+            "merged": "merged_transcript_srt.md",
+            "parallel": "parallel_transcript_srt.md", 
+            "en_only": "en_transcript_srt.md",
+            "zh_only": "zh_transcript_srt.md",
+            "en_timestamp": "en_transcript_srt_timestamp.md",
+            "zh_timestamp": "zh_transcript_srt_timestamp.md"
+        }
+        
+        for key, filename in expected_files.items():
+            file_path = md_output_dir / filename
+            if file_path.exists():
+                # Store relative path from DATA_DIR
+                md_files[key] = str(file_path.relative_to(Path(DATA_DIR)))
+                logger.info(f"Generated MD file: {filename}")
+        
+        # Update metadata with MD file paths
+        task_metadata["srt_md_files"] = md_files
+        task_metadata["srt_merged"] = True
+        
+        # Update last_modified timestamp
+        from datetime import datetime
+        task_metadata["last_modified"] = datetime.now().isoformat()
+        
+        # Save updated metadata
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Updated metadata for task {task_uuid} with {len(md_files)} MD files")
+        
+        return {
+            "task_uuid": task_uuid,
+            "status": "success",
+            "message": f"SRT merge completed successfully. Generated {len(md_files)} MD files.",
+            "generated_files": md_files,
+            "merge_output": result.stdout
+        }
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        logger.error(f"SRT merge failed for {task_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"SRT merge failed: {str(e)}") 

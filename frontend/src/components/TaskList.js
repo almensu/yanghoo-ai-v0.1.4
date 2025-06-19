@@ -21,6 +21,7 @@ function TaskList({
   onNaturalSegmentVtt,
   onMergeVtt,
   onProcessSrt,
+  onMergeSrt,
   onDeleteSrt,
   onDeleteAss,
   onTranscribeWhisperX,
@@ -92,6 +93,7 @@ function TaskList({
               onNaturalSegmentVtt={onNaturalSegmentVtt}
               onMergeVtt={onMergeVtt}
               onProcessSrt={onProcessSrt}
+              onMergeSrt={onMergeSrt}
               onDeleteSrt={onDeleteSrt}
               onDeleteAss={onDeleteAss}
               onTranscribeWhisperX={onTranscribeWhisperX}
@@ -121,6 +123,7 @@ function TaskList({
               onNaturalSegmentVtt={onNaturalSegmentVtt}
               onMergeVtt={onMergeVtt}
               onProcessSrt={onProcessSrt}
+              onMergeSrt={onMergeSrt}
               onDeleteSrt={onDeleteSrt}
               onDeleteAss={onDeleteAss}
               onTranscribeWhisperX={onTranscribeWhisperX}

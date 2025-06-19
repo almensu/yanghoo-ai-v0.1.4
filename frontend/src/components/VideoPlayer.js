@@ -219,7 +219,7 @@ const AssSubtitleRenderer = ({ videoRef, assContent, isVisible }) => {
           style={{
             backgroundColor: 'rgba(0, 0, 0, 0.8)',
             color: '#FFFFFF',
-            fontSize: '12px',
+            fontSize: '14px',
             fontFamily: 'Arial, sans-serif',
             fontWeight: 'normal',
             textShadow: '2px 2px 4px rgba(0,0,0,0.8)',

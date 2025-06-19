@@ -27,6 +27,8 @@ class TaskMetadata(BaseModel):
     vtt_files: Dict[str, Optional[str]] = {}
     vtt_files_segmented: Dict[str, Optional[str]] = {}
     srt_files: Dict[str, Optional[str]] = {}
+    raw_srt_files: List[str] = []
+    srt_md_files: Dict[str, Optional[str]] = {}
     ass_files: Dict[str, Optional[str]] = {}
     whisperx_json_path: Optional[str] = None
     transcription_model: Optional[str] = None

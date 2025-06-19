@@ -464,6 +464,29 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
     }
   };
 
+  const handleMergeSrt = async (taskUuid) => {
+    setFetchLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/tasks/${taskUuid}/merge_srt`, { method: 'POST' });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.detail || `HTTP error! status: ${res.status}`);
+      }
+      
+      const generatedCount = Object.keys(data.generated_files || {}).length;
+      alert(`SRT合并完成！生成了 ${generatedCount} 个MD文件。`);
+      await fetchTasks();
+    } catch (err) {
+      const msg = err.message || 'Failed SRT merge.';
+      setFetchError(msg);
+      alert(`SRT合并失败: ${msg}`);
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
   const handleDeleteSrt = async (taskUuid, langCode) => {
     if (!window.confirm(`Delete ${langCode} SRT?`)) return;
     try {
@@ -525,6 +548,7 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
           onNaturalSegmentVtt={handleNaturalSegmentVtt}
           onMergeVtt={handleMergeVtt}
           onProcessSrt={handleProcessSrt}
+          onMergeSrt={handleMergeSrt}
           onDeleteSrt={handleDeleteSrt}
           onDeleteAss={handleDeleteAss}
           onTranscribeWhisperX={handleTranscribeWhisperX}

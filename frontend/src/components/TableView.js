@@ -55,7 +55,7 @@ function TableView({
   onDeleteVtt, onNaturalSegmentVtt, onMergeVtt, onCreateVideo,
   onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX,
   // Add SRT processing handlers
-  onProcessSrt, onDeleteSrt,
+  onProcessSrt, onMergeSrt, onDeleteSrt,
   // Add ASS processing handlers
   onDeleteAss,
   // Sorting props
@@ -84,6 +84,24 @@ function TableView({
     const vttEnExists = hasVtt(task.vtt_files, 'en');
     const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans');
     return task.platform === 'youtube' && (vttEnExists || vttZhExists) && !task.merged_vtt_md_path;
+  };
+
+  // SRT processing state helpers
+  const hasTranscriptSrt = (task) => {
+    // Check if transcript.srt exists (after processing)
+    // Either check for main file or if processed files exist (indicating transcript.srt was processed)
+    return (task.srt_files && task.srt_files.main) || 
+           (task.srt_files && (task.srt_files.en || task.srt_files['zh-Hans']));
+  };
+
+  const hasSrtMdFiles = (task) => {
+    // Check if MD files were generated from SRT merge
+    return task.srt_md_files && Object.keys(task.srt_md_files).length > 0;
+  };
+
+  const hasRawSrtFiles = (task) => {
+    // Check if there are any raw SRT files in the directory (before processing)
+    return task.raw_srt_files && task.raw_srt_files.length > 0;
   };
 
   const getSelectedWhisperXModel = (uuid) => whisperxModels[uuid] || 'medium.en';
@@ -154,6 +172,9 @@ function TableView({
             const vttZhExists = isYouTube && hasVtt(task.vtt_files, 'zh-Hans');
             const srtEnExists = hasSrt(task.srt_files, 'en');
             const srtZhExists = hasSrt(task.srt_files, 'zh-Hans');
+            const transcriptSrtExists = hasTranscriptSrt(task);
+            const srtMdFilesExist = hasSrtMdFiles(task);
+            const rawSrtFilesExist = hasRawSrtFiles(task);
             const assEnExists = hasAss(task.ass_files, 'en');
             const assZhExists = hasAss(task.ass_files, 'zh-Hans');
             const assMainExists = hasAss(task.ass_files, 'main');
@@ -361,21 +382,44 @@ function TableView({
                   <div className="flex flex-col gap-1 items-start">
                     {/* Status and Actions */} 
                     <div className="flex items-center gap-1 w-full">
-                       <IconWrapper icon={FileText} className={cn((srtEnExists || srtZhExists) ? 'text-orange-500' : 'text-base-content/40')}/>
-                       <span className={cn(!(srtEnExists || srtZhExists) && 'text-base-content/60', 'flex-grow')}>
-                           {(srtEnExists || srtZhExists) ? '已处理' : '无'}
+                       <IconWrapper icon={FileText} className={cn(
+                         srtMdFilesExist ? 'text-green-500' : 
+                         (srtEnExists || srtZhExists) ? 'text-orange-500' : 
+                         'text-base-content/40'
+                       )}/>
+                       <span className={cn(!(srtEnExists || srtZhExists || srtMdFilesExist) && 'text-base-content/60', 'flex-grow')}>
+                           {
+                             srtMdFilesExist ? '已合并' : 
+                             (srtEnExists || srtZhExists) ? '已处理' : 
+                             '无'
+                           }
                        </span>
-                       <button 
-                          className={cn(
-                              "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200 ml-1", 
-                              (srtEnExists || srtZhExists || task.archived) && "btn-disabled"
-                          )} 
-                          onClick={() => onProcessSrt(task.uuid)}
-                          disabled={srtEnExists || srtZhExists || task.archived}
-                          data-tip={task.archived ? "任务已归档" : (srtEnExists || srtZhExists ? "SRT已处理" : "预处理 SRT")}
-                        >
-                          <IconWrapper icon={Settings} className={cn((srtEnExists || srtZhExists || task.archived) ? 'text-base-content/40' : 'text-orange-500')} /> 
-                       </button>
+                       
+                       {/* Stage 1: Process SRT (always show when no transcript.srt exists) */}
+                       {!transcriptSrtExists && !task.archived && (
+                         <button 
+                            className={cn(
+                                "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200 ml-1"
+                            )} 
+                            onClick={() => onProcessSrt(task.uuid)}
+                            data-tip="预处理 SRT"
+                          >
+                            <IconWrapper icon={Settings} className="text-orange-500" /> 
+                         </button>
+                       )}
+                       
+                       {/* Stage 2: Merge SRT to MD (when we have transcript.srt but no MD files) */}
+                       {transcriptSrtExists && !srtMdFilesExist && !task.archived && (
+                         <button 
+                            className={cn(
+                                "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200 ml-1"
+                            )} 
+                            onClick={() => onMergeSrt(task.uuid)}
+                            data-tip="一键生成全部格式 (MD)"
+                          >
+                            <IconWrapper icon={Combine} className="text-orange-500" /> 
+                         </button>
+                       )}
                     </div>
                     {/* Language specifics */} 
                     <div className="pl-5 w-full space-y-0.5">
