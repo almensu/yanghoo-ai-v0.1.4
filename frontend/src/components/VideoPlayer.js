@@ -1,4 +1,5 @@
-import React, { useEffect, forwardRef, useRef, useImperativeHandle, useState } from 'react';
+import React, { useEffect, forwardRef, useRef, useImperativeHandle, useState, useCallback } from 'react';
+import axios from 'axios';
 
 // Custom CSS for subtitles - Updated to position subtitles at the red rectangle area with more specific selectors
 const subtitleStyles = `
@@ -79,6 +80,165 @@ const subtitleStyles = `
   }
 `;
 
+// ASS字幕渲染器组件
+const AssSubtitleRenderer = ({ videoRef, assContent, isVisible }) => {
+  const [currentSubtitles, setCurrentSubtitles] = useState({ chinese: null, english: null });
+  const [parsedSubtitles, setParsedSubtitles] = useState([]);
+
+  // 解析ASS内容
+  useEffect(() => {
+    if (!assContent) return;
+
+    const parseAssContent = (content) => {
+      const lines = content.split('\n');
+      const subtitles = [];
+      let inEvents = false;
+
+      for (const line of lines) {
+        if (line.trim() === '[Events]') {
+          inEvents = true;
+          continue;
+        }
+        
+        if (inEvents && line.startsWith('Dialogue:')) {
+          const parts = line.split(',');
+          if (parts.length >= 10) {
+            const startTime = parseAssTime(parts[1]);
+            const endTime = parseAssTime(parts[2]);
+            const style = parts[3];
+            const text = parts.slice(9).join(',').replace(/\\N/g, '\n');
+            
+            subtitles.push({
+              start: startTime,
+              end: endTime,
+              text: text,
+              style: style
+            });
+          }
+        }
+      }
+      
+      return subtitles.sort((a, b) => a.start - b.start);
+    };
+
+    const parseAssTime = (timeStr) => {
+      // 解析 h:mm:ss.cc 格式
+      const match = timeStr.match(/(\d+):(\d+):(\d+)\.(\d+)/);
+      if (match) {
+        const hours = parseInt(match[1]);
+        const minutes = parseInt(match[2]);
+        const seconds = parseInt(match[3]);
+        const centiseconds = parseInt(match[4]);
+        return hours * 3600 + minutes * 60 + seconds + centiseconds / 100;
+      }
+      return 0;
+    };
+
+    const parsed = parseAssContent(assContent);
+    setParsedSubtitles(parsed);
+  }, [assContent]);
+
+  // 监听视频时间更新
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !parsedSubtitles.length) return;
+
+    const handleTimeUpdate = () => {
+      const currentTime = video.currentTime;
+      // 找到当前时间段的所有字幕（中英文可能有相同时间段）
+      const currentSubs = parsedSubtitles.filter(
+        sub => currentTime >= sub.start && currentTime <= sub.end
+      );
+      
+      // 分别找到中文和英文字幕
+      const chineseSub = currentSubs.find(sub => sub.style === 'Chinese');
+      const englishSub = currentSubs.find(sub => sub.style === 'English');
+      
+      setCurrentSubtitles({
+        chinese: chineseSub || null,
+        english: englishSub || null
+      });
+    };
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [parsedSubtitles, videoRef]);
+
+  // 如果没有任何字幕则不显示
+  if (!isVisible || (!currentSubtitles.chinese && !currentSubtitles.english)) return null;
+
+  console.log('AssSubtitleRenderer:', {
+    chinese: currentSubtitles.chinese?.text,
+    english: currentSubtitles.english?.text,
+    chineseStyle: currentSubtitles.chinese?.style,
+    englishStyle: currentSubtitles.english?.style,
+    totalParsedSubtitles: parsedSubtitles.length,
+    isVisible: isVisible
+  });
+
+  return (
+    <div 
+      className="absolute left-1/2 transform -translate-x-1/2 z-10 pointer-events-none"
+      style={{
+        bottom: '15%', // 固定在底部15%的位置
+        maxWidth: '80%', // 最大宽度70%
+        width: 'auto',
+        textAlign: 'center',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '0px'
+      }}
+    >
+      {/* 中文字幕 - 黄色，在上方 */}
+      {currentSubtitles.chinese && (
+        <div
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: '#FFEB3B',
+            fontSize: '14px',
+            fontFamily: '"Source Han Sans CN Bold", "思源黑体 CN Bold", Arial, sans-serif',
+            fontWeight: 'bold',
+            textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+            lineHeight: '1.3',
+            whiteSpace: 'pre-line',
+            padding: '6px 12px',
+            borderRadius: '6px',
+            maxWidth: '100%',
+            wordWrap: 'break-word',
+            textAlign: 'center'
+          }}
+        >
+          {currentSubtitles.chinese.text}
+        </div>
+      )}
+      
+      {/* 英文字幕 - 白色，在下方 */}
+      {currentSubtitles.english && (
+        <div
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: '#FFFFFF',
+            fontSize: '12px',
+            fontFamily: 'Arial, sans-serif',
+            fontWeight: 'normal',
+            textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+            lineHeight: '1.3',
+            whiteSpace: 'pre-line',
+            padding: '6px 12px',
+            borderRadius: '6px',
+            maxWidth: '100%',
+            wordWrap: 'break-word',
+            textAlign: 'center'
+          }}
+        >
+          {currentSubtitles.english.text}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Props:
 // - localVideoPath: Relative path to a video file
 // - embedUrl: URL for embedding in an iframe
@@ -106,6 +266,9 @@ const VideoPlayer = forwardRef(({
   const videoRef = useRef(null); // Ref for the <video> element itself
   const trackRef = useRef(null); // Ref to keep track of the added <track> element
   const [currentCueIndex, setCurrentCueIndex] = useState(-1); // Track current cue index
+  // 添加ASS字幕相关状态
+  const [assContent, setAssContent] = useState('');
+  const [useAssRenderer, setUseAssRenderer] = useState(false);
   // 添加状态存储格式化后的YouTube嵌入URL
   const [formattedEmbedUrl, setFormattedEmbedUrl] = useState(null);
   const [youtubePlayer, setYoutubePlayer] = useState(null); // Store YouTube player instance
@@ -623,13 +786,24 @@ const VideoPlayer = forwardRef(({
     };
   }, [cues, shouldShowLocal, currentCueIndex]);
 
-  // --- Effect to Dynamically Manage the <track> Element (TEMPORARILY DISABLED) ---
+  // --- Effect to Dynamically Manage the <track> Element ---
   useEffect(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return; 
 
     // Add a CSS class to the video element for positioning subtitles
     videoElement.classList.add('custom-subtitle-video');
+
+    // 如果使用ASS渲染器，跳过原生字幕处理
+    if (useAssRenderer) {
+      // 移除现有的track元素
+      if (trackRef.current && trackRef.current.parentNode === videoElement) {
+        console.log("VideoPlayer Effect: Removing native track (using ASS renderer).");
+        videoElement.removeChild(trackRef.current);
+        trackRef.current = null;
+      }
+      return;
+    }
 
     // --- 保存当前播放时间 (Save current time before potential modification) ---
     let currentTimeBeforeChange = 0;
@@ -642,10 +816,10 @@ const VideoPlayer = forwardRef(({
 
     // --- Optimized Track Management Logic ---
 
-    // Case 1: Should NOT have a track (not local video OR no vttUrl provided)
-    if (!shouldShowLocal || !vttUrl) {
+    // Case 1: Should NOT have a track (not local video OR no vttUrl provided OR using ASS)
+    if (!shouldShowLocal || !vttUrl || useAssRenderer || assContent) {
         if (trackRef.current && trackRef.current.parentNode === videoElement) {
-            console.log("VideoPlayer Effect: Removing track (No longer local or no URL).");
+            console.log("VideoPlayer Effect: Removing track (No longer local or no URL or using ASS).");
             videoElement.removeChild(trackRef.current);
             trackRef.current = null;
         }
@@ -769,7 +943,7 @@ const VideoPlayer = forwardRef(({
         }
     }
 
-  }, [vttUrl, vttLang, shouldShowLocal, localVideoSrc, trackKey]);
+  }, [vttUrl, vttLang, shouldShowLocal, localVideoSrc, trackKey, useAssRenderer, assContent]);
 
   // Debug track presence and status
   useEffect(() => {
@@ -1040,23 +1214,105 @@ const VideoPlayer = forwardRef(({
     }
   }, [embedUrl]);
 
+  // Fetch ASS content from server
+  const fetchAssContent = useCallback(async () => {
+    // Fetch ASS content for any local video with subtitles
+    if (!shouldShowLocal || !apiBaseUrl || !taskUuid) {
+      console.log('[VideoPlayer] ASS fetch conditions not met:', {
+        shouldShowLocal,
+        vttLang,
+        apiBaseUrl: !!apiBaseUrl,
+        taskUuid: !!taskUuid
+      });
+      setAssContent(''); // Clear ASS content when conditions not met
+      return;
+    }
+
+    try {
+      console.log('[VideoPlayer] Fetching ASS file directly...');
+      
+      // Try to fetch the pre-generated ASS file
+      const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/transcript.ass`, {
+        responseType: 'text',
+        timeout: 10000
+      });
+
+      if (response.status === 200 && response.data) {
+        console.log('[VideoPlayer] ASS content fetched successfully');
+        setAssContent(response.data);
+      }
+    } catch (error) {
+      console.error('[VideoPlayer] Error fetching ASS content:', error);
+      
+      // If ASS file doesn't exist, try to process SRT first
+      if (error.response?.status === 404) {
+        console.log('[VideoPlayer] ASS file not found, triggering SRT processing...');
+        try {
+          await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/process_srt`);
+          console.log('[VideoPlayer] SRT processing completed, ASS file should be available now');
+          
+          // Retry fetching ASS after processing
+          const retryResponse = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/transcript.ass`, {
+            responseType: 'text',
+            timeout: 10000
+          });
+          
+          if (retryResponse.status === 200 && retryResponse.data) {
+            console.log('[VideoPlayer] ASS content fetched successfully after processing');
+            setAssContent(retryResponse.data);
+          }
+        } catch (processError) {
+          console.error('[VideoPlayer] Error processing SRT or fetching ASS:', processError);
+          setAssContent(''); // Clear on error
+        }
+      } else {
+        setAssContent(''); // Clear on other errors
+      }
+    }
+  }, [shouldShowLocal, vttLang, apiBaseUrl, taskUuid]);
+
+  // Trigger ASS content fetch when conditions change
+  useEffect(() => {
+    fetchAssContent();
+  }, [fetchAssContent]);
+
   return (
     // Removed outer div wrapper, parent will handle layout
-    <div className="aspect-video w-full bg-black rounded-lg overflow-hidden shadow-lg"> 
+    <div className="aspect-video w-full bg-black rounded-lg overflow-hidden shadow-lg relative"> 
       {/* Apply custom subtitle styles */}
       <style>{subtitleStyles}</style>
       {shouldShowLocal ? (
-        <video 
-          ref={videoRef} 
-          controls 
-          src={localVideoSrc} 
-          title={title}
-          className="w-full h-full object-contain" 
-          crossOrigin="anonymous" 
-        >
-          {/* The <track> element logic is handled in useEffect */} 
-          Your browser does not support the video tag.
-        </video>
+        <>
+          <video 
+            ref={videoRef} 
+            controls 
+            src={localVideoSrc} 
+            title={title}
+            className="w-full h-full object-contain" 
+            crossOrigin="anonymous" 
+          >
+            {/* The <track> element logic is handled in useEffect */} 
+            Your browser does not support the video tag.
+          </video>
+          {/* ASS字幕渲染器 - 优先使用ASS渲染器 */}
+          {shouldShowLocal && assContent && (
+            <AssSubtitleRenderer
+              videoRef={videoRef}
+              assContent={assContent}
+              isVisible={true}
+            />
+          )}
+          {/* 只有在没有ASS内容时才使用原生字幕轨道 */}
+          {shouldShowLocal && !assContent && vttLang && vttUrl && (
+            <track
+              key={`subtitle-${vttLang}`}
+              kind="subtitles"
+              src={vttUrl}
+              srcLang={vttLang}
+              default
+            />
+          )}
+        </>
       ) : embedVideoAvailable ? ( // Show iframe if embed is available and local wasn't chosen
         <iframe 
           // 使用格式化后的嵌入URL

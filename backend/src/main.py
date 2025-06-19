@@ -1018,13 +1018,13 @@ class Segment(BaseModel):
 class CutRequest(BaseModel):
     media_identifier: str = Field(..., description="Identifier for the media file (e.g., relative path)")
     segments: List[Segment] = Field(..., description="List of time segments to keep")
-    embed_subtitle_lang: Optional[Literal['en', 'zh-Hans', 'bilingual', 'srt', 'none']] = Field(
+    embed_subtitle_lang: Optional[Literal['en', 'zh-Hans', 'bilingual', 'srt', 'ass', 'none']] = Field(
         default='none', 
         description="Language of subtitles to embed/burn into the video. 'none' for no subtitles."
     )
-    subtitle_type: Optional[Literal['vtt', 'srt']] = Field(
+    subtitle_type: Optional[Literal['vtt', 'srt', 'ass']] = Field(
         default='vtt',
-        description="Type of subtitle file being used. 'vtt' for WebVTT, 'srt' for SubRip."
+        description="Type of subtitle file being used. 'vtt' for WebVTT, 'srt' for SubRip, 'ass' for Advanced SubStation Alpha."
     )
     output_format: Literal['video', 'wav'] = Field(
         default='video',
@@ -1101,8 +1101,9 @@ def convert_vtt_to_ass(vtt_file_path, output_ass_path, segments: List[Dict], is_
             cs = int((seconds_val - int(seconds_val)) * 100)  # ASS使用厘秒(centiseconds)
             return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
         
-        # ASS文件头 - 使用专业字幕样式，统一对齐方式解决位置不稳定问题
+        # ASS文件头 - 与前端VideoPlayer完全一致的样式设置
         ass_header = '''[Script Info]
+Title: Video Clip Subtitles
 ScriptType: v4.00+
 PlayResX: 1280
 PlayResY: 720
@@ -1111,14 +1112,14 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-; 中文样式 - 黄色字体，底部对齐(2)以保持位置稳定
-Style: Chinese,PingFang SC,42,&H0000FFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,2,20,20,30,1
-; 英文样式 - 底部显示
-Style: English,Arial,37,&H00FFFFFF,&H000000FF,&H00000000,&H50000000,0,0,0,0,100,100,0,0,3,2.0,0,2,20,20,30,1
-; 单独中文样式 - 黄色字体
-Style: Chinese-Only,PingFang SC,42,&H0000FFFF,&H000000FF,&H00000000,&H50000000,1,0,0,0,100,100,0,0,3,2.5,0,2,20,20,30,1
-; 单独英文样式
-Style: English-Only,Arial,38,&H00FFFFFF,&H000000FF,&H00000000,&H50000000,0,0,0,0,100,100,0,0,3,2.2,0,2,20,20,30,1
+; 中文样式 - 黄色字体，与前端一致的颜色和位置
+Style: Chinese,Source Han Sans CN Bold,36,&H003BEBFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,20,20,60,1
+; 英文样式 - 白色字体，与前端一致
+Style: English,Arial,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,20,20,60,1
+; 双语模式 - 中文在上
+Style: Chinese-Bilingual,Source Han Sans CN Bold,34,&H003BEBFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,8,20,20,80,1
+; 双语模式 - 英文在下
+Style: English-Bilingual,Arial,30,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,20,20,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1318,28 +1319,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         show_en = True
                         recent_subtitles[en_part] = sub['end']  # 更新结束时间
                 
-                # 双语模式且都显示时，垂直排列（中文在上，英文在下）
+                # 双语模式：分别生成中英文字幕，与前端渲染一致
                 if is_bilingual and has_zh and has_en and show_zh and show_en:
-                    # 处理中文，添加特殊垂直偏移实现双语垂直排列
+                    # 中文字幕在上方
                     processed_zh = zh_part.replace('\n', '\\N').replace('\\n', '\\N')
-                    processed_en = en_part.replace('\n', '\\N').replace('\\n', '\\N')
+                    f.write(f"Dialogue: 0,{start_str},{end_str},Chinese-Bilingual,,0,0,0,,{processed_zh}\n")
                     
-                    # 使用特殊标记强制位置：
-                    # 注意：维持垂直偏移，但使用底部对齐(2)以保持位置统一
-                    f.write(f"Dialogue: 0,{start_str},{end_str},Chinese,,0,0,0,,{{\\pos(640,650)\\an2}}{processed_zh}\\N{processed_en}\n")
-                    processed_count += 2  # 算作两行
+                    # 英文字幕在下方
+                    processed_en = en_part.replace('\n', '\\N').replace('\\n', '\\N')
+                    f.write(f"Dialogue: 0,{start_str},{end_str},English-Bilingual,,0,0,0,,{processed_en}\n")
+                    
+                    processed_count += 2
                     continue
 
-                # 写出中文部分（如果有且应该显示）
+                # 单独中文字幕（如果有且应该显示）
                 if has_zh and show_zh:
                     processed_text = zh_part.replace('\n', '\\N').replace('\\n', '\\N')
-                    f.write(f"Dialogue: 0,{start_str},{end_str},Chinese-Only,,0,0,0,,{processed_text}\n")
+                    f.write(f"Dialogue: 0,{start_str},{end_str},Chinese,,0,0,0,,{processed_text}\n")
                     processed_count += 1
                 
-                # 写出英文部分（如果有且应该显示）
+                # 单独英文字幕（如果有且应该显示）
                 if has_en and show_en:
                     processed_text = en_part.replace('\n', '\\N').replace('\\n', '\\N')
-                    f.write(f"Dialogue: 0,{start_str},{end_str},English-Only,,0,0,0,,{processed_text}\n")
+                    f.write(f"Dialogue: 0,{start_str},{end_str},English,,0,0,0,,{processed_text}\n")
                     processed_count += 1
                 
                 # 处理完整文本（如果没有独立的中英文部分）
@@ -1375,6 +1377,7 @@ def run_ffmpeg_cut(
     job_id: str, 
     embed_subtitle_lang: Optional[str],
     vtt_files: Dict[str, Optional[str]], # Pass the task's vtt_files dict
+    ass_files: Dict[str, Optional[str]], # Pass the task's ass_files dict
     output_format: str = 'video',
     subtitle_type: str = 'vtt'  # Add subtitle type parameter
 ):
@@ -1429,7 +1432,96 @@ def run_ffmpeg_cut(
             
             source_subtitle_path_for_conversion = None
             
-            if subtitle_type == 'srt' and embed_subtitle_lang == 'srt':
+            # --- 优先检查是否有 ASS 文件可用 ---
+            ass_main_rel = ass_files.get('main')
+            ass_en_rel = ass_files.get('en') 
+            ass_zh_rel = ass_files.get('zh-Hans')
+            
+            ass_main_abs = DATA_DIR / ass_main_rel if ass_main_rel and (DATA_DIR / ass_main_rel).exists() else None
+            ass_en_abs = DATA_DIR / ass_en_rel if ass_en_rel and (DATA_DIR / ass_en_rel).exists() else None
+            ass_zh_abs = DATA_DIR / ass_zh_rel if ass_zh_rel and (DATA_DIR / ass_zh_rel).exists() else None
+            
+            # 优先使用 ass_files.main，然后根据语言选择对应的 ASS 文件
+            selected_ass_file = None
+            if embed_subtitle_lang == 'ass':
+                # 如果明确指定使用 ASS，优先使用 main，然后是英文，最后是中文
+                if ass_main_abs:
+                    selected_ass_file = ass_main_abs
+                    logger.info(f"[Job {job_id}] Using main ASS file (explicitly requested): {selected_ass_file}")
+                elif ass_en_abs:
+                    selected_ass_file = ass_en_abs
+                    logger.info(f"[Job {job_id}] Using English ASS file (explicitly requested): {selected_ass_file}")
+                elif ass_zh_abs:
+                    selected_ass_file = ass_zh_abs
+                    logger.info(f"[Job {job_id}] Using Chinese ASS file (explicitly requested): {selected_ass_file}")
+            elif ass_main_abs:
+                # 对于其他语言选择，如果有 main ASS 文件，优先使用它
+                selected_ass_file = ass_main_abs
+                logger.info(f"[Job {job_id}] Using main ASS file: {selected_ass_file}")
+            elif embed_subtitle_lang == 'en' and ass_en_abs:
+                selected_ass_file = ass_en_abs
+                logger.info(f"[Job {job_id}] Using English ASS file: {selected_ass_file}")
+            elif embed_subtitle_lang == 'zh-Hans' and ass_zh_abs:
+                selected_ass_file = ass_zh_abs
+                logger.info(f"[Job {job_id}] Using Chinese ASS file: {selected_ass_file}")
+            elif embed_subtitle_lang == 'bilingual':
+                # 对于双语，优先使用 main，然后是英文，最后是中文
+                if ass_main_abs:
+                    selected_ass_file = ass_main_abs
+                    logger.info(f"[Job {job_id}] Using main ASS file for bilingual: {selected_ass_file}")
+                elif ass_en_abs:
+                    selected_ass_file = ass_en_abs
+                    logger.info(f"[Job {job_id}] Using English ASS file for bilingual: {selected_ass_file}")
+                elif ass_zh_abs:
+                    selected_ass_file = ass_zh_abs
+                    logger.info(f"[Job {job_id}] Using Chinese ASS file for bilingual: {selected_ass_file}")
+            
+            # 如果找到了 ASS 文件，直接使用它
+            if selected_ass_file:
+                logger.info(f"[Job {job_id}] Found ASS file, using it directly: {selected_ass_file}")
+                
+                # 创建临时目录
+                temp_dir = output_path.parent / ".temp"
+                temp_dir.mkdir(exist_ok=True)
+                
+                # 创建调整后的 ASS 文件用于与视频一起提供
+                output_ass_filename = f"{output_path.stem}.ass"
+                output_ass_path = temp_dir / output_ass_filename
+                
+                # 调整 ASS 文件的时间戳
+                if create_adjusted_ass_file(selected_ass_file, output_ass_path, segments):
+                    logger.info(f"[Job {job_id}] Successfully created adjusted ASS file")
+                else:
+                    logger.warning(f"[Job {job_id}] Failed to create adjusted ASS file, copying original")
+                    import shutil
+                    shutil.copy2(selected_ass_file, output_ass_path)
+                
+                subtitle_ass_path = str(output_ass_path.relative_to(DATA_DIR))
+                output_files["subtitle_ass"] = subtitle_ass_path
+                temp_files_to_clean.append(output_ass_path)
+                logger.info(f"[Job {job_id}] Created adjusted ASS file: {output_ass_path}")
+                
+                # 设置字幕过滤器用于烧录
+                escaped_ass_path = str(selected_ass_file).replace(':', '\\:').replace('\\', '\\\\')
+                
+                # 添加系统字体目录
+                font_dirs = [
+                    "/System/Library/Fonts",
+                    "/Library/Fonts",
+                    f"{os.path.expanduser('~')}/Library/Fonts"
+                ]
+                
+                valid_font_dirs = [d for d in font_dirs if os.path.exists(d)]
+                
+                if valid_font_dirs:
+                    fontsdir_option = f":fontsdir='{valid_font_dirs[0]}'"
+                    subtitle_filter = f"ass='{escaped_ass_path}'{fontsdir_option}" 
+                else:
+                    subtitle_filter = f"ass='{escaped_ass_path}'" 
+                    
+                logger.info(f"[Job {job_id}] Using ASS filter: {subtitle_filter}")
+                
+            elif subtitle_type == 'srt' and embed_subtitle_lang == 'srt':
                 # Handle SRT files
                 logger.info(f"[Job {job_id}] Processing SRT subtitle")
                 
@@ -1462,11 +1554,18 @@ def run_ffmpeg_cut(
                         temp_files_to_clean.append(temp_ass_path)
                         
                         # 转换SRT到ASS
+                        logger.info(f"[Job {job_id}] Attempting SRT to ASS conversion: {source_srt_path} -> {temp_ass_path}")
                         conversion_success = convert_srt_to_ass(
                             str(source_srt_path), 
                             str(temp_ass_path),
                             segments=segments
                         )
+                        
+                        logger.info(f"[Job {job_id}] SRT to ASS conversion result: {conversion_success}")
+                        if temp_ass_path.exists():
+                            logger.info(f"[Job {job_id}] ASS file exists, size: {temp_ass_path.stat().st_size} bytes")
+                        else:
+                            logger.error(f"[Job {job_id}] ASS file was not created at: {temp_ass_path}")
                         
                         if conversion_success:
                             # 设置字幕过滤器
@@ -2066,8 +2165,9 @@ async def start_video_cut(
     if not task_meta:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # --- Get VTT files info needed for background task --- 
+    # --- Get VTT and ASS files info needed for background task --- 
     task_vtt_files = task_meta.vtt_files if task_meta.vtt_files else {}
+    task_ass_files = task_meta.ass_files if task_meta.ass_files else {}
     # -----------------------------------------------------
     
     # 2. Validate Media Identifier and Find Input Path
@@ -2106,6 +2206,7 @@ async def start_video_cut(
         job_id=job_id,
         embed_subtitle_lang=request.embed_subtitle_lang, # Pass the lang preference
         vtt_files=task_vtt_files, # Pass VTT file info
+        ass_files=task_ass_files, # Pass ASS file info
         output_format=request.output_format,
         subtitle_type=request.subtitle_type # Add subtitle type parameter
     )
@@ -2481,14 +2582,19 @@ def convert_srt_to_ass(srt_file_path, output_ass_path, segments: List[Dict]):
             cs = int((seconds_val - int(seconds_val)) * 100)  # ASS使用厘秒(centiseconds)
             return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
         
-        # 开始构建ASS内容
+        # 开始构建ASS内容 - 与前端VideoPlayer完全一致的样式
         ass_content = """[Script Info]
 Title: Generated from SRT
 ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
+Style: Default,Arial,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,20,20,60,1
+Style: Chinese,Source Han Sans CN Bold,36,&H003BEBFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,20,20,60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -2550,8 +2656,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # 清理文本，转义特殊字符
             clean_text = text.replace('\n', '\\N').replace('{', '\\{').replace('}', '\\}')
             
+            # 检测中文并选择合适的样式
+            import re
+            chinese_pattern = re.compile(r'[\u4e00-\u9fa5]')
+            style = "Chinese" if chinese_pattern.search(text) else "Default"
+            
             # 添加到ASS内容
-            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},Default,,0,0,0,,{clean_text}\n"
+            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},{style},,0,0,0,,{clean_text}\n"
             included_subtitle_count += 1
         
         # 写入ASS文件
@@ -2592,7 +2703,8 @@ async def process_srt_endpoint(task_uuid: UUID):
             logger.info(f"Successfully processed SRT files for task: {task_uuid_str}")
             return {
                 "message": "SRT files processed successfully",
-                "processed_files": result["processed_files"],
+                "srt_files": result["srt_files"],
+                "ass_files": result["ass_files"],
                 "stats": result["stats"]
             }
         else:
@@ -2684,6 +2796,289 @@ async def get_srt_file(task_uuid: UUID, lang_code: str):
     filename = Path(srt_rel_path_str).name 
     return FileResponse(path=srt_abs_path, filename=filename, media_type='application/x-subrip')
 # --- END: SRT Processing Endpoints ---
+
+def create_adjusted_ass_file(source_ass_path: Path, output_ass_path: Path, segments: List[Dict]) -> bool:
+    """
+    Creates an adjusted ASS file based on the provided segments.
+    Similar to create_adjusted_srt_file but for ASS format.
+    """
+    try:
+        logger.info(f"Creating adjusted ASS file from {source_ass_path} to {output_ass_path}")
+        
+        # Read the original ASS file
+        with open(source_ass_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Find the [Events] section
+        events_start = -1
+        for i, line in enumerate(lines):
+            if line.strip() == '[Events]':
+                events_start = i
+                break
+        
+        if events_start == -1:
+            logger.error("Could not find [Events] section in ASS file")
+            return False
+        
+        # Process segments to create time mapping
+        segment_duration_map = []
+        output_time_position = 0.0
+        
+        for segment in segments:
+            segment_start = segment['start']
+            segment_end = segment['end']
+            segment_duration = segment_end - segment_start
+            
+            segment_duration_map.append({
+                'original_start': segment_start,
+                'original_end': segment_end,
+                'output_start': output_time_position,
+                'output_end': output_time_position + segment_duration
+            })
+            
+            output_time_position += segment_duration
+        
+        def ass_time_to_seconds(time_str: str) -> float:
+            """Convert ASS time format (H:MM:SS.CC) to seconds"""
+            try:
+                parts = time_str.split(':')
+                if len(parts) != 3:
+                    return 0.0
+                
+                hours = int(parts[0])
+                minutes = int(parts[1])
+                sec_parts = parts[2].split('.')
+                seconds = int(sec_parts[0])
+                centiseconds = int(sec_parts[1]) if len(sec_parts) > 1 else 0
+                
+                return hours * 3600 + minutes * 60 + seconds + centiseconds / 100.0
+            except:
+                return 0.0
+        
+        def seconds_to_ass_time(seconds: float) -> str:
+            """Convert seconds to ASS time format (H:MM:SS.CC)"""
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            centiseconds = int((seconds - int(seconds)) * 100)
+            return f"{hours}:{minutes:02d}:{secs:02d}.{centiseconds:02d}"
+        
+        def map_time_to_output(original_time_seconds: float) -> float:
+            """Map original timestamp to output timestamp based on segments"""
+            for segment_map in segment_duration_map:
+                if segment_map['original_start'] <= original_time_seconds <= segment_map['original_end']:
+                    offset_in_segment = original_time_seconds - segment_map['original_start']
+                    return segment_map['output_start'] + offset_in_segment
+            return -1  # Time not in any segment
+        
+        # Process the ASS file
+        adjusted_lines = []
+        
+        # Copy everything up to and including the [Events] section
+        for i in range(events_start + 1):
+            adjusted_lines.append(lines[i])
+        
+        # Process dialogue lines
+        dialogue_count = 0
+        kept_count = 0
+        
+        for i in range(events_start + 1, len(lines)):
+            line = lines[i].strip()
+            
+            if line.startswith('Dialogue:'):
+                dialogue_count += 1
+                
+                # Parse the dialogue line
+                parts = line.split(',', 9)  # ASS dialogue has 10 fields
+                if len(parts) >= 10:
+                    start_time_str = parts[1]
+                    end_time_str = parts[2]
+                    
+                    start_seconds = ass_time_to_seconds(start_time_str)
+                    end_seconds = ass_time_to_seconds(end_time_str)
+                    
+                    # Map times to output
+                    mapped_start = map_time_to_output(start_seconds)
+                    mapped_end = map_time_to_output(end_seconds)
+                    
+                    # Only keep if both times are within segments
+                    if mapped_start >= 0 and mapped_end >= 0:
+                        parts[1] = seconds_to_ass_time(mapped_start)
+                        parts[2] = seconds_to_ass_time(mapped_end)
+                        
+                        adjusted_line = ','.join(parts) + '\n'
+                        adjusted_lines.append(adjusted_line)
+                        kept_count += 1
+            else:
+                # Copy non-dialogue lines as-is
+                adjusted_lines.append(line + '\n')
+        
+        # Write the adjusted ASS file
+        with open(output_ass_path, 'w', encoding='utf-8') as f:
+            f.writelines(adjusted_lines)
+        
+        logger.info(f"ASS adjustment complete: {dialogue_count} original dialogues, {kept_count} kept")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error creating adjusted ASS file: {e}", exc_info=True)
+        return False
+
+def convert_srt_to_ass_simple(srt_file_path, output_ass_path):
+    """简化版SRT转ASS，用于前端完整字幕显示（不切分片段）"""
+    try:
+        from pathlib import Path
+        import re
+        
+        # 确保输出目录存在
+        Path(output_ass_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        # 解析SRT文件
+        subtitles = parse_srt_file(Path(srt_file_path))
+        if not subtitles:
+            logger.error(f"No subtitles found in SRT file: {srt_file_path}")
+            return False
+            
+        logger.info(f"简化转换SRT到ASS: 读取到{len(subtitles)}个字幕条目...")
+        
+        # 将时间戳从秒转换为ASS格式 (h:mm:ss.cc)
+        def format_time(seconds_val):
+            h = int(seconds_val / 3600)
+            m = int((seconds_val % 3600) / 60)
+            s = int(seconds_val % 60)
+            cs = int((seconds_val - int(seconds_val)) * 100)  # ASS使用厘秒(centiseconds)
+            return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+        
+        # 构建ASS内容 - 与前端VideoPlayer完全一致的样式
+        ass_content = """[Script Info]
+Title: Generated from SRT
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,20,20,60,1
+Style: Chinese,Source Han Sans CN Bold,36,&H003BEBFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,20,20,60,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+        
+        # 检测中文的正则表达式
+        chinese_pattern = re.compile(r'[\u4e00-\u9fa5]')
+        
+        for subtitle in subtitles:
+            start_time_str = format_time(subtitle['start'])
+            end_time_str = format_time(subtitle['end'])
+            text = subtitle['text'].strip()
+            
+            if not text:
+                continue
+            
+            # 清理文本，转义特殊字符
+            clean_text = text.replace('\n', '\\N').replace('{', '\\{').replace('}', '\\}')
+            
+            # 检测是否包含中文，选择合适的样式
+            style = "Chinese" if chinese_pattern.search(text) else "Default"
+            
+            # 添加到ASS内容
+            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},{style},,0,0,0,,{clean_text}\n"
+        
+        # 写入ASS文件
+        with open(output_ass_path, 'w', encoding='utf-8') as f:
+            f.write(ass_content)
+        
+        logger.info(f"成功转换SRT到ASS: {output_ass_path} (包含 {len(subtitles)} 条字幕)")
+        return True
+        
+    except Exception as e:
+        logger.error(f"简化转换SRT到ASS时发生错误: {e}", exc_info=True)
+        return False
+
+# --- END: SRT Processing Endpoints ---
+
+# --- START: ASS Processing Endpoints ---
+@app.delete("/api/tasks/{task_uuid}/ass/{lang_code}", status_code=204)
+async def delete_ass_file(task_uuid: UUID, lang_code: str):
+    """Delete a specific ASS file by language code"""
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to delete ASS file ({lang_code}) for task: {task_uuid_str}")
+
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(task_uuid_str)
+
+    if not task_meta:
+        logger.warning(f"Task not found for ASS deletion: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not hasattr(task_meta, 'ass_files') or not task_meta.ass_files or lang_code not in task_meta.ass_files:
+        logger.warning(f"ASS file for language '{lang_code}' not found in metadata for task {task_uuid_str}")
+        raise HTTPException(status_code=404, detail=f"ASS file for language '{lang_code}' not found")
+
+    ass_rel_path_str = task_meta.ass_files.get(lang_code)
+    if not ass_rel_path_str:
+        raise HTTPException(status_code=404, detail=f"ASS path for language '{lang_code}' is empty or invalid in metadata")
+
+    ass_abs_path = DATA_DIR / ass_rel_path_str
+
+    # Attempt to delete the file from filesystem
+    try:
+        if ass_abs_path.exists() and ass_abs_path.is_file():
+            await run_in_threadpool(os.remove, ass_abs_path)
+            logger.info(f"Successfully deleted ASS file from disk: {ass_abs_path}")
+        else:
+            logger.warning(f"ASS file not found on disk at expected path: {ass_abs_path}. Proceeding to update metadata only.")
+
+    except OSError as e:
+        logger.error(f"Error deleting ASS file from disk {ass_abs_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting ASS file from disk: {e}")
+
+    # Update metadata: remove the entry for the deleted language
+    try:
+        del task_meta.ass_files[lang_code]
+        all_metadata[task_uuid_str] = task_meta
+        await save_metadata(all_metadata)
+        logger.info(f"Successfully removed '{lang_code}' ASS entry from metadata for task {task_uuid_str}")
+    except Exception as e:
+        logger.error(f"Failed to update metadata after ASS file deletion for task {task_uuid_str}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update metadata after file operation.")
+
+    return
+
+@app.get("/api/tasks/{task_uuid}/ass/{lang_code}", response_class=FileResponse)
+async def get_ass_file(task_uuid: UUID, lang_code: str):
+    """Get a specific ASS file by language code"""
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Received request to get ASS file ({lang_code}) for task: {task_uuid_str}")
+
+    all_metadata = await load_metadata()
+    task_meta = all_metadata.get(task_uuid_str)
+
+    if not task_meta:
+        logger.warning(f"Task not found for ASS get: {task_uuid_str}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not hasattr(task_meta, 'ass_files') or not task_meta.ass_files or lang_code not in task_meta.ass_files:
+        logger.warning(f"ASS file for language '{lang_code}' not found in metadata for task {task_uuid_str}")
+        raise HTTPException(status_code=404, detail=f"ASS file for language '{lang_code}' not found")
+
+    ass_rel_path_str = task_meta.ass_files.get(lang_code)
+    if not ass_rel_path_str:
+        raise HTTPException(status_code=404, detail=f"ASS path for language '{lang_code}' is empty or invalid in metadata")
+
+    ass_abs_path = DATA_DIR / ass_rel_path_str
+
+    if not ass_abs_path.exists() or not ass_abs_path.is_file():
+        logger.error(f"ASS file specified in metadata not found on disk: {ass_abs_path}")
+        raise HTTPException(status_code=404, detail=f"ASS file not found on server at path: {ass_rel_path_str}")
+
+    # Return the file as a response
+    filename = Path(ass_rel_path_str).name 
+    return FileResponse(path=ass_abs_path, filename=filename, media_type='text/plain')
+# --- END: ASS Processing Endpoints ---
 
 if __name__ == "__main__":
     import uvicorn

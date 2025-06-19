@@ -187,3 +187,62 @@ async def process_ollama_request(model: str, messages: List[Dict], base_url: str
             status_code=503, 
             detail=f"Ollama服务连接失败，请确保Ollama正在运行: {str(e)}"
         )
+
+@router.post("/tasks/{task_uuid}/convert-srt-to-ass")
+async def convert_srt_to_ass_endpoint(task_uuid: str):
+    """实时转换SRT为ASS用于前端渲染"""
+    try:
+        from pathlib import Path
+        from fastapi.responses import Response
+        import tempfile
+        import os
+        
+        # 获取任务目录
+        task_dir = DATA_DIR / task_uuid
+        if not task_dir.exists():
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # 查找SRT文件
+        srt_files = list(task_dir.glob("*.srt"))
+        if not srt_files:
+            raise HTTPException(status_code=404, detail="No SRT file found")
+        
+        srt_file_path = srt_files[0]  # 使用第一个SRT文件
+        
+        # 创建临时ASS文件
+        with tempfile.NamedTemporaryFile(mode='w+', suffix='.ass', delete=False, encoding='utf-8') as temp_ass:
+            temp_ass_path = temp_ass.name
+        
+        try:
+            # 调用现有的转换函数，不使用segments（完整转换）
+            from ..main import convert_srt_to_ass_simple
+            success = convert_srt_to_ass_simple(str(srt_file_path), temp_ass_path)
+            
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to convert SRT to ASS")
+            
+            # 读取ASS文件内容
+            with open(temp_ass_path, 'r', encoding='utf-8') as f:
+                ass_content = f.read()
+            
+            # 清理临时文件
+            os.unlink(temp_ass_path)
+            
+            # 返回ASS内容
+            return Response(
+                content=ass_content,
+                media_type="text/plain",
+                headers={"Content-Disposition": f"attachment; filename={task_uuid}.ass"}
+            )
+            
+        except Exception as e:
+            # 确保清理临时文件
+            if os.path.exists(temp_ass_path):
+                os.unlink(temp_ass_path)
+            raise e
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error converting SRT to ASS: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

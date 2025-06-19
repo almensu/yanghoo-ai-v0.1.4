@@ -56,6 +56,8 @@ function TableView({
   onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX,
   // Add SRT processing handlers
   onProcessSrt, onDeleteSrt,
+  // Add ASS processing handlers
+  onDeleteAss,
   // Sorting props
   sortField,
   sortOrder,
@@ -75,6 +77,7 @@ function TableView({
   const hasAudio = (audioPath) => !!audioPath;
   const hasVtt = (vttFiles, langCode) => vttFiles && typeof vttFiles === 'object' && !!vttFiles[langCode];
   const hasSrt = (srtFiles, langCode) => srtFiles && typeof srtFiles === 'object' && !!srtFiles[langCode];
+  const hasAss = (assFiles, langCode) => assFiles && typeof assFiles === 'object' && !!assFiles[langCode];
   const isAudioPlatform = (platform) => ['xiaoyuzhou', 'podcast'].includes(platform);
 
   const canMergeVtt = (task) => {
@@ -137,6 +140,7 @@ function TableView({
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">音频</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">VTT</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">SRT</th>
+            <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">ASS</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">WhisperX</th>
             <th className="p-3 text-left text-xs font-semibold text-base-content/80 uppercase tracking-wider">操作</th>
           </tr>
@@ -150,6 +154,9 @@ function TableView({
             const vttZhExists = isYouTube && hasVtt(task.vtt_files, 'zh-Hans');
             const srtEnExists = hasSrt(task.srt_files, 'en');
             const srtZhExists = hasSrt(task.srt_files, 'zh-Hans');
+            const assEnExists = hasAss(task.ass_files, 'en');
+            const assZhExists = hasAss(task.ass_files, 'zh-Hans');
+            const assMainExists = hasAss(task.ass_files, 'main');
             const audioDownloaded = !!task.downloaded_audio_path;
             const canDirectDownloadAudio = isAudioPlatform(task.platform);
             const canMerge = canMergeVtt(task);
@@ -391,6 +398,55 @@ function TableView({
                               onClick={() => onDeleteSrt(task.uuid, 'zh-Hans')}
                               disabled={!srtZhExists || task.archived}
                               data-tip="删除中文 SRT">
+                             <IconWrapper icon={Trash} className="w-3 h-3 text-error/70"/>
+                           </button>
+                        </div>
+                    </div>
+                  </div>
+                </td>
+                
+                {/* ASS Column */} 
+                <td className="p-3 text-xs">
+                  <div className="flex flex-col gap-1 items-start">
+                    {/* Status and Actions */} 
+                    <div className="flex items-center gap-1 w-full">
+                       <IconWrapper icon={FileText} className={cn((assEnExists || assZhExists || assMainExists) ? 'text-cyan-500' : 'text-base-content/40')}/>
+                       <span className={cn(!(assEnExists || assZhExists || assMainExists) && 'text-base-content/60', 'flex-grow')}>
+                           {(assEnExists || assZhExists || assMainExists) ? '已生成' : '无'}
+                       </span>
+                    </div>
+                    {/* Language specifics */} 
+                    <div className="pl-5 w-full space-y-0.5">
+                        <div className="flex items-center gap-1">
+                           <IconWrapper icon={Languages} className="w-3 h-3 text-base-content/50"/> 
+                           <span className={cn(!assEnExists && 'text-base-content/60', 'flex-grow')}>英文</span>
+                           <button 
+                              className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (!assEnExists || task.archived) && 'btn-disabled')} 
+                              onClick={() => onDeleteAss(task.uuid, 'en')}
+                              disabled={!assEnExists || task.archived}
+                              data-tip="删除英文 ASS">
+                             <IconWrapper icon={Trash} className="w-3 h-3 text-error/70"/>
+                           </button>
+                        </div>
+                        <div className="flex items-center gap-1">
+                           <IconWrapper icon={Languages} className="w-3 h-3 text-base-content/50"/> 
+                           <span className={cn(!assZhExists && 'text-base-content/60', 'flex-grow')}>中文</span>
+                           <button 
+                              className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (!assZhExists || task.archived) && 'btn-disabled')} 
+                              onClick={() => onDeleteAss(task.uuid, 'zh-Hans')}
+                              disabled={!assZhExists || task.archived}
+                              data-tip="删除中文 ASS">
+                             <IconWrapper icon={Trash} className="w-3 h-3 text-error/70"/>
+                           </button>
+                        </div>
+                        <div className="flex items-center gap-1">
+                           <IconWrapper icon={Languages} className="w-3 h-3 text-base-content/50"/> 
+                           <span className={cn(!assMainExists && 'text-base-content/60', 'flex-grow')}>主文件</span>
+                           <button 
+                              className={cn("btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", (!assMainExists || task.archived) && 'btn-disabled')} 
+                              onClick={() => onDeleteAss(task.uuid, 'main')}
+                              disabled={!assMainExists || task.archived}
+                              data-tip="删除主 ASS">
                              <IconWrapper icon={Trash} className="w-3 h-3 text-error/70"/>
                            </button>
                         </div>

@@ -481,6 +481,23 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
     }
   };
 
+  const handleDeleteAss = async (taskUuid, langCode) => {
+    if (!window.confirm(`Delete ${langCode} ASS?`)) return;
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/tasks/${taskUuid}/ass/${langCode}`, { method: 'DELETE' });
+      if (res.status === 204) {
+        alert(`ASS ${langCode} deleted for ${taskUuid}.`);
+        await fetchTasks();
+      } else {
+        let error = `HTTP ${res.status}`;
+        try { const d = await res.json(); error = d.detail || error; } catch (e) { }
+        throw new Error(error);
+      }
+    } catch (e) {
+      alert(`Failed delete ${langCode} ASS: ${e.message}`);
+    }
+  };
+
   return (
     <div className="container mx-auto p-4 pt-8 flex flex-col h-full">
       <IngestForm
@@ -509,6 +526,7 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
           onMergeVtt={handleMergeVtt}
           onProcessSrt={handleProcessSrt}
           onDeleteSrt={handleDeleteSrt}
+          onDeleteAss={handleDeleteAss}
           onTranscribeWhisperX={handleTranscribeWhisperX}
           onDeleteWhisperX={handleDeleteWhisperX}
           onSplitTranscribeWhisperX={handleSplitTranscribeWhisperX}

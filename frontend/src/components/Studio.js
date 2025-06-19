@@ -1566,8 +1566,16 @@ function Studio({ taskUuid, apiBaseUrl }) {
     let subtitleType = 'vtt'; // Default to VTT
     
     if (vttMode === 'cut') {
-      // Check if we're using SRT
-      if (displayLang === 'srt' && parsedCuesByLang['srt']?.length > 0) {
+      // Check if we have ASS files available - prioritize ASS files
+      const hasAssFiles = taskDetails?.ass_files && Object.keys(taskDetails.ass_files).some(key => taskDetails.ass_files[key]);
+      
+      if (hasAssFiles) {
+        // If we have ASS files, use them
+        subtitleLangToEmbed = 'ass';
+        subtitleType = 'ass';
+        logger.info("Using ASS files for subtitle embedding");
+      } else if (displayLang === 'srt' && parsedCuesByLang['srt']?.length > 0) {
+        // Check if we're using SRT
         subtitleLangToEmbed = 'srt';
         subtitleType = 'srt';
       } else {
@@ -1688,6 +1696,8 @@ function Studio({ taskUuid, apiBaseUrl }) {
       case 'bilingual': return '中英双语';
       case 'en': return 'English';
       case 'zh-Hans': return '中文';
+      case 'ass': return 'ASS字幕';
+      case 'srt': return 'SRT字幕';
       default: return '无字幕';
     }
   };

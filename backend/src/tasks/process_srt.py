@@ -196,7 +196,10 @@ async def process_srt_files(task_uuid: str, metadata_file: str) -> Dict:
         }
     }
     
-    # Step 5: Generate separated SRT files
+    # Step 5: Generate separated SRT files and ASS files
+    srt_files = {}
+    ass_files = {}
+    
     try:
         # Generate English SRT if we have English subtitles
         if english_subs:
@@ -205,8 +208,13 @@ async def process_srt_files(task_uuid: str, metadata_file: str) -> Dict:
             async with aiofiles.open(en_srt_path, 'w', encoding='utf-8') as f:
                 await f.write(en_content)
             
-            result["processed_files"]["en"] = str(en_srt_path.relative_to(base_dir))
+            srt_files["en"] = str(en_srt_path.relative_to(base_dir))
             logger.info(f"Generated English SRT with {len(english_subs)} subtitles")
+            
+            # Generate ASS file for English
+            en_ass_path = task_dir / "transcript_en.ass"
+            await generate_ass_file(en_srt_path, en_ass_path)
+            ass_files["en"] = str(en_ass_path.relative_to(base_dir))
         
         # Generate Chinese SRT if we have Chinese subtitles
         if chinese_subs:
@@ -215,14 +223,28 @@ async def process_srt_files(task_uuid: str, metadata_file: str) -> Dict:
             async with aiofiles.open(zh_srt_path, 'w', encoding='utf-8') as f:
                 await f.write(zh_content)
             
-            result["processed_files"]["zh-Hans"] = str(zh_srt_path.relative_to(base_dir))
+            srt_files["zh-Hans"] = str(zh_srt_path.relative_to(base_dir))
             logger.info(f"Generated Chinese SRT with {len(chinese_subs)} subtitles")
+            
+            # Generate ASS file for Chinese
+            zh_ass_path = task_dir / "transcript_zh-Hans.ass"
+            await generate_ass_file(zh_srt_path, zh_ass_path)
+            ass_files["zh-Hans"] = str(zh_ass_path.relative_to(base_dir))
+        
+        # Generate main transcript.ass from transcript.srt
+        transcript_ass_path = task_dir / "transcript.ass"
+        await generate_ass_file(transcript_srt_path, transcript_ass_path)
+        ass_files["main"] = str(transcript_ass_path.relative_to(base_dir))
+        logger.info(f"Generated main ASS file: transcript.ass")
     
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to generate separated SRT files: {str(e)}"
+            "error": f"Failed to generate SRT/ASS files: {str(e)}"
         }
+    
+    result["srt_files"] = srt_files
+    result["ass_files"] = ass_files
     
     # Step 6: Update metadata
     try:
@@ -232,11 +254,9 @@ async def process_srt_files(task_uuid: str, metadata_file: str) -> Dict:
         metadata = json.loads(metadata_content)
         
         if task_uuid in metadata:
-            if "srt_files" not in metadata[task_uuid]:
-                metadata[task_uuid]["srt_files"] = {}
-            
-            # Update srt_files with the new files
-            metadata[task_uuid]["srt_files"].update(result["processed_files"])
+            # Update srt_files and ass_files separately
+            metadata[task_uuid]["srt_files"] = srt_files
+            metadata[task_uuid]["ass_files"] = ass_files
             
             # Update last_modified timestamp
             from datetime import datetime
@@ -246,7 +266,7 @@ async def process_srt_files(task_uuid: str, metadata_file: str) -> Dict:
             async with aiofiles.open(metadata_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(metadata, indent=4, ensure_ascii=False))
             
-            logger.info(f"Updated metadata for task {task_uuid} with SRT files")
+            logger.info(f"Updated metadata for task {task_uuid} with SRT and ASS files")
         else:
             logger.warning(f"Task {task_uuid} not found in metadata")
     
@@ -255,3 +275,88 @@ async def process_srt_files(task_uuid: str, metadata_file: str) -> Dict:
         result["metadata_update_error"] = str(e)
     
     return result 
+
+async def generate_ass_file(srt_path: Path, ass_path: Path):
+    """Generate ASS file from SRT file using the convert_srt_to_ass_simple function"""
+    try:
+        # Create ASS content with proper Chinese/English styling
+        async with aiofiles.open(srt_path, 'r', encoding='utf-8') as f:
+            srt_content = await f.read()
+        
+        # Parse SRT content
+        processor = SRTProcessor()
+        subtitles = processor.parse_srt_content(srt_content)
+        
+        if not subtitles:
+            logger.error(f"No subtitles found in SRT file: {srt_path}")
+            return
+        
+        # Generate ASS content
+        ass_content = generate_ass_content(subtitles)
+        
+        # Write ASS file
+        async with aiofiles.open(ass_path, 'w', encoding='utf-8') as f:
+            await f.write(ass_content)
+        
+        logger.info(f"Generated ASS file: {ass_path}")
+        
+    except Exception as e:
+        logger.error(f"Failed to generate ASS file {ass_path}: {e}")
+
+def generate_ass_content(subtitles: List[Dict]) -> str:
+    """Generate ASS content from subtitle list"""
+    
+    # ASS header - 与前端VideoPlayer完全一致的样式
+    ass_header = """[Script Info]
+Title: Subtitle
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: English,Arial,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,20,20,60,1
+Style: Chinese,Source Han Sans CN Bold,36,&H003BEBFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,20,20,60,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    
+    ass_lines = [ass_header]
+    
+    # Chinese text detection pattern
+    chinese_pattern = re.compile(r'[\u4e00-\u9fff]')
+    
+    for sub in subtitles:
+        # Convert time format
+        start_time = srt_time_to_ass_time(sub['start_time'])
+        end_time = srt_time_to_ass_time(sub['end_time'])
+        
+        # Detect if text contains Chinese characters
+        text = sub['text'].replace('\n', '\\N')  # ASS uses \\N for line breaks
+        
+        if chinese_pattern.search(text):
+            style = "Chinese"
+        else:
+            style = "English"
+        
+        # Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+        dialogue_line = f"Dialogue: 0,{start_time},{end_time},{style},,0,0,0,,{text}"
+        ass_lines.append(dialogue_line)
+    
+    return '\n'.join(ass_lines)
+
+def srt_time_to_ass_time(time_str: str) -> str:
+    """Convert SRT time format to ASS time format"""
+    # SRT: 00:00:20,000 -> ASS: 0:00:20.00
+    try:
+        if ',' in time_str:
+            time_part, ms_part = time_str.split(',')
+            ms = int(ms_part) // 10  # Convert milliseconds to centiseconds
+            return f"{time_part}.{ms:02d}"
+        else:
+            return time_str
+    except:
+        return time_str 

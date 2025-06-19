@@ -55,6 +55,8 @@ function CardView({
   onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX, onOpenFolder, onGoToStudio,
   // Add SRT processing handlers
   onProcessSrt, onDeleteSrt,
+  // Add ASS processing handlers
+  onDeleteAss,
   // Sorting props
   sortField,
   sortOrder,
@@ -74,6 +76,7 @@ function CardView({
   const hasAudio = (audioPath) => !!audioPath;
   const hasVtt = (vttFiles, langCode) => vttFiles && typeof vttFiles === 'object' && !!vttFiles[langCode];
   const hasSrt = (srtFiles, langCode) => srtFiles && typeof srtFiles === 'object' && !!srtFiles[langCode];
+  const hasAss = (assFiles, langCode) => assFiles && typeof assFiles === 'object' && !!assFiles[langCode];
   const isAudioPlatform = (platform) => ['xiaoyuzhou', 'podcast'].includes(platform);
 
   const canMergeVtt = (task) => {
@@ -135,6 +138,9 @@ function CardView({
           const vttZhExists = hasVtt(task.vtt_files, 'zh-Hans');
           const srtEnExists = hasSrt(task.srt_files, 'en');
           const srtZhExists = hasSrt(task.srt_files, 'zh-Hans');
+          const assEnExists = hasAss(task.ass_files, 'en');
+          const assZhExists = hasAss(task.ass_files, 'zh-Hans');
+          const assMainExists = hasAss(task.ass_files, 'main');
           const isYouTube = task.platform === 'youtube';
           const canMerge = canMergeVtt(task);
           const isMerged = !!task.merged_vtt_md_path;
@@ -399,6 +405,72 @@ function CardView({
                       </div>
                     )}
 
+                    {/* ASS Section */}
+                    <div className="pt-2 border-t border-base-200/60 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-xs">
+                               <IconWrapper icon={FileText} className={cn((assEnExists || assZhExists || assMainExists) ? 'text-cyan-500' : 'text-base-content/40')}/>
+                               <span className={cn(!(assEnExists || assZhExists || assMainExists) && 'text-base-content/60')}>
+                                   ASS 字幕 {(assEnExists || assZhExists || assMainExists) ? '(已生成)' : ''}
+                               </span>
+                            </div>
+                        </div>
+                        {/* Language specifics */}
+                        <div className="pl-6 space-y-1"> 
+                             <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-1 text-xs">
+                                   <IconWrapper icon={Languages} className="text-base-content/50"/> 
+                                   <span className={cn(!assEnExists && 'text-base-content/60')}>英文</span>
+                               </div>
+                               <button 
+                                   className={cn(
+                                       "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
+                                       (!assEnExists) && 'btn-disabled'
+                                   )} 
+                                   onClick={() => onDeleteAss && onDeleteAss(task.uuid, 'en')}
+                                   disabled={!assEnExists}
+                                   data-tip="删除英文 ASS"
+                               >
+                                   <IconWrapper icon={Trash} className="w-3 h-3 text-error/70" /> 
+                               </button>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-1 text-xs">
+                                   <IconWrapper icon={Languages} className="text-base-content/50"/> 
+                                   <span className={cn(!assZhExists && 'text-base-content/60')}>中文</span>
+                               </div>
+                               <button 
+                                   className={cn(
+                                       "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
+                                       (!assZhExists) && 'btn-disabled'
+                                   )} 
+                                   onClick={() => onDeleteAss && onDeleteAss(task.uuid, 'zh-Hans')}
+                                   disabled={!assZhExists}
+                                   data-tip="删除中文 ASS"
+                               >
+                                   <IconWrapper icon={Trash} className="w-3 h-3 text-error/70" />
+                               </button>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-1 text-xs">
+                                   <IconWrapper icon={Languages} className="text-base-content/50"/> 
+                                   <span className={cn(!assMainExists && 'text-base-content/60')}>主文件</span>
+                               </div>
+                               <button 
+                                   className={cn(
+                                       "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
+                                       (!assMainExists) && 'btn-disabled'
+                                   )} 
+                                   onClick={() => onDeleteAss && onDeleteAss(task.uuid, 'main')}
+                                   disabled={!assMainExists}
+                                   data-tip="删除主 ASS"
+                               >
+                                   <IconWrapper icon={Trash} className="w-3 h-3 text-error/70" />
+                               </button>
+                            </div>
+                        </div>
+                    </div>
+                    
                     {/* SRT Section */}
                     <div className="pt-2 border-t border-base-200/60 space-y-2">
                         <div className="flex items-center justify-between">
