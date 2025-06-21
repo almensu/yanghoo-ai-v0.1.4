@@ -2182,6 +2182,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
               <AIChat 
                 markdownContent={markdownContent}
                 apiBaseUrl={apiBaseUrl}
+                taskUuid={taskUuid}  // 确保传递这个prop
               />
             </div>
           )}

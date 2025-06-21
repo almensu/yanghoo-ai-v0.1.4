@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import axios from 'axios';
 import MarkdownViewer from './MarkdownViewer'; // Assuming MarkdownViewer is in the same directory
+import { estimateTokenCount, formatTokenCount, getTokenCountColorClass } from '../utils/tokenUtils';
 
 // Complete rewrite of thinking block handling
-function AIChat({ markdownContent, apiBaseUrl }) {
+function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -25,11 +26,255 @@ function AIChat({ markdownContent, apiBaseUrl }) {
   const thinkingBlocksRef = useRef(new Map());
   const thinkingContainerRef = useRef(new Map());
 
+  // 文档选择相关状态
+  const [availableFiles, setAvailableFiles] = useState([]);
+  const [selectedFiles, setSelectedFiles] = useState(new Set());
+  const [showFileDropdown, setShowFileDropdown] = useState(false);
+  const [fileTokenCounts, setFileTokenCounts] = useState({});
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // 拖拽相关状态
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [dragCounter, setDragCounter] = useState(0);
+  const chatAreaRef = useRef(null);
+
   useEffect(() => {
     setMessages([
       { role: 'system', content: '我可以帮您分析和讨论文档内容，请随时提问。' }
     ]);
   }, []);
+
+  // 获取文件列表和token计数
+  useEffect(() => {
+    if (taskUuid && apiBaseUrl) {
+      fetchMarkdownFiles();
+    }
+  }, [taskUuid, apiBaseUrl]);
+
+  // 点击外部关闭下拉菜单 & ESC键处理
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowFileDropdown(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setShowFileDropdown(false);
+        setIsDragOver(false);
+        setDragCounter(0);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  const fetchMarkdownFiles = async () => {
+    if (!taskUuid || !apiBaseUrl) return;
+    
+    setLoadingFiles(true);
+    try {
+      const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/list`, {
+        params: { extension: '.md' }
+      });
+      const files = response.data || [];
+      setAvailableFiles(files);
+      
+      // 获取token计数
+      const tokenCounts = {};
+      const fetchPromises = files.map(async (filename) => {
+        try {
+          const encodedFilename = encodeURIComponent(filename);
+          const response = await axios.get(
+            `${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`,
+            { responseType: 'text' }
+          );
+          const content = response.data || '';
+          tokenCounts[filename] = estimateTokenCount(content);
+        } catch (error) {
+          console.error(`Failed to fetch content for ${filename}:`, error);
+          tokenCounts[filename] = 0;
+        }
+      });
+      await Promise.all(fetchPromises);
+      setFileTokenCounts(tokenCounts);
+    } catch (error) {
+      console.error('Failed to fetch markdown files:', error);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  const toggleFileSelection = (filename) => {
+    const newSelected = new Set(selectedFiles);
+    if (newSelected.has(filename)) {
+      newSelected.delete(filename);
+    } else {
+      newSelected.add(filename);
+    }
+    setSelectedFiles(newSelected);
+  };
+
+  const removeFile = (filename) => {
+    const newSelected = new Set(selectedFiles);
+    newSelected.delete(filename);
+    setSelectedFiles(newSelected);
+  };
+
+  const selectAllFiles = () => {
+    setSelectedFiles(new Set(availableFiles));
+  };
+
+  const clearAllFiles = () => {
+    setSelectedFiles(new Set());
+  };
+
+  // 修复的拖拽事件处理
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    
+    // 检查是否是markdown文件拖拽
+    if (e.dataTransfer.types.includes('application/markdown-file') || 
+        e.dataTransfer.types.includes('text/plain')) {
+      setDragCounter(prev => prev + 1);
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    
+    setDragCounter(prev => {
+      const newCounter = prev - 1;
+      if (newCounter <= 0) {
+        setIsDragOver(false);
+        return 0;
+      }
+      return newCounter;
+    });
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    
+    // 立即重置拖拽状态
+    setIsDragOver(false);
+    setDragCounter(0);
+    
+    console.log('拖拽drop事件触发');
+    
+    try {
+      // 尝试获取markdown文件数据
+      let markdownFileData = e.dataTransfer.getData('application/markdown-file');
+      console.log('获取到的拖拽数据:', markdownFileData);
+      
+      // 如果没有专用数据，尝试从文本中解析
+      if (!markdownFileData) {
+        const textData = e.dataTransfer.getData('text/plain');
+        console.log('文本数据:', textData);
+        if (textData && textData.endsWith('.md')) {
+          // 简单构造文件信息
+          markdownFileData = JSON.stringify({
+            filename: textData,
+            taskUuid: taskUuid,
+            tokenCount: 0
+          });
+        }
+      }
+      
+      if (markdownFileData) {
+        const fileInfo = JSON.parse(markdownFileData);
+        const filename = fileInfo.filename;
+        console.log('解析出的文件名:', filename);
+        
+        if (filename) {
+          // 添加文件到选择列表
+          if (!selectedFiles.has(filename)) {
+            const newSelected = new Set(selectedFiles);
+            newSelected.add(filename);
+            setSelectedFiles(newSelected);
+            console.log('文件添加成功:', filename);
+            
+            // 显示成功提示
+            showDropSuccessMessage(filename);
+          } else {
+            console.log('文件已存在:', filename);
+            // 如果文件已存在，显示提示
+            showFileAlreadyAddedMessage(filename);
+          }
+        }
+      } else {
+        // 拖拽失败提示
+        console.warn('未识别到有效的markdown文件');
+        showDropErrorMessage('未识别到有效的markdown文件');
+      }
+    } catch (error) {
+      console.error('处理拖拽文件失败:', error);
+      showDropErrorMessage('拖拽处理失败，请重试');
+    }
+  };
+
+  const showDropSuccessMessage = (filename) => {
+    // 创建临时提示消息
+    const tempMessage = {
+      role: 'system',
+      content: `✅ 已添加文档: ${filename}`,
+      id: `drop-success-${Date.now()}`,
+      isTemporary: true,
+      type: 'success'
+    };
+    
+    setMessages(prev => [...prev, tempMessage]);
+    
+    // 3秒后移除提示消息
+    setTimeout(() => {
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+    }, 3000);
+  };
+
+  const showFileAlreadyAddedMessage = (filename) => {
+    const tempMessage = {
+      role: 'system',
+      content: `ℹ️ 文档 ${filename} 已在选择列表中`,
+      id: `already-added-${Date.now()}`,
+      isTemporary: true,
+      type: 'info'
+    };
+    
+    setMessages(prev => [...prev, tempMessage]);
+    
+    setTimeout(() => {
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+    }, 2000);
+  };
+
+  const showDropErrorMessage = (message) => {
+    const tempMessage = {
+      role: 'system',
+      content: `❌ ${message}`,
+      id: `drop-error-${Date.now()}`,
+      isTemporary: true,
+      type: 'error'
+    };
+    
+    setMessages(prev => [...prev, tempMessage]);
+    
+    setTimeout(() => {
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+    }, 3000);
+  };
 
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
@@ -245,12 +490,33 @@ function AIChat({ markdownContent, apiBaseUrl }) {
     }]);
     
     try {
+      // 获取选中文件的内容
+      let combinedDocument = markdownContent || "";
+      
+      if (selectedFiles.size > 0) {
+        const fileContents = [];
+        for (const filename of selectedFiles) {
+          try {
+            const encodedFilename = encodeURIComponent(filename);
+            const response = await axios.get(
+              `${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`,
+              { responseType: 'text' }
+            );
+            fileContents.push(`\n\n=== ${filename} ===\n${response.data}`);
+          } catch (error) {
+            console.error(`Failed to fetch ${filename}:`, error);
+            fileContents.push(`\n\n=== ${filename} (加载失败) ===\n[文件内容加载失败]`);
+          }
+        }
+        combinedDocument += fileContents.join('\n');
+      }
+      
       const chatApiUrl = `${apiBaseUrl}/api/chat`;
       console.log("Sending chat request to:", chatApiUrl);
       
       const payload = {
         messages: [...messages, userMessage],
-        document: markdownContent || "No document provided.",
+        document: combinedDocument || "No document provided.",
         model: selectedModel,
         language: 'zh'
       };
@@ -498,49 +764,236 @@ function AIChat({ markdownContent, apiBaseUrl }) {
   }, []);
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow overflow-hidden">
-      {/* 顶部模型选择栏 */}
-      <div className="p-3 border-b flex items-center bg-gradient-to-r from-blue-50 to-indigo-50">
-        <span className="text-sm font-medium text-gray-700 mr-2">选择AI模型:</span>
-        <select 
-          value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
-          className="select select-sm select-bordered focus:ring-2 focus:ring-blue-500 transition-all"
-          disabled={isLoading || isStreaming}
-        >
-          {availableModels.map(model => (
-            <option key={model.id} value={model.id}>
-              {model.name}
-            </option>
-          ))}
-        </select>
-        
-        {/* 调试开关 - 默认隐藏，按住Alt+D显示 */}
-        <button 
-          className="ml-2 px-2 py-1 text-xs rounded-md bg-gray-100 text-gray-400 hover:bg-gray-200"
-          title="按Alt+D开关调试信息"
-          onClick={() => setShowDebug(!showDebug)}
-          style={{ opacity: 0.3 }}
-        >
-          {showDebug ? "隐藏调试" : "显示调试"}
-        </button>
-        
-        <div className="ml-auto flex items-center">
-          {(isLoading || isStreaming) ? (
-            <div className="flex items-center text-xs text-indigo-600">
-              <span className="loading loading-dots loading-xs mr-1"></span>
-              {isStreaming ? "正在生成..." : "处理中..."}
+    <div className="flex flex-col h-full bg-white rounded-lg shadow overflow-hidden relative aichat-container">
+      {/* 顶部模型选择栏 - 增强版 */}
+      <div className="p-3 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">AI模型:</span>
+            <select 
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="select select-sm select-bordered focus:ring-2 focus:ring-blue-500 transition-all"
+              disabled={isLoading || isStreaming}
+            >
+              {availableModels.map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {/* 紧凑的文档添加按钮 */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setShowFileDropdown(!showFileDropdown)}
+                className={`relative p-2 rounded-full transition-all ${
+                  selectedFiles.size > 0 
+                    ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-md' 
+                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                }`}
+                title={`添加文档 (已选${selectedFiles.size}个)`}
+                disabled={isLoading || isStreaming}
+              >
+                {loadingFiles ? (
+                  <span className="loading loading-spinner loading-xs"></span>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                )}
+                
+                {/* 文档数量指示器 */}
+                {selectedFiles.size > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
+                    {selectedFiles.size}
+                  </span>
+                )}
+              </button>
+              
+              {/* 文档选择下拉菜单 */}
+              {showFileDropdown && (
+                <div className="absolute top-full right-0 mt-1 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 aichat-dropdown">
+                  <div className="p-3 border-b border-gray-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">选择文档</span>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={selectAllFiles}
+                          className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                          disabled={availableFiles.length === 0}
+                        >
+                          全选
+                        </button>
+                        <button
+                          onClick={clearAllFiles}
+                          className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                          disabled={selectedFiles.size === 0}
+                        >
+                          清空
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {availableFiles.length > 0 ? `共 ${availableFiles.length} 个文档可选` : '未找到文档'}
+                    </div>
+                  </div>
+                  
+                  <div className="max-h-64 overflow-y-auto">
+                    {availableFiles.length > 0 ? (
+                      availableFiles.map(filename => (
+                        <div 
+                          key={filename} 
+                          className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer"
+                          onClick={() => toggleFileSelection(filename)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedFiles.has(filename)}
+                            onChange={() => {}} // 通过父div的onClick处理
+                            className="checkbox checkbox-sm checkbox-primary"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-900 truncate" title={filename}>
+                              {filename}
+                            </div>
+                            {fileTokenCounts[filename] !== undefined && (
+                              <div className="text-xs text-gray-500">
+                                ~{formatTokenCount(fileTokenCounts[filename])} tokens
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center text-gray-500 text-sm py-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mx-auto mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <div>没有找到markdown文件</div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          或从右侧工作区拖拽文档到此处
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="flex items-center">
-              <div className="w-2 h-2 rounded-full bg-green-500 mr-1"></div>
-              <span className="text-xs text-gray-600">
-                {`${availableModels.find(m => m.id === selectedModel)?.name || selectedModel}`}
-              </span>
-            </div>
-          )}
+            
+            {/* 调试开关 */}
+            <button 
+              className="px-2 py-1 text-xs rounded-md bg-gray-100 text-gray-400 hover:bg-gray-200"
+              title="按Alt+D开关调试信息"
+              onClick={() => setShowDebug(!showDebug)}
+              style={{ opacity: 0.3 }}
+            >
+              {showDebug ? "隐藏调试" : "显示调试"}
+            </button>
+          </div>
+        </div>
+        
+        {/* 状态显示 */}
+        <div className="flex items-center justify-between text-xs mt-2">
+          <div className="text-gray-500">
+            {selectedFiles.size > 0 && (
+              <span>已选择 {selectedFiles.size} 个文档作为上下文</span>
+            )}
+          </div>
+          <div className="flex items-center">
+            {(isLoading || isStreaming) ? (
+              <div className="flex items-center text-indigo-600">
+                <span className="loading loading-dots loading-xs mr-1"></span>
+                {isStreaming ? "正在生成..." : "处理中..."}
+              </div>
+            ) : (
+              <div className="flex items-center">
+                <div className="w-2 h-2 rounded-full bg-green-500 mr-1"></div>
+                <span className="text-gray-600">
+                  {availableModels.find(m => m.id === selectedModel)?.name || selectedModel}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+      
+      {/* 已选择文档展示区域 */}
+      {selectedFiles.size > 0 && (
+        <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
+          <div className="flex items-center gap-2 mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span className="text-sm font-medium text-gray-700">
+              已选择 {selectedFiles.size} 个文档作为上下文
+            </span>
+            <span className="text-xs text-gray-500">
+              (总计 ~{formatTokenCount(Array.from(selectedFiles).reduce((sum, filename) => sum + (fileTokenCounts[filename] || 0), 0))} tokens)
+            </span>
+          </div>
+          
+          {/* 文档标签列表 */}
+          <div className="flex flex-wrap gap-2 max-h-20 overflow-y-auto">
+            {Array.from(selectedFiles).map(filename => (
+              <div 
+                key={filename} 
+                className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-sm group hover:bg-blue-200 transition-colors aichat-file-tag"
+              >
+                <span className="truncate max-w-32" title={filename}>
+                  {filename}
+                </span>
+                <span className="text-xs opacity-75">
+                  ~{formatTokenCount(fileTokenCounts[filename] || 0)}
+                </span>
+                <button
+                  onClick={() => removeFile(filename)}
+                  className="ml-1 text-blue-600 hover:text-blue-800 hover:bg-blue-300 rounded-full p-0.5 opacity-70 group-hover:opacity-100 transition-all"
+                  title={`移除 ${filename}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* 拖拽覆盖层 - 改进版 */}
+      {isDragOver && (
+        <div 
+          className="absolute inset-0 bg-blue-500 bg-opacity-15 backdrop-blur-sm z-50 flex items-center justify-center"
+          onClick={() => {
+            setIsDragOver(false);
+            setDragCounter(0);
+          }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl p-8 border-2 border-blue-500 border-dashed transform scale-105 transition-all duration-200 ease-out">
+            <div className="text-center">
+              <div className="relative">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 text-blue-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <div className="absolute -top-2 -right-2 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-blue-700 mb-2">
+                释放以添加文档
+              </div>
+              <div className="text-sm text-blue-600 max-w-xs">
+                文档将自动添加到对话上下文中
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* 调试信息面板 - 默认隐藏 */}
       {showDebug && debugInfo && (
@@ -572,60 +1025,121 @@ function AIChat({ markdownContent, apiBaseUrl }) {
         </div>
       )}
       
-      {/* 聊天消息区 */}
+      {/* 聊天消息区 - 添加拖拽事件 */}
       <div 
-        ref={chatContainerRef}
-        className="flex-grow overflow-y-auto p-4 space-y-4"
-        style={{
-          backgroundColor: '#ffffff'
+        ref={(el) => {
+          chatContainerRef.current = el;
+          chatAreaRef.current = el;
         }}
+        className="flex-grow overflow-y-auto p-4 space-y-4 relative"
+        style={{ backgroundColor: '#ffffff' }}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
       >
-        {messages.filter(msg => msg.role !== 'system').map((msg, index) => (
+        {messages.filter(msg => msg.role !== 'system' || msg.isTemporary).map((msg, index) => (
           <div 
             key={msg.id || index} 
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} ${
+              msg.isTemporary ? 'animate-pulse' : ''
+            }`}
           >
-            {/* AI icon for assistant messages */}
-            {msg.role === 'assistant' && (
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center mr-2 mt-1">
-                <span className="text-xs font-medium text-gray-600">AI</span>
+            {/* 系统消息样式 */}
+            {msg.role === 'system' && msg.isTemporary && (
+              <div className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 ${
+                msg.type === 'success' 
+                  ? 'bg-green-100 text-green-800' 
+                  : msg.type === 'error'
+                  ? 'bg-red-100 text-red-800'
+                  : 'bg-blue-100 text-blue-800'
+              }`}>
+                {msg.type === 'success' ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : msg.type === 'error' ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
+                {msg.content}
               </div>
             )}
             
-            <div 
-              className={`relative max-w-3xl ${msg.role === 'user' ? 'text-right' : ''}`}
-              style={{
-                minWidth: msg.role === 'assistant' ? '280px' : 'auto'
-              }}
-            >
-              {/* 角色标识 - 只为助手消息显示名称 */}
-              {msg.role === 'assistant' && (
-                <div className="text-xs font-medium mb-1 text-gray-600 flex items-center">
-                  <span>Ai助手</span>
-                  {isStreaming && msg.isPlaceholder && (
-                    <span className="ml-2 inline-flex items-center">
-                      <span className="loading loading-dots loading-xs text-blue-500"></span>
-                    </span>
-                  )}
+            {/* AI助手消息 */}
+            {msg.role === 'assistant' && (
+              <>
+                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center mr-2 mt-1">
+                  <span className="text-xs font-medium text-gray-600">AI</span>
                 </div>
-              )}
-              
-              {/* 消息内容 - 使用新的渲染函数 */}
-              <div className={`markdown-content break-words ${msg.role === 'user' ? 'text-right' : ''}`}>
-                {renderMessageContent(msg, msg.role === 'user')}
+                <div 
+                  className="relative max-w-3xl"
+                  style={{ minWidth: '280px' }}
+                >
+                  {/* 角色标识 */}
+                  <div className="text-xs font-medium mb-1 text-gray-600 flex items-center">
+                    <span>Ai助手</span>
+                    {isStreaming && msg.isPlaceholder && (
+                      <span className="ml-2 inline-flex items-center">
+                        <span className="loading loading-dots loading-xs text-blue-500"></span>
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* 消息内容 */}
+                  <div className="markdown-content break-words">
+                    {renderMessageContent(msg, false)}
+                  </div>
+                </div>
+              </>
+            )}
+            
+            {/* 用户消息 */}
+            {msg.role === 'user' && (
+              <div className="relative max-w-3xl text-right">
+                <div className="inline-block bg-blue-500 text-white px-4 py-2 rounded-lg">
+                  <div className="markdown-content break-words">
+                    {renderMessageContent(msg, true)}
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         ))}
         
-        {/* 如果没有消息，显示欢迎信息 */}
-        {messages.filter(msg => msg.role !== 'system').length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full">
-            <div className="text-lg font-semibold text-gray-400">
-              欢迎使用AI对话助手
-            </div>
-            <div className="text-sm text-gray-400 mt-2 text-center">
-              请在下方输入您的问题或指令
+        {/* 增强的欢迎信息 */}
+        {messages.filter(msg => msg.role !== 'system' || msg.isTemporary).length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <div className="max-w-md">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <div className="text-xl font-semibold text-gray-400 mb-2">
+                欢迎使用AI对话助手
+              </div>
+              <div className="text-sm text-gray-400 space-y-1">
+                <div>请在下方输入您的问题或指令</div>
+                <div className="flex items-center justify-center gap-2 mt-3">
+                  <div className="flex items-center gap-1 text-blue-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    <span className="text-xs">点击加号添加文档</span>
+                  </div>
+                  <span className="text-gray-300">或</span>
+                  <div className="flex items-center gap-1 text-green-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                    </svg>
+                    <span className="text-xs">拖拽文档到此处</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}

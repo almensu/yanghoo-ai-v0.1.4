@@ -36,18 +36,33 @@ class ChatResponse(BaseModel):
     content: str
     model_used: str
 
+# 提示词设置
 @router.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, api_key: str = Depends(get_openai_api_key)):
     try:
         logger.info(f"Received chat request for model: {request.model}")
         
         system_prompt_content = f'''
-        You are a helpful AI assistant. Please respond in Chinese.
-        The user is asking questions about the following document content. Base your answers on this document:
-        --- DOCUMENT START ---
-        {request.document[:500]}... (truncated for log)
-        --- DOCUMENT END ---
-        Keep your answers concise and directly related to the document.
+        你是一个专业的文档分析师和内容解读专家。请仔细分析提供的文档内容，并根据用户的问题提供详细、准确的回答。
+
+        ## 分析任务指导：
+        1. **仔细阅读文档**：理解文档的完整内容和上下文
+        2. **深度分析**：不仅要回答直接信息，也要进行合理的推理和分析
+        3. **详细回答**：提供丰富的细节和背景信息
+        4. **多角度思考**：从不同维度分析问题
+        5. **如果信息不足**：明确说明缺失的信息，并建议可能的补充方向
+
+        ## 文档内容：
+        --- 文档开始 ---
+        {request.document}
+        --- 文档结束 ---
+
+        ## 回答要求：
+        - 使用中文回答
+        - 提供详细的分析和解释
+        - 引用具体的文档内容支持你的回答
+        - 如果文档中没有直接答案，请分析可能的原因并提供相关建议
+        - 回答要有逻辑性和结构性
         '''
         
         # Prepare messages for API
@@ -105,8 +120,9 @@ async def process_openai_request(model: str, messages: List[Dict], api_key: str)
         chat_completion = client.chat.completions.create(
             model=model_to_use,
             messages=messages,
-            temperature=0.7,
-            max_tokens=7000 if "deepseek" in model_to_use else 32768,  # DeepSeek API accepts max 8192 tokens
+            temperature=0.8,  # 稍微提高创造性
+            max_tokens=8000 if "deepseek" in model_to_use else 32768,  # 增加DeepSeek的token限制
+            top_p=0.95,  # 添加top_p参数提高回答质量
         )
         
         assistant_reply = chat_completion.choices[0].message.content
@@ -138,7 +154,10 @@ async def process_ollama_request(model: str, messages: List[Dict], base_url: str
             "messages": messages,
             "stream": False,  # 修改为False，使用非流式响应
             "options": {
-                "temperature": 0.7
+                "temperature": 0.8,  # 稍微提高创造性
+                "top_p": 0.95,  # 添加top_p参数
+                "num_ctx": 8192,  # 增加上下文长度
+                "num_predict": 2048  # 增加预测长度
             }
         }
         

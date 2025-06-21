@@ -12,6 +12,7 @@ import { estimateTokenCount, formatTokenCount, getTokenCountColorClass } from '.
 function MarkdownList({ files, selectedFile, onSelectFile, taskUuid, apiBaseUrl }) {
   const [fileTokenCounts, setFileTokenCounts] = useState({});
   const [loadingTokenCounts, setLoadingTokenCounts] = useState(false);
+  const [draggedFile, setDraggedFile] = useState(null);
 
   // Fetch token counts for all files
   useEffect(() => {
@@ -53,6 +54,55 @@ function MarkdownList({ files, selectedFile, onSelectFile, taskUuid, apiBaseUrl 
     fetchTokenCounts();
   }, [files, taskUuid, apiBaseUrl]);
 
+  const handleDragStart = (e, filename) => {
+    setDraggedFile(filename);
+    
+    // 构造稳定的拖拽数据
+    const dragData = {
+      filename,
+      taskUuid,
+      tokenCount: fileTokenCounts[filename] || 0,
+      timestamp: Date.now()
+    };
+    
+    // 设置多种格式的拖拽数据以提高兼容性
+    e.dataTransfer.setData('text/plain', filename);
+    e.dataTransfer.setData('application/markdown-file', JSON.stringify(dragData));
+    e.dataTransfer.setData('application/json', JSON.stringify(dragData));
+    e.dataTransfer.effectAllowed = 'copy';
+    
+    // 创建自定义拖拽图片
+    const dragImage = document.createElement('div');
+    dragImage.className = 'drag-ghost';
+    dragImage.style.cssText = `
+      position: absolute;
+      top: -1000px;
+      left: -1000px;
+      padding: 8px 12px;
+      background: #3b82f6;
+      color: white;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+    `;
+    dragImage.textContent = `📄 ${filename}`;
+    document.body.appendChild(dragImage);
+    
+    // 设置拖拽图片
+    e.dataTransfer.setDragImage(dragImage, 10, 10);
+    
+    // 延迟清理拖拽图片
+    setTimeout(() => {
+      document.body.removeChild(dragImage);
+    }, 0);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedFile(null);
+  };
+
   if (!files || files.length === 0) {
     return (
       <div className="border-t border-gray-200 pt-4">
@@ -69,25 +119,47 @@ function MarkdownList({ files, selectedFile, onSelectFile, taskUuid, apiBaseUrl 
         {loadingTokenCounts && (
           <span className="loading loading-spinner loading-xs"></span>
         )}
+        <span className="text-xs text-gray-500 font-normal">
+          (可拖拽到AI对话区)
+        </span>
       </h4>
       <ul className="list-none pl-0 space-y-1">
         {files.map(filename => {
           const tokenCount = fileTokenCounts[filename];
           const hasTokenCount = tokenCount !== undefined;
+          const isDragging = draggedFile === filename;
           
           return (
             <li key={filename}>
               <button 
                 onClick={() => onSelectFile(filename)}
-                className={`text-sm text-left w-full px-2 py-2 rounded border transition-colors ${ 
+                draggable={true}
+                onDragStart={(e) => handleDragStart(e, filename)}
+                onDragEnd={handleDragEnd}
+                className={`text-sm text-left w-full px-2 py-2 rounded border transition-colors relative cursor-move ${
                   selectedFile === filename 
                     ? 'bg-primary text-primary-content font-semibold border-primary' 
                     : 'hover:bg-base-200 border-transparent hover:border-gray-200'
+                } ${
+                  isDragging ? 'opacity-50 scale-95' : ''
                 }`}
+                title={`点击选择 • 拖拽到AI对话区添加 • ${filename}`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="truncate flex-1" title={filename}>
-                    {filename}
+                  <div className="flex items-center gap-2 truncate flex-1">
+                    {/* 拖拽图标 */}
+                    <svg 
+                      xmlns="http://www.w3.org/2000/svg" 
+                      className="h-3 w-3 text-gray-400 flex-shrink-0" 
+                      fill="none" 
+                      viewBox="0 0 24 24" 
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                    </svg>
+                    <div className="truncate" title={filename}>
+                      {filename}
+                    </div>
                   </div>
                   {hasTokenCount && (
                     <div className="flex items-center gap-1 flex-shrink-0">
@@ -105,6 +177,11 @@ function MarkdownList({ files, selectedFile, onSelectFile, taskUuid, apiBaseUrl 
                     </div>
                   )}
                 </div>
+                
+                {/* 拖拽状态指示 */}
+                {isDragging && (
+                  <div className="absolute inset-0 bg-blue-500 bg-opacity-20 rounded border-2 border-blue-500 border-dashed"></div>
+                )}
               </button>
             </li>
           );
