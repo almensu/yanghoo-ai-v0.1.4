@@ -28,13 +28,11 @@ const MarkdownViewer = ({ markdownContent, videoRef, className = '' }) => {
     }
   }, [videoRef]);
 
-  // 定期检查视频引用是否有效
+  // 只在 videoRef.current 变化时检查
   useEffect(() => {
-    console.log('[MD-VIEWER] 设置视频引用检查定时器');
+    console.log('[MD-VIEWER] videoRef.current 发生变化，重新检查视频引用');
     checkVideoRef();
-    const interval = setInterval(checkVideoRef, 2000);
-    return () => clearInterval(interval);
-  }, [checkVideoRef, videoRef]);
+  }, [videoRef, checkVideoRef, videoRef?.current]);
 
   // 组件加载时检查视频引用
   useEffect(() => {

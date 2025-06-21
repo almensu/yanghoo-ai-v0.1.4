@@ -32,6 +32,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   const [showFileDropdown, setShowFileDropdown] = useState(false);
   const [fileTokenCounts, setFileTokenCounts] = useState({});
   const [loadingFiles, setLoadingFiles] = useState(false);
+  const [loadingFileContents, setLoadingFileContents] = useState(false); // 加载文件内容的状态
   const dropdownRef = useRef(null);
 
   // 拖拽相关状态
@@ -139,31 +140,27 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   // 修复的拖拽事件处理
   const handleDragEnter = (e) => {
     e.preventDefault();
-    
-    // 检查是否是markdown文件拖拽
-    if (e.dataTransfer.types.includes('application/markdown-file') || 
-        e.dataTransfer.types.includes('text/plain')) {
-      setDragCounter(prev => prev + 1);
+    e.stopPropagation();
+    // 检查是否包含文件类型，以避免在拖拽文本等时触发
+    if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('text/plain')) {
       setIsDragOver(true);
     }
   };
 
   const handleDragLeave = (e) => {
     e.preventDefault();
-    
-    setDragCounter(prev => {
-      const newCounter = prev - 1;
-      if (newCounter <= 0) {
-        setIsDragOver(false);
-        return 0;
-      }
-      return newCounter;
-    });
+    e.stopPropagation();
+    // 当鼠标离开整个组件时才隐藏覆盖层
+    if (e.currentTarget.contains(e.relatedTarget)) {
+      return;
+    }
+    setIsDragOver(false);
   };
 
   const handleDragOver = (e) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy'; // 显示为复制操作
   };
 
   const handleDrop = (e) => {
@@ -176,54 +173,58 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     console.log('拖拽drop事件触发');
     
     try {
-      // 尝试获取markdown文件数据
-      let markdownFileData = e.dataTransfer.getData('application/markdown-file');
-      console.log('获取到的拖拽数据:', markdownFileData);
+      // 简化数据读取，只使用最可靠的 text/plain 格式
+      const filename = e.dataTransfer.getData('text/plain');
+      console.log('从拖拽事件中获取的文件名:', filename);
       
-      // 如果没有专用数据，尝试从文本中解析
-      if (!markdownFileData) {
-        const textData = e.dataTransfer.getData('text/plain');
-        console.log('文本数据:', textData);
-        if (textData && textData.endsWith('.md')) {
-          // 简单构造文件信息
-          markdownFileData = JSON.stringify({
-            filename: textData,
-            taskUuid: taskUuid,
-            tokenCount: 0
-          });
-        }
-      }
-      
-      if (markdownFileData) {
-        const fileInfo = JSON.parse(markdownFileData);
-        const filename = fileInfo.filename;
-        console.log('解析出的文件名:', filename);
-        
-        if (filename) {
-          // 添加文件到选择列表
-          if (!selectedFiles.has(filename)) {
-            const newSelected = new Set(selectedFiles);
-            newSelected.add(filename);
-            setSelectedFiles(newSelected);
-            console.log('文件添加成功:', filename);
-            
-            // 显示成功提示
-            showDropSuccessMessage(filename);
-          } else {
-            console.log('文件已存在:', filename);
-            // 如果文件已存在，显示提示
-            showFileAlreadyAddedMessage(filename);
-          }
+      if (filename && filename.endsWith('.md')) {
+        // 添加文件到选择列表
+        if (!selectedFiles.has(filename)) {
+          const newSelected = new Set(selectedFiles);
+          newSelected.add(filename);
+          setSelectedFiles(newSelected);
+          console.log('文件添加成功:', filename);
+          
+          // 立即加载文件内容以验证
+          fetchFileContent(filename)
+            .then(content => {
+              console.log(`文件 ${filename} 内容加载成功，长度: ${content.length}`);
+              showDropSuccessMessage(`${filename} (${formatTokenCount(estimateTokenCount(content))} tokens)`);
+            })
+            .catch(err => {
+              console.error(`加载文件 ${filename} 内容失败:`, err);
+              showDropErrorMessage(`文件添加成功，但内容加载失败: ${filename}`);
+            });
+        } else {
+          console.log('文件已存在:', filename);
+          showFileAlreadyAddedMessage(filename);
         }
       } else {
         // 拖拽失败提示
-        console.warn('未识别到有效的markdown文件');
-        showDropErrorMessage('未识别到有效的markdown文件');
+        const message = filename 
+          ? `文件 "${filename}" 不是有效的Markdown文件。`
+          : '未识别到有效的Markdown文件，请确保拖拽的是.md文件';
+        console.warn(message);
+        showDropErrorMessage(message);
       }
     } catch (error) {
       console.error('处理拖拽文件失败:', error);
       showDropErrorMessage('拖拽处理失败，请重试');
     }
+  };
+  
+  // 获取文件内容的辅助函数
+  const fetchFileContent = async (filename) => {
+    if (!taskUuid || !apiBaseUrl) {
+      throw new Error('缺少taskUuid或apiBaseUrl');
+    }
+    
+    const encodedFilename = encodeURIComponent(filename);
+    const response = await axios.get(
+      `${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`,
+      { responseType: 'text' }
+    );
+    return response.data || '';
   };
 
   const showDropSuccessMessage = (filename) => {
@@ -493,22 +494,48 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       // 获取选中文件的内容
       let combinedDocument = markdownContent || "";
       
+      // 如果有选中的文件，加载它们的内容
       if (selectedFiles.size > 0) {
+        console.log(`开始加载 ${selectedFiles.size} 个选中文件的内容`);
+        setLoadingFileContents(true); // 设置加载状态
         const fileContents = [];
-        for (const filename of selectedFiles) {
+        
+        // 使用Promise.all并行加载所有文件内容
+        const loadPromises = Array.from(selectedFiles).map(async (filename) => {
           try {
-            const encodedFilename = encodeURIComponent(filename);
-            const response = await axios.get(
-              `${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`,
-              { responseType: 'text' }
-            );
-            fileContents.push(`\n\n=== ${filename} ===\n${response.data}`);
+            console.log(`开始加载文件: ${filename}`);
+            const content = await fetchFileContent(filename);
+            console.log(`文件 ${filename} 加载成功，内容长度: ${content.length}`);
+            return { 
+              filename, 
+              content,
+              success: true
+            };
           } catch (error) {
-            console.error(`Failed to fetch ${filename}:`, error);
-            fileContents.push(`\n\n=== ${filename} (加载失败) ===\n[文件内容加载失败]`);
+            console.error(`加载文件 ${filename} 失败:`, error);
+            return { 
+              filename, 
+              content: '[文件内容加载失败]',
+              success: false
+            };
           }
+        });
+        
+        // 等待所有文件加载完成
+        const results = await Promise.all(loadPromises);
+        
+        // 组合所有文件内容
+        for (const result of results) {
+          const { filename, content, success } = result;
+          const header = success 
+            ? `\n\n=== ${filename} ===\n` 
+            : `\n\n=== ${filename} (加载失败) ===\n`;
+          fileContents.push(header + content);
         }
+        
         combinedDocument += fileContents.join('\n');
+        console.log(`所有文件内容加载完成，总长度: ${combinedDocument.length}`);
+        setLoadingFileContents(false); // 重置加载状态
       }
       
       const chatApiUrl = `${apiBaseUrl}/api/chat`;
@@ -566,6 +593,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       }
     } catch (error) {
       console.error('聊天请求失败:', error.response ? error.response.data : error.message);
+      setLoadingFileContents(false); // 确保错误时也重置加载状态
       
       let errorMessage = '抱歉，发生了错误: ';
       
@@ -764,7 +792,13 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   }, []);
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow overflow-hidden relative aichat-container">
+    <div 
+      className="flex flex-col h-full bg-white rounded-lg shadow overflow-hidden relative aichat-container"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       {/* 顶部模型选择栏 - 增强版 */}
       <div className="p-3 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
         <div className="flex items-center justify-between">
@@ -899,7 +933,15 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         <div className="flex items-center justify-between text-xs mt-2">
           <div className="text-gray-500">
             {selectedFiles.size > 0 && (
-              <span>已选择 {selectedFiles.size} 个文档作为上下文</span>
+              <span>
+                  已选择 {selectedFiles.size} 个文档作为上下文
+                  {loadingFileContents && (
+                    <span className="inline-flex ml-2 items-center">
+                      <span className="loading loading-spinner loading-xs text-blue-500"></span>
+                      <span className="ml-1 text-xs text-blue-500">加载中...</span>
+                    </span>
+                  )}
+                </span>
             )}
           </div>
           <div className="flex items-center">
@@ -1025,7 +1067,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         </div>
       )}
       
-      {/* 聊天消息区 - 添加拖拽事件 */}
+      {/* 聊天消息区 - 移除拖拽事件 */}
       <div 
         ref={(el) => {
           chatContainerRef.current = el;
@@ -1033,10 +1075,6 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         }}
         className="flex-grow overflow-y-auto p-4 space-y-4 relative"
         style={{ backgroundColor: '#ffffff' }}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
       >
         {messages.filter(msg => msg.role !== 'system' || msg.isTemporary).map((msg, index) => (
           <div 
@@ -1162,11 +1200,11 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
             style={{ minHeight: '60px' }}
             disabled={isLoading || isStreaming}
           />
-          <button 
-            onClick={sendMessage} 
-            className="btn btn-primary h-12 w-12 rounded-full shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center"
-            disabled={isLoading || isStreaming || !inputText.trim()}
-          >
+                            <button 
+                    onClick={sendMessage} 
+                    className="btn btn-primary h-12 w-12 rounded-full shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center"
+                    disabled={isLoading || isStreaming || !inputText.trim() || loadingFileContents}
+                  >
             {isLoading || isStreaming ? (
               <span className="loading loading-spinner loading-sm"></span>
             ) : (

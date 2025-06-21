@@ -56,46 +56,30 @@ function MarkdownList({ files, selectedFile, onSelectFile, taskUuid, apiBaseUrl 
 
   const handleDragStart = (e, filename) => {
     setDraggedFile(filename);
+    const safeFilename = String(filename);
+    console.log(`开始拖拽文件: ${safeFilename}`);
     
-    // 构造稳定的拖拽数据
-    const dragData = {
-      filename,
-      taskUuid,
-      tokenCount: fileTokenCounts[filename] || 0,
-      timestamp: Date.now()
-    };
-    
-    // 设置多种格式的拖拽数据以提高兼容性
-    e.dataTransfer.setData('text/plain', filename);
-    e.dataTransfer.setData('application/markdown-file', JSON.stringify(dragData));
-    e.dataTransfer.setData('application/json', JSON.stringify(dragData));
+    // 简化数据设置，只使用最可靠的 text/plain 格式
+    e.dataTransfer.setData('text/plain', safeFilename);
     e.dataTransfer.effectAllowed = 'copy';
     
-    // 创建自定义拖拽图片
+    // 创建自定义拖拽图片 (保持UI友好)
     const dragImage = document.createElement('div');
     dragImage.className = 'drag-ghost';
     dragImage.style.cssText = `
-      position: absolute;
-      top: -1000px;
-      left: -1000px;
-      padding: 8px 12px;
-      background: #3b82f6;
-      color: white;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 1000;
+      position: absolute; top: -1000px; left: -1000px;
+      padding: 8px 12px; background: #3b82f6; color: white;
+      border-radius: 8px; font-size: 14px; font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000;
     `;
-    dragImage.textContent = `📄 ${filename}`;
+    dragImage.textContent = `📄 ${safeFilename}`;
     document.body.appendChild(dragImage);
-    
-    // 设置拖拽图片
     e.dataTransfer.setDragImage(dragImage, 10, 10);
     
-    // 延迟清理拖拽图片
     setTimeout(() => {
-      document.body.removeChild(dragImage);
+      if (dragImage.parentNode) {
+        document.body.removeChild(dragImage);
+      }
     }, 0);
   };
 
