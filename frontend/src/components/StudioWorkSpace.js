@@ -249,6 +249,57 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
     setCurrentMarkdownContent(newContent);
   };
 
+  const handleCopyContent = async (contentToCopy = null) => {
+    const content = contentToCopy || currentMarkdownContent;
+    console.log('handleCopyContent called');
+    console.log('Content to copy (first 100 chars):', content?.substring(0, 100));
+    console.log('Content length:', content?.length || 0);
+    
+    if (!content || content.trim() === '') {
+      console.warn('No content to copy');
+      alert('没有内容可以复制');
+      return;
+    }
+    
+    try {
+      // Check if clipboard API is available
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(content);
+        console.log('Content copied to clipboard successfully');
+        alert('内容已复制到剪贴板');
+      } else {
+        throw new Error('Clipboard API not available, using fallback');
+      }
+    } catch (err) {
+      console.error('Primary copy method failed:', err);
+      
+      // Fallback method
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = content;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        if (successful) {
+          console.log('Content copied to clipboard (fallback method)');
+          alert('内容已复制到剪贴板 (兼容模式)');
+        } else {
+          throw new Error('execCommand copy failed');
+        }
+      } catch (fallbackErr) {
+        console.error('Fallback copy method also failed:', fallbackErr);
+        alert('复制失败，请手动选择并复制内容');
+      }
+    }
+  };
+
   return (
     <div className={`flex flex-col bg-white rounded-lg shadow overflow-hidden ${isExpanded ? 'absolute right-0 z-10 w-[50%] h-full top-0 left-[50%]' : 'flex-1 min-w-0'} transition-all duration-300 ease-in-out`}>
       <div className={`flex justify-between items-center border-b border-gray-300 flex-shrink-0 sticky top-0 bg-white z-20 ${isExpanded ? 'p-2' : 'p-4 pb-2'}`}>
@@ -352,7 +403,17 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
               </div>
             ) : selectedFile ? (
               <div>
-                <div className="flex justify-end mb-2">
+                <div className="flex justify-end mb-2 gap-2">
+                  <button
+                    onClick={() => handleCopyContent()}
+                    className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
+                    title="Copy content to clipboard"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copy
+                  </button>
                   <button
                     onClick={() => setIsEditing(true)}
                     className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
@@ -380,7 +441,19 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
               <p className="text-gray-500 text-sm italic">Select a markdown file above to view its content.</p>
             ) : markdownContent ? (
               <div>
-                <p className="text-xs text-gray-500 mb-2 italic">Displaying default markdown content:</p>
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-xs text-gray-500 italic">Displaying default markdown content:</p>
+                  <button
+                    onClick={() => handleCopyContent(markdownContent)}
+                    className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
+                    title="Copy content to clipboard"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copy
+                  </button>
+                </div>
                 {hasTimestamps && videoRef ? (
                   <MarkdownWithTimestamps
                     key="default-content-timestamps"
