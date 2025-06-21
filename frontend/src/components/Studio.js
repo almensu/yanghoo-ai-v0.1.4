@@ -879,6 +879,9 @@ function Studio({ taskUuid, apiBaseUrl }) {
     maxGapForMerge: 0.5,
     minTextLengthForShort: 10
   });
+  
+  // --- Subtitle optimization panel state ---
+  const [showOptimizationSettings, setShowOptimizationSettings] = useState(false);
 
   // --- Data Fetching Effect (数据获取 Effect - 修改以重置 Blob URL) ---
   useEffect(() => {
@@ -1561,6 +1564,28 @@ function Studio({ taskUuid, apiBaseUrl }) {
       .map(cue => ({ start: cue.startTime, end: cue.endTime }))
       .sort((a, b) => a.start - b.start);
 
+    // 检测连续片段并给用户提示
+    const detectContinuousSegments = (segments) => {
+      if (segments.length <= 1) return { isContinuous: true, gaps: [] };
+      
+      const gaps = [];
+      for (let i = 1; i < segments.length; i++) {
+        const gap = segments[i].start - segments[i-1].end;
+        gaps.push(gap);
+      }
+      
+      const maxGap = Math.max(...gaps);
+      const isContinuous = maxGap <= 2.0; // 与后端的max_gap保持一致
+      
+      return { isContinuous, gaps, maxGap };
+    };
+
+    const { isContinuous, maxGap } = detectContinuousSegments(segmentsToKeep);
+    
+    if (isContinuous && segmentsToKeep.length > 1) {
+      logger.info(`检测到连续片段 (最大间隔: ${maxGap?.toFixed(2)}s)，将自动合并以获得更流畅的输出`);
+    }
+
     // Determine subtitle embedding language based on current displayLang in 'cut' mode
     let subtitleLangToEmbed = 'none'; // Default to no subtitles
     let subtitleType = 'vtt'; // Default to VTT
@@ -1862,6 +1887,17 @@ function Studio({ taskUuid, apiBaseUrl }) {
                       </button>
                   </div>
                   
+                  {/* Subtitle Optimization Settings Toggle - NEW */}
+                  {vttMode === 'preview' && (
+                    <button
+                      className={`btn btn-xs btn-ghost ${showOptimizationSettings ? 'btn-active' : ''}`}
+                      onClick={() => setShowOptimizationSettings(!showOptimizationSettings)}
+                      title="字幕优化设置"
+                    >
+                      ⚙️
+                    </button>
+                  )}
+                  
                   {/* Cutting Mode Indicator - RETAIN THIS */}
                   {vttMode === 'cut' && (
                     <div className="ml-2 px-2 py-1 text-xs rounded-full bg-blue-500 text-white">
@@ -1900,6 +1936,95 @@ function Studio({ taskUuid, apiBaseUrl }) {
                 </button>
                 <div className="ml-auto text-xs text-gray-600">
                   已选择: <span className="font-semibold text-accent">{selectedCueIds.size}</span> / {displayedCues.length}
+                </div>
+              </div>
+            )}
+
+            {/* Subtitle Optimization Settings Panel - Collapsible */}
+            {vttMode === 'preview' && showOptimizationSettings && (
+              <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                <div className="space-y-3">
+                  {/* Enable/Disable Toggle */}
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs text-gray-600">启用优化</label>
+                    <input
+                      type="checkbox"
+                      className="toggle toggle-sm toggle-primary"
+                      checked={subtitleOptimization.enabled}
+                      onChange={(e) => setSubtitleOptimization(prev => ({
+                        ...prev,
+                        enabled: e.target.checked
+                      }))}
+                    />
+                  </div>
+
+                  {subtitleOptimization.enabled && (
+                    <>
+                      {/* Min Display Time */}
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-600">最小显示时间 (秒)</label>
+                        <input
+                          type="range"
+                          min="0.5"
+                          max="3"
+                          step="0.1"
+                          className="range range-primary range-xs"
+                          value={subtitleOptimization.minDisplayTime}
+                          onChange={(e) => setSubtitleOptimization(prev => ({
+                            ...prev,
+                            minDisplayTime: parseFloat(e.target.value)
+                          }))}
+                        />
+                        <div className="text-xs text-gray-500 text-center">
+                          {subtitleOptimization.minDisplayTime}s
+                        </div>
+                      </div>
+
+                      {/* Max Gap for Merge */}
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-600">最大合并间隔 (秒)</label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          className="range range-primary range-xs"
+                          value={subtitleOptimization.maxGapForMerge}
+                          onChange={(e) => setSubtitleOptimization(prev => ({
+                            ...prev,
+                            maxGapForMerge: parseFloat(e.target.value)
+                          }))}
+                        />
+                        <div className="text-xs text-gray-500 text-center">
+                          {subtitleOptimization.maxGapForMerge}s
+                        </div>
+                      </div>
+
+                      {/* Min Text Length for Short */}
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-600">短句字符数阈值</label>
+                        <input
+                          type="range"
+                          min="5"
+                          max="30"
+                          step="1"
+                          className="range range-primary range-xs"
+                          value={subtitleOptimization.minTextLengthForShort}
+                          onChange={(e) => setSubtitleOptimization(prev => ({
+                            ...prev,
+                            minTextLengthForShort: parseInt(e.target.value)
+                          }))}
+                        />
+                        <div className="text-xs text-gray-500 text-center">
+                          {subtitleOptimization.minTextLengthForShort} 字符
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-gray-500 p-2 bg-white rounded border">
+                        💡 短于阈值的句子会被延长显示时间或与相邻句子合并
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -1948,6 +2073,31 @@ function Studio({ taskUuid, apiBaseUrl }) {
             {/* Cutting Controls Section (Only in Cut Mode AND if VttPreviewer is NOT in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
             {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
               <div className="p-4 border-t border-gray-200 flex-shrink-0 space-y-3">
+                {/* 连续片段检测提示 */}
+                {selectedCueIds.size > 1 && (() => {
+                  const segments = Array.from(selectedCueIds)
+                    .map(id => displayedCues.find(cue => cue.id === id))
+                    .filter(Boolean)
+                    .map(cue => ({ start: cue.startTime, end: cue.endTime }))
+                    .sort((a, b) => a.start - b.start);
+                  
+                  const gaps = [];
+                  for (let i = 1; i < segments.length; i++) {
+                    gaps.push(segments[i].start - segments[i-1].end);
+                  }
+                  const maxGap = Math.max(...gaps);
+                  const isContinuous = maxGap <= 2.0;
+                  
+                  return (
+                    <div className={`text-xs p-2 rounded-md ${isContinuous ? 'bg-success/20 text-success' : 'bg-warning/20 text-warning'}`}>
+                      {isContinuous ? 
+                        `✓ 检测到连续片段，将自动合并 (最大间隔: ${maxGap.toFixed(2)}s)` :
+                        `⚠ 片段不连续，将分别截取后拼接 (最大间隔: ${maxGap.toFixed(2)}s)`
+                      }
+                    </div>
+                  );
+                })()}
+
                 <div className="flex items-center gap-3">
                   <select 
                     className="select select-bordered select-sm"
@@ -2039,95 +2189,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
 
         {/* --- Right Column (StudioWorkSpace) --- */}
         <div className="flex flex-col w-1/4 flex-shrink-0 gap-4 overflow-auto custom-scrollbar">
-          {/* Subtitle Optimization Settings Panel */}
-          <div className="bg-white p-4 rounded-lg shadow">
-            <h3 className="text-sm font-semibold mb-3 border-b border-gray-200 pb-2">字幕优化设置</h3>
-            
-            <div className="space-y-3">
-              {/* Enable/Disable Toggle */}
-              <div className="flex items-center justify-between">
-                <label className="text-xs text-gray-600">启用优化</label>
-                <input
-                  type="checkbox"
-                  className="toggle toggle-sm toggle-primary"
-                  checked={subtitleOptimization.enabled}
-                  onChange={(e) => setSubtitleOptimization(prev => ({
-                    ...prev,
-                    enabled: e.target.checked
-                  }))}
-                />
-              </div>
-
-              {subtitleOptimization.enabled && (
-                <>
-                  {/* Min Display Time */}
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-600">最小显示时间 (秒)</label>
-                    <input
-                      type="range"
-                      min="0.5"
-                      max="3"
-                      step="0.1"
-                      className="range range-primary range-xs"
-                      value={subtitleOptimization.minDisplayTime}
-                      onChange={(e) => setSubtitleOptimization(prev => ({
-                        ...prev,
-                        minDisplayTime: parseFloat(e.target.value)
-                      }))}
-                    />
-                    <div className="text-xs text-gray-500 text-center">
-                      {subtitleOptimization.minDisplayTime}s
-                    </div>
-                  </div>
-
-                  {/* Max Gap for Merge */}
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-600">最大合并间隔 (秒)</label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      className="range range-primary range-xs"
-                      value={subtitleOptimization.maxGapForMerge}
-                      onChange={(e) => setSubtitleOptimization(prev => ({
-                        ...prev,
-                        maxGapForMerge: parseFloat(e.target.value)
-                      }))}
-                    />
-                    <div className="text-xs text-gray-500 text-center">
-                      {subtitleOptimization.maxGapForMerge}s
-                    </div>
-                  </div>
-
-                  {/* Min Text Length for Short */}
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-600">短句字符数阈值</label>
-                    <input
-                      type="range"
-                      min="5"
-                      max="30"
-                      step="1"
-                      className="range range-primary range-xs"
-                      value={subtitleOptimization.minTextLengthForShort}
-                      onChange={(e) => setSubtitleOptimization(prev => ({
-                        ...prev,
-                        minTextLengthForShort: parseInt(e.target.value)
-                      }))}
-                    />
-                    <div className="text-xs text-gray-500 text-center">
-                      {subtitleOptimization.minTextLengthForShort} 字符
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-gray-500 mt-2 p-2 bg-gray-50 rounded">
-                    💡 短于阈值的句子会被延长显示时间或与相邻句子合并
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
           <StudioWorkSpace 
             taskUuid={taskUuid} 
             apiBaseUrl={apiBaseUrl} 

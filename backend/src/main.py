@@ -1395,7 +1395,22 @@ def run_ffmpeg_cut(
     output_format: str = 'video',
     subtitle_type: str = 'vtt'  # Add subtitle type parameter
 ):
-    """Runs the ffmpeg cut command in the background, potentially embedding subtitles."""
+    """
+    Execute video cutting with FFmpeg using optimized continuous segment merging
+    """
+    logger.info(f"[Job {job_id}] Starting FFmpeg cut operation")
+    logger.info(f"[Job {job_id}] Input: {input_path}")
+    logger.info(f"[Job {job_id}] Output: {output_path}")
+    logger.info(f"[Job {job_id}] Original segments count: {len(segments)}")
+    logger.info(f"[Job {job_id}] Output format: {output_format}")
+    
+    # 合并连续片段，避免断断续续的拼接
+    merged_segments = merge_continuous_segments(segments, max_gap=2.0)
+    logger.info(f"[Job {job_id}] After merging continuous segments: {len(merged_segments)} segments")
+    
+    # 使用合并后的片段继续处理
+    segments = merged_segments
+    
     global cut_job_statuses
     logger.info(f"[Job {job_id}] Starting ffmpeg cut for {task_uuid_str} (Embed: {embed_subtitle_lang}, Format: {output_format})")
     cut_job_statuses[job_id]["status"] = "processing"
@@ -1897,23 +1912,136 @@ def run_ffmpeg_cut(
                     logger.warning(f"[Job {job_id}] No source VTT file available for conversion ('{embed_subtitle_lang}'). Proceeding without subtitles.")
                     subtitle_filter = None
 
-            # --- 准备视频剪切过程 - 更平滑的解决方案 ---
-            # 使用简化的concat方式，避免复杂的filter_complex问题
-            temp_segment_files = []
+            # --- 准备视频剪切过程 - 优化连续片段处理 ---
+            valid_segments = [seg for seg in segments if seg['end'] > seg['start']]
+            if not valid_segments:
+                raise ValueError("No valid segments found after filtering.")
             
             # 创建隐藏的临时目录
             temp_dir = output_path.parent / ".temp"
             temp_dir.mkdir(exist_ok=True)
             temp_files_to_clean.append(temp_dir)
             
+            # 如果只有一个连续片段，直接使用简单的FFmpeg命令
+            if len(valid_segments) == 1:
+                seg = valid_segments[0]
+                start_time = seg['start']
+                duration = seg['end'] - seg['start']
+                
+                logger.info(f"[Job {job_id}] Single continuous segment detected: {start_time:.2f}s - {seg['end']:.2f}s (duration: {duration:.2f}s)")
+                
+                if output_format == 'wav':
+                    # 直接提取WAV音频片段
+                    direct_cmd = [
+                        "ffmpeg", "-v", "info",
+                        "-ss", str(start_time),
+                        "-t", str(duration),
+                        "-i", str(input_path),
+                        "-acodec", "pcm_s16le",
+                        "-ar", "16000",
+                        "-ac", "1",
+                        "-y", str(output_path)
+                    ]
+                else:
+                    # 直接提取视频片段
+                    if subtitle_filter:
+                        # 带字幕的视频
+                        direct_cmd = [
+                            "ffmpeg", "-v", "info",
+                            "-ss", str(start_time),
+                            "-t", str(duration),
+                            "-i", str(input_path),
+                            "-vf", subtitle_filter,
+                            "-c:v", "libx264", "-preset", "fast",
+                            "-c:a", "aac",
+                            "-movflags", "+faststart",
+                            "-y", str(output_path)
+                        ]
+                    else:
+                        # 无字幕的视频
+                        direct_cmd = [
+                            "ffmpeg", "-v", "info",
+                            "-ss", str(start_time),
+                            "-t", str(duration),
+                            "-i", str(input_path),
+                            "-c:v", "libx264", "-preset", "fast",
+                            "-c:a", "aac",
+                            "-movflags", "+faststart",
+                            "-y", str(output_path)
+                        ]
+                
+                logger.info(f"[Job {job_id}] Running direct extraction command: {' '.join(shlex.quote(str(c)) for c in direct_cmd)}")
+                
+                # 执行直接提取
+                direct_process = subprocess.run(
+                    direct_cmd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    encoding='utf-8'
+                )
+                
+                if direct_process.returncode == 0:
+                    logger.info(f"[Job {job_id}] Direct extraction completed successfully")
+                    output_files["main_output"] = str(output_path.relative_to(DATA_DIR))
+                    
+                    # 为单个连续片段创建调整后的字幕文件（仅对视频格式）
+                    if output_format == 'video' and embed_subtitle_lang and embed_subtitle_lang != 'none':
+                        # 查找可用的VTT文件用于创建调整后的字幕
+                        available_vtt_path = None
+                        
+                        en_vtt_rel = vtt_files.get('en')
+                        zh_vtt_rel = vtt_files.get('zh-Hans')
+                        
+                        en_vtt_abs = DATA_DIR / en_vtt_rel if en_vtt_rel and (DATA_DIR / en_vtt_rel).exists() else None
+                        zh_vtt_abs = DATA_DIR / zh_vtt_rel if zh_vtt_rel and (DATA_DIR / zh_vtt_rel).exists() else None
+                        
+                        if embed_subtitle_lang == 'en' and en_vtt_abs:
+                            available_vtt_path = en_vtt_abs
+                        elif embed_subtitle_lang == 'zh-Hans' and zh_vtt_abs:
+                            available_vtt_path = zh_vtt_abs
+                        elif embed_subtitle_lang == 'bilingual' and (en_vtt_abs or zh_vtt_abs):
+                            # 对于双语，优先使用英文，然后中文
+                            available_vtt_path = en_vtt_abs or zh_vtt_abs
+                        elif en_vtt_abs:
+                            # 如果没有匹配的语言，使用任何可用的VTT
+                            available_vtt_path = en_vtt_abs
+                        elif zh_vtt_abs:
+                            available_vtt_path = zh_vtt_abs
+                        
+                        if available_vtt_path:
+                            create_adjusted_subtitle_for_single_segment(
+                                available_vtt_path, 
+                                temp_dir, 
+                                output_path, 
+                                seg, 
+                                job_id, 
+                                output_files, 
+                                temp_files_to_clean
+                            )
+                            logger.info(f"[Job {job_id}] Created adjusted subtitle file for single segment using: {available_vtt_path}")
+                        else:
+                            logger.info(f"[Job {job_id}] No VTT files available for creating adjusted subtitles")
+                    
+                    # 完成处理
+                    cut_job_statuses[job_id]["status"] = "completed"
+                    cut_job_statuses[job_id]["message"] = f"Single segment extraction completed successfully"
+                    cut_job_statuses[job_id]["output_path"] = str(output_path.relative_to(DATA_DIR))
+                    cut_job_statuses[job_id]["output_files"] = output_files
+                    return
+                else:
+                    error_message = f"Direct extraction failed. Error: {direct_process.stderr}"
+                    logger.error(f"[Job {job_id}] {error_message}")
+                    cut_job_statuses[job_id]["status"] = "failed"
+                    cut_job_statuses[job_id]["message"] = error_message
+                    return
+            
+            # 多个片段的情况，使用原有的分段拼接逻辑
+            logger.info(f"[Job {job_id}] Multiple segments detected, using concatenation approach")
+            temp_segment_files = []
             segments_file_path = temp_dir / f"segments_{job_id}.txt"
             temp_files_to_clean.append(segments_file_path)
             
-            # 创建片段列表文件
-            valid_segments = [seg for seg in segments if seg['end'] > seg['start']]
-            if not valid_segments:
-                raise ValueError("No valid segments found after filtering.")
-                
             # 为每个片段创建临时文件
             with open(segments_file_path, 'w') as f:
                 for i, seg in enumerate(valid_segments):
@@ -3093,6 +3221,128 @@ async def get_ass_file(task_uuid: UUID, lang_code: str):
     filename = Path(ass_rel_path_str).name 
     return FileResponse(path=ass_abs_path, filename=filename, media_type='text/plain')
 # --- END: ASS Processing Endpoints ---
+
+def merge_continuous_segments(segments: List[Dict], max_gap: float = 2.0) -> List[Dict]:
+    """
+    合并连续或接近连续的片段，避免断断续续的拼接
+    max_gap: 最大允许的间隔时间（秒），小于此值的间隔会被合并
+    """
+    if not segments:
+        return []
+    
+    # 按开始时间排序
+    sorted_segments = sorted(segments, key=lambda x: x['start'])
+    merged_segments = []
+    
+    current_start = sorted_segments[0]['start']
+    current_end = sorted_segments[0]['end']
+    
+    for i in range(1, len(sorted_segments)):
+        seg = sorted_segments[i]
+        gap = seg['start'] - current_end
+        
+        # 如果间隔小于max_gap，合并片段
+        if gap <= max_gap:
+            current_end = max(current_end, seg['end'])
+        else:
+            # 保存当前合并的片段
+            merged_segments.append({
+                'start': current_start,
+                'end': current_end
+            })
+            # 开始新的片段
+            current_start = seg['start']
+            current_end = seg['end']
+    
+    # 添加最后一个片段
+    merged_segments.append({
+        'start': current_start,
+        'end': current_end
+    })
+    
+    logger.info(f"合并连续片段: {len(segments)} -> {len(merged_segments)} 个片段")
+    for i, seg in enumerate(merged_segments):
+        duration = seg['end'] - seg['start']
+        logger.info(f"  片段 {i+1}: {seg['start']:.2f}s - {seg['end']:.2f}s (时长: {duration:.2f}s)")
+    
+    return merged_segments
+
+def create_adjusted_subtitle_for_single_segment(
+    source_vtt_path: Path, 
+    temp_dir: Path, 
+    output_path: Path, 
+    segment: Dict, 
+    job_id: str, 
+    output_files: Dict, 
+    temp_files_to_clean: List
+):
+    """为单个连续片段创建调整后的字幕文件"""
+    try:
+        import webvtt
+        
+        # 创建调整后的VTT文件
+        output_vtt_filename = f"{output_path.stem}.vtt"
+        output_vtt_path = temp_dir / output_vtt_filename
+        
+        # 读取源VTT
+        vtt_obj = webvtt.read(str(source_vtt_path))
+        adjusted_vtt_content = "WEBVTT\n\n"
+        processed_count = 0
+        
+        segment_start = segment['start']
+        segment_end = segment['end']
+        
+        # 调整每个字幕的时间
+        for caption in vtt_obj.captions:
+            caption_start_s = caption.start_in_seconds
+            caption_end_s = caption.end_in_seconds
+            caption_text = caption.text.strip()
+            
+            if not caption_text:
+                continue
+            
+            # 检查字幕是否在片段范围内
+            if caption_start_s >= segment_end or caption_end_s <= segment_start:
+                continue  # 字幕不在片段范围内
+            
+            # 计算调整后的时间（相对于片段开始时间）
+            adjusted_start = max(0, caption_start_s - segment_start)
+            adjusted_end = min(segment_end - segment_start, caption_end_s - segment_start)
+            
+            # 确保时间有效
+            if adjusted_start >= adjusted_end:
+                continue
+            
+            # 格式化为VTT时间格式
+            def format_vtt_time(seconds):
+                hours = int(seconds // 3600)
+                minutes = int((seconds % 3600) // 60)
+                secs = int(seconds % 60)
+                msecs = int((seconds - int(seconds)) * 1000)
+                return f"{hours:02d}:{minutes:02d}:{secs:02d}.{msecs:03d}"
+            
+            start_str = format_vtt_time(adjusted_start)
+            end_str = format_vtt_time(adjusted_end)
+            
+            # 添加字幕到VTT内容
+            adjusted_vtt_content += f"{start_str} --> {end_str}\n{caption_text}\n\n"
+            processed_count += 1
+        
+        # 保存调整后的VTT
+        with open(output_vtt_path, 'w', encoding='utf-8') as vtt_file:
+            vtt_file.write(adjusted_vtt_content)
+        
+        # 添加到临时文件列表中进行清理
+        temp_files_to_clean.append(output_vtt_path)
+        
+        logger.info(f"[Job {job_id}] Created adjusted VTT file for single segment with {processed_count} captions: {output_vtt_path}")
+        
+        # 保存VTT文件路径以在响应中返回
+        subtitle_vtt_path = str(output_vtt_path.relative_to(DATA_DIR))
+        output_files["subtitle_vtt"] = subtitle_vtt_path
+        
+    except Exception as e:
+        logger.error(f"[Job {job_id}] Error creating adjusted subtitle for single segment: {e}", exc_info=True)
 
 if __name__ == "__main__":
     import uvicorn
