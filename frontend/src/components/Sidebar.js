@@ -1,9 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List, Youtube } from 'lucide-react'; // Added Youtube icon
 
 function Sidebar() {
-  const [isExpanded, setIsExpanded] = useState(true); // Sidebar starts expanded
+  // Use localStorage to persist sidebar state across page navigation
+  const [isExpanded, setIsExpanded] = useState(() => {
+    // Get saved state from localStorage or default to false (collapsed)
+    const savedState = localStorage.getItem('sidebarExpanded');
+    return savedState !== null ? JSON.parse(savedState) : false;
+  });
+
+  // Save sidebar state to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('sidebarExpanded', JSON.stringify(isExpanded));
+  }, [isExpanded]);
 
   const toggleSidebar = () => {
     setIsExpanded(!isExpanded);
