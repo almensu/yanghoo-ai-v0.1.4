@@ -283,11 +283,13 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
           {error && <p className="text-sm text-red-500">Error: {error}</p>}
           
           {!isLoadingList && !isCreatingNew && (
-            <MarkdownList 
-              files={markdownFiles} 
-              selectedFile={selectedFile}
-              onSelectFile={handleSelectFile} 
-            />
+                      <MarkdownList
+            files={markdownFiles}
+            selectedFile={selectedFile}
+            onSelectFile={handleSelectFile}
+            taskUuid={taskUuid}
+            apiBaseUrl={apiBaseUrl}
+          />
           )}
 
           {isCreatingNew && (

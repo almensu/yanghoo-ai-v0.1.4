@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import MarkdownWithTimestamps from "./MarkdownWithTimestamps";
+import { estimateTokenCount, formatTokenCount, getTokenCountColorClass } from "../utils/tokenUtils";
 import "./markdown.css"; // 保留自定义 markdown 样式
 
 // Props:
@@ -10,6 +11,9 @@ import "./markdown.css"; // 保留自定义 markdown 样式
 const MarkdownViewer = ({ markdownContent, videoRef, className = '' }) => {
   // 状态跟踪视频引用是否有效
   const [isVideoRefValid, setIsVideoRefValid] = useState(false);
+  
+  // Calculate token count for the current content
+  const tokenCount = estimateTokenCount(markdownContent || '');
 
   // 检查视频引用是否有效并可用的函数
   const checkVideoRef = useCallback(() => {
@@ -125,6 +129,16 @@ const MarkdownViewer = ({ markdownContent, videoRef, className = '' }) => {
   
   return (
     <div className={`markdown-viewer overflow-auto ${className}`}>
+      {/* Token count display */}
+      {tokenCount > 0 && (
+        <div className="flex items-center justify-between mb-2 p-2 bg-gray-50 rounded-lg text-sm">
+          <span className="text-gray-600">当前文档 Token 数量:</span>
+          <span className={`font-medium px-2 py-1 rounded-full bg-white ${getTokenCountColorClass(tokenCount)}`}>
+            {formatTokenCount(tokenCount)} tokens
+          </span>
+        </div>
+      )}
+      
       {/* 使用 MarkdownWithTimestamps 替换原来的 ReactMarkdown */}
       <MarkdownWithTimestamps
         markdownContent={markdownContent}
