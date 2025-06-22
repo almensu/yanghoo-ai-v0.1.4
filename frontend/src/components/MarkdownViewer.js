@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import MarkdownWithTimestamps from "./MarkdownWithTimestamps";
 import { estimateTokenCount, formatTokenCount, getTokenCountColorClass } from "../utils/tokenUtils";
+import { timeToSeconds } from "../utils/timestampUtils";
 import "./markdown.css"; // 保留自定义 markdown 样式
 
 // Props:
@@ -40,7 +41,7 @@ const MarkdownViewer = ({ markdownContent, videoRef, className = '' }) => {
     checkVideoRef();
   }, [videoRef, markdownContent, checkVideoRef]);
 
-  // 修改：自定义时间戳点击处理函数，实现完整的视频跳转功能
+  // 修改：自定义时间戳点击处理函数，调用VideoPlayer的seekToTimestamp方法
   const handleTimestampClick = useCallback((timeStr) => {
     console.log(`[MD-VIEWER] 时间戳被点击: "${timeStr}" (这条消息来自MarkdownViewer组件)`);
     console.log('[MD-VIEWER] videoRef at time of click:', videoRef?.current);
@@ -48,51 +49,70 @@ const MarkdownViewer = ({ markdownContent, videoRef, className = '' }) => {
     // 确保视频引用有效
     if (!videoRef?.current) {
       console.warn("[MD-VIEWER] 视频引用无效，无法跳转到时间戳");
-      return;
+      return false;
     }
     
     try {
-      // 转换时间戳为秒
-      const parts = timeStr.split(':');
-      let hours = 0, minutes = 0, seconds = 0;
-      
-      if (parts.length === 3) {
-        // HH:MM:SS 或 HH:MM:SS.mmm 格式
-        [hours, minutes, seconds] = parts;
-      } else if (parts.length === 2) {
-        // MM:SS 或 MM:SS.mmm 格式
-        [minutes, seconds] = parts;
-      } else if (parts.length === 1) {
-        // 只有秒数，可能带毫秒
-        seconds = parts[0];
+      // 首先检查是否存在seekToTimestamp方法 (支持YouTube和本地视频)
+      if (typeof videoRef.current.seekToTimestamp === 'function') {
+        console.log(`[MD-VIEWER] 使用VideoPlayer的seekToTimestamp方法跳转到: ${timeStr}`);
+        const result = videoRef.current.seekToTimestamp(timeStr);
+        console.log(`[MD-VIEWER] seekToTimestamp返回结果:`, result);
+        return result;
+      } 
+      // 检查是否videoRef.current有video子属性且有seekToTimestamp方法
+      else if (videoRef.current.video && typeof videoRef.current.video.seekToTimestamp === 'function') {
+        console.log(`[MD-VIEWER] 使用video.seekToTimestamp跳转到: ${timeStr}`);
+        const result = videoRef.current.video.seekToTimestamp(timeStr);
+        console.log(`[MD-VIEWER] video.seekToTimestamp返回结果:`, result);
+        return result;
       }
-      
-      // 处理毫秒部分
-      let milliseconds = 0;
-      if (String(seconds).includes('.')) {
-        const secParts = String(seconds).split('.');
-        seconds = secParts[0];
-        milliseconds = secParts[1] || 0;
-        milliseconds = Number(`0.${milliseconds}`);
+      // 回退到直接操作HTML video元素 (兼容旧代码)
+      else if (videoRef.current instanceof HTMLVideoElement) {
+        console.log(`[MD-VIEWER] 回退到直接操作video元素: ${timeStr}`);
+        const timeInSeconds = timeToSeconds(timeStr);
+        console.log(`[MD-VIEWER] 正在将视频跳转到: ${timeStr} (${timeInSeconds}秒)`);
+        
+        videoRef.current.currentTime = timeInSeconds;
+        console.log(`[MD-VIEWER] 已设置视频时间为 ${timeInSeconds} 秒`);
+        
+        // 点击时间戳后尝试播放视频
+        if (videoRef.current.paused) {
+          videoRef.current.play()
+            .then(() => console.log('[MD-VIEWER] 时间戳点击后视频开始播放'))
+            .catch(err => console.error("[MD-VIEWER] 无法自动播放视频:", err));
+        } else {
+          console.log('[MD-VIEWER] 视频已经在播放中，不需要重新开始播放');
+        }
+        return true;
       }
-      
-      const timeInSeconds = Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds) + milliseconds;
-      console.log(`[MD-VIEWER] 正在将视频跳转到: ${timeStr} (${timeInSeconds}秒)`);
-      
-      // 设置视频当前时间并尝试播放
-      videoRef.current.currentTime = timeInSeconds;
-      console.log(`[MD-VIEWER] 已设置视频时间为 ${timeInSeconds} 秒`);
-      
-      // 点击时间戳后尝试播放视频
-      if (videoRef.current.paused) {
-        videoRef.current.play()
-          .then(() => console.log('[MD-VIEWER] 时间戳点击后视频开始播放'))
-          .catch(err => console.error("[MD-VIEWER] 无法自动播放视频:", err));
-      } else {
-        console.log('[MD-VIEWER] 视频已经在播放中，不需要重新开始播放');
+      // 如果是包装后的video引用，尝试访问其video属性
+      else if (videoRef.current.video && videoRef.current.video instanceof HTMLVideoElement) {
+        console.log(`[MD-VIEWER] 回退到操作包装的video元素: ${timeStr}`);
+        const timeInSeconds = timeToSeconds(timeStr);
+        console.log(`[MD-VIEWER] 正在将包装的视频跳转到: ${timeStr} (${timeInSeconds}秒)`);
+        
+        videoRef.current.video.currentTime = timeInSeconds;
+        console.log(`[MD-VIEWER] 已设置包装的视频时间为 ${timeInSeconds} 秒`);
+        
+        if (videoRef.current.video.paused) {
+          videoRef.current.video.play()
+            .then(() => console.log('[MD-VIEWER] 包装的视频开始播放'))
+            .catch(err => console.error("[MD-VIEWER] 无法自动播放包装的视频:", err));
+        }
+        return true;
+      }
+      else {
+        console.error("[MD-VIEWER] 无法识别的视频引用格式，无法跳转");
+        console.error("  videoRef.current:", videoRef.current);
+        console.error("  typeof videoRef.current:", typeof videoRef.current);
+        console.error("  videoRef.current.seekToTimestamp:", videoRef.current?.seekToTimestamp);
+        console.error("  videoRef.current.video:", videoRef.current?.video);
+        return false;
       }
     } catch (error) {
       console.error("[MD-VIEWER] 处理时间戳点击时出错:", error);
+      return false;
     }
   }, [videoRef]);
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import './markdown.css'; // 保留自定义 markdown 样式
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -26,6 +26,12 @@ const MarkdownWithTimestamps = ({
   const [isVideoAvailable, setIsVideoAvailable] = useState(false);
   // 添加点击历史记录状态，用于显示最近点击的时间戳
   const [lastClickedTimestamp, setLastClickedTimestamp] = useState(null);
+  // 容器引用
+  const containerRef = useRef(null);
+  // 用ref保存handleTimestampClick的最新引用，避免闭包问题
+  const handleTimestampClickRef = useRef(null);
+  // 独立的ref存储占位符映射
+  const placeholderMapRef = useRef(new Map());
   
   // 定期检查视频引用
   useEffect(() => {
@@ -51,6 +57,9 @@ const MarkdownWithTimestamps = ({
   // 默认的时间戳点击处理函数
   const defaultHandleTimestampClick = useCallback((timeStr) => {
     console.log(`[MarkdownWithTimestamps] 默认处理时间戳点击: ${timeStr}`);
+    console.log(`[MarkdownWithTimestamps] videoRef:`, videoRef);
+    console.log(`[MarkdownWithTimestamps] videoRef.current:`, videoRef?.current);
+    
     if (!videoRef?.current) {
       console.warn("[MarkdownWithTimestamps] 视频引用无效，无法跳转到时间戳");
       return false;
@@ -63,9 +72,13 @@ const MarkdownWithTimestamps = ({
         console.log(`[MarkdownWithTimestamps] 使用seekToTimestamp跳转到: ${timeStr}`);
         
         // 标准化时间戳格式
+        console.log(`[MarkdownWithTimestamps] 原始时间戳 (标准化前): "${timeStr}"`);
         const normalizedTimestamp = normalizeTimestamp(timeStr);
-        videoRef.current.seekToTimestamp(normalizedTimestamp);
-        console.log(`[MarkdownWithTimestamps] 时间戳已标准化: ${timeStr} -> ${normalizedTimestamp}`);
+        console.log(`[MarkdownWithTimestamps] 时间戳已标准化: "${timeStr}" -> "${normalizedTimestamp}"`);
+        
+        // 调用VideoPlayer的seekToTimestamp方法
+        const result = videoRef.current.seekToTimestamp(normalizedTimestamp);
+        console.log(`[MarkdownWithTimestamps] seekToTimestamp返回结果:`, result);
         
         // 记录最近点击的时间戳
         setLastClickedTimestamp(timeStr);
@@ -75,7 +88,8 @@ const MarkdownWithTimestamps = ({
         console.log(`[MarkdownWithTimestamps] 使用video.seekToTimestamp跳转到: ${timeStr}`);
         
         const normalizedTimestamp = normalizeTimestamp(timeStr);
-        videoRef.current.video.seekToTimestamp(normalizedTimestamp);
+        const result = videoRef.current.video.seekToTimestamp(normalizedTimestamp);
+        console.log(`[MarkdownWithTimestamps] video.seekToTimestamp返回结果:`, result);
         console.log(`[MarkdownWithTimestamps] 时间戳已标准化: ${timeStr} -> ${normalizedTimestamp}`);
         
         setLastClickedTimestamp(timeStr);
@@ -88,9 +102,14 @@ const MarkdownWithTimestamps = ({
         console.log(`[MarkdownWithTimestamps] 回退方法: 跳转到时间点: ${timeStr} (${seconds}秒)`);
         
         videoRef.current.video.currentTime = seconds;
-        videoRef.current.video.play().catch(err => 
-          console.error("[MarkdownWithTimestamps] 自动播放失败:", err)
-        );
+        console.log(`[MarkdownWithTimestamps] 已设置video.currentTime为 ${seconds} 秒`);
+        
+        // 尝试播放
+        if (videoRef.current.video.paused) {
+          videoRef.current.video.play()
+            .then(() => console.log('[MarkdownWithTimestamps] 视频已开始播放'))
+            .catch(err => console.error("[MarkdownWithTimestamps] 自动播放失败:", err));
+        }
         
         setLastClickedTimestamp(timeStr);
         return true;
@@ -112,12 +131,31 @@ const MarkdownWithTimestamps = ({
         setLastClickedTimestamp(timeStr);
         return true;
       } else {
-        // 找不到合适的视频控制方法
-        console.error("[MarkdownWithTimestamps] 无法识别的视频引用格式:", videoRef.current);
+        // 找不到合适的视频控制方法 - 添加更详细的调试信息
+        console.error("[MarkdownWithTimestamps] 无法识别的视频引用格式:");
+        console.error("  videoRef.current:", videoRef.current);
+        console.error("  typeof videoRef.current:", typeof videoRef.current);
+        console.error("  videoRef.current.seekToTimestamp:", videoRef.current?.seekToTimestamp);
+        console.error("  videoRef.current.video:", videoRef.current?.video);
+        
+        // 尝试强制调用seekToTimestamp，即使类型检查失败
+        if (videoRef.current && videoRef.current.seekToTimestamp) {
+          console.log("[MarkdownWithTimestamps] 强制尝试调用seekToTimestamp");
+          try {
+            const normalizedTimestamp = normalizeTimestamp(timeStr);
+            videoRef.current.seekToTimestamp(normalizedTimestamp);
+            setLastClickedTimestamp(timeStr);
+            return true;
+          } catch (forceError) {
+            console.error("[MarkdownWithTimestamps] 强制调用也失败:", forceError);
+          }
+        }
+        
         return false;
       }
     } catch (error) {
       console.error("[MarkdownWithTimestamps] 处理时间戳点击时出错:", error);
+      console.error("  错误堆栈:", error.stack);
       return false;
     }
   }, [videoRef]);
@@ -126,16 +164,6 @@ const MarkdownWithTimestamps = ({
   const handleTimestampClick = useCallback((timeStr) => {
     console.log(`[MarkdownWithTimestamps] 处理时间戳点击: ${timeStr}`);
     console.log(`[MarkdownWithTimestamps] 将使用${onTimestampClick ? '自定义' : '默认'}处理函数`);
-    
-    // 添加点击的视觉反馈 - 移到这里处理，确保无论使用哪种处理函数都会有反馈
-    const buttons = document.querySelectorAll('.timestamp-btn');
-    buttons.forEach(button => {
-      button.classList.remove('bg-blue-300', 'active-timestamp');
-      if (button.dataset.time === timeStr) {
-        button.classList.add('bg-blue-300', 'active-timestamp');
-        setTimeout(() => button.classList.remove('bg-blue-300'), 1000);
-      }
-    });
     
     // 执行时间戳处理逻辑
     let success = false;
@@ -152,118 +180,205 @@ const MarkdownWithTimestamps = ({
     return success;
   }, [onTimestampClick, defaultHandleTimestampClick, videoRef]);
 
-  // 预处理Markdown内容，将时间戳转换为HTML按钮
+  // 更新ref中的函数引用
+  useEffect(() => {
+    handleTimestampClickRef.current = handleTimestampClick;
+  }, [handleTimestampClick]);
+
+  // 预处理Markdown内容，将时间戳转换为占位符
   const processedContent = useMemo(() => {
     console.log('[MarkdownWithTimestamps] Received markdownContent:', markdownContent);
     if (!markdownContent) return '';
     
-    const inlineStyle = `
-      display: inline-flex; 
-      align-items: center; 
-      padding: 2px 6px; 
-      margin: 2px; 
-      border-radius: 4px; 
-      background-color: #dbeafe; 
-      color: #1e40af; 
-      font-weight: 500; 
-      font-size: 0.875rem; 
-      cursor: pointer;
-      border: none;
-      transition: all 0.2s;
-    `;
-    
-    // Define default styling classes separately from the functional 'timestamp-btn' class
-    const defaultStylingClasses = 'inline-flex items-center px-1.5 py-0.5 my-0.5 mx-0.5 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium';
-    // Construct the final button class string: always include 'timestamp-btn', then add custom or default styling
-    const finalButtonClass = `timestamp-btn ${timestampClassName || defaultStylingClasses}`;
-    
     let processed = markdownContent;
     console.log("[DEBUG] 开始处理Markdown内容中的时间戳");
     
-    // 添加对时间戳格式的全面支持
-
-    // 0. 处理时间范围格式 (HH:MM:SS - HH:MM:SS) or [HH:MM:SS - HH:MM:SS]
-    // The button will display the full range, but data-time will be the start time.
-    const timeRegexPartForRange = '\\d{1,2}:\\d{2}:\\d{2}(?:\\.\\d+)?'; // HH:MM:SS or H:MM:SS, optional .ms
-    const timeRangeRegex = new RegExp(`(?:\\(|\\[)(${timeRegexPartForRange})\\s*-\\s*${timeRegexPartForRange}(?:\\)|\\])`, 'g');
-    processed = processed.replace(
-      timeRangeRegex,
-      (match, startTime) => { // startTime is the first captured group (the start HH:MM:SS)
-        console.log(`[DEBUG] 匹配时间范围: ${match}, 将使用开始时间: ${startTime}`);
-        return `<button class="${finalButtonClass}" style="${inlineStyle}" data-time="${startTime}" type="button">⏱️ ${match}</button>`;
+    // 简化的时间戳匹配策略 - 使用更安全的占位符格式
+    // 定义常用时间戳格式，按优先级排序
+    const timestampPatterns = [
+      // 1. 完整时间戳格式 HH:MM:SS
+      {
+        name: '完整时间戳-方括号',
+        regex: /\[(\d{1,2}:\d{1,2}:\d{1,2}(?:\.\d+)?)\]/g,
+        handler: (match, time) => ({ time, display: match })
+      },
+      {
+        name: '完整时间戳-圆括号',
+        regex: /\((\d{1,2}:\d{1,2}:\d{1,2}(?:\.\d+)?)\)/g,
+        handler: (match, time) => ({ time, display: match })
+      },
+      
+      // 2. 短格式时间戳 MM:SS
+      {
+        name: '短格式时间戳-方括号',
+        regex: /\[(\d{1,2}:\d{1,2}(?:\.\d+)?)\]/g,
+        handler: (match, time) => ({ time, display: match })
+      },
+      {
+        name: '短格式时间戳-圆括号',
+        regex: /\((\d{1,2}:\d{1,2}(?:\.\d+)?)\)/g,
+        handler: (match, time) => ({ time, display: match })
       }
-    );
+    ];
     
-    // 1. 处理所有格式的HH:MM:SS时间戳（包括括号、中括号、带或不带毫秒）
-    // 匹配 [00:00:00], [00:00:00.000], (00:00:00), (00:00:00.000)
-    const fullTimeRegex = /(?:(?:\[|\()(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)(?:\]|\)))/g;
-    processed = processed.replace(
-      fullTimeRegex,
-      (match, timeStr) => {
-        console.log(`[DEBUG] 匹配完整时间戳: ${match} -> ${timeStr}`);
-        return `<button class="${finalButtonClass}" style="${inlineStyle}" data-time="${timeStr}" type="button">⏱️ ${timeStr}</button>`;
-      }
-    );
+    // 为每个匹配生成唯一ID，避免占位符冲突
+    let placeholderCounter = 0;
+    const placeholderMap = new Map();
     
-    // 2. 处理短格式MM:SS时间戳（包括括号、中括号、带或不带毫秒）
-    // 匹配 [MM:SS], [MM:SS.mmm], (MM:SS), (MM:SS.mmm)
-    const shortTimeRegex = /(?:(?:\[|\()(\d{1,2}:\d{2}(?:\.\d+)?)(?:\]|\)))/g;
-    processed = processed.replace(
-      shortTimeRegex,
-      (match, timeStr) => {
-        console.log(`[DEBUG] 匹配短格式时间戳: ${match} -> ${timeStr}`);
-        return `<button class="${finalButtonClass}" style="${inlineStyle}" data-time="${timeStr}" type="button">⏱️ ${timeStr}</button>`;
-      }
-    );
+    // 按顺序应用所有模式
+    timestampPatterns.forEach(pattern => {
+      processed = processed.replace(pattern.regex, (...args) => {
+        const match = args[0];
+        const result = pattern.handler(...args);
+        const placeholderId = `TIMESTAMP_${placeholderCounter++}`;
+        
+        // 存储占位符信息
+        placeholderMap.set(placeholderId, {
+          time: result.time,
+          display: result.display,
+          original: match
+        });
+        
+        console.log(`[DEBUG] 匹配${pattern.name}: ${match} -> time="${result.time}", display="${result.display}", id="${placeholderId}"`);
+        return `{{${placeholderId}}}`;
+      });
+    });
     
-    // 3. 处理转义的格式
-    // 匹配 \\\[00:00:00\\\], \\\[MM:SS\\\]
-    const escapedTimeRegex = /\\\\\\[((?:\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d+)?)\\\\\\]/g;
-    processed = processed.replace(
-      escapedTimeRegex,
-      (match, timeStr) => {
-        console.log(`[DEBUG] 匹配转义格式时间戳: ${match} -> ${timeStr}`);
-        return `<button class="${finalButtonClass}" style="${inlineStyle}" data-time="${timeStr}" type="button">⏱️ ${timeStr}</button>`;
-      }
-    );
+    console.log('[MarkdownWithTimestamps] Generated processedContent:', processed);
+    console.log('[MarkdownWithTimestamps] PlaceholderMap:', placeholderMap);
     
-    // 记录处理后的内容是否包含按钮
-    const hasButtons = processed.includes('class="timestamp-btn"');
-    console.log(`[DEBUG] 处理后的内容${hasButtons ? '包含' : '不包含'}时间戳按钮`);
-    console.log('[MarkdownWithTimestamps] Generated processedContent:', processed); // Log output
-    
-    // 转换为HTML保留原始的Markdown格式
-    // 注意：这里只使用最基本的markdown转HTML，仅为了测试
-    processed = processed
-      .replace(/\n\n/g, '<br><br>')
-      .replace(/\n/g, '<br>')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/# (.*?)$/gm, '<h1>$1</h1>')
-      .replace(/## (.*?)$/gm, '<h2>$1</h2>')
-      .replace(/### (.*?)$/gm, '<h3>$1</h3>');
+    // 将占位符映射存储到独立的ref中
+    placeholderMapRef.current = placeholderMap;
     
     return processed;
-  }, [markdownContent, timestampClassName]);
+  }, [markdownContent]);
 
-  // 处理直接点击事件
-  const handleDirectClick = useCallback((e) => {
-    console.log("[DEBUG] 容器点击事件被触发");
-    console.log("[DEBUG] e.target:", e.target); // Log the exact click target
-    const button = e.target.closest('.timestamp-btn');
-    if (button) {
-      console.log("[DEBUG] 直接点击处理 - 找到时间戳按钮:", button);
-      e.preventDefault();
-      const timeStr = button.dataset.time;
-      if (timeStr) {
-        console.log("[DEBUG] 直接点击处理 - 时间戳值:", timeStr);
-        console.log(`[DEBUG] 将调用 ${onTimestampClick ? '自定义' : '默认'}处理函数`);
-        handleTimestampClick(timeStr);
-      }
-    } else {
-      console.log("[DEBUG] 点击事件不是来自时间戳按钮");
+  // 在markdown渲染后，将占位符替换为实际的按钮
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const defaultStylingClasses = 'inline-flex items-center px-1.5 py-0.5 my-0.5 mx-0.5 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium cursor-pointer';
+    const finalButtonClass = `timestamp-btn ${timestampClassName || defaultStylingClasses}`;
+    
+    // 获取占位符映射
+    const placeholderMap = placeholderMapRef.current;
+    if (!placeholderMap || placeholderMap.size === 0) {
+      console.log('[DEBUG] 没有找到占位符映射或映射为空，跳过替换');
+      return;
     }
-  }, [handleTimestampClick, onTimestampClick]);
+    
+    // 查找所有的时间戳占位符并替换
+    const walker = document.createTreeWalker(
+      containerRef.current,
+      NodeFilter.SHOW_TEXT,
+      null,
+      false
+    );
+    
+    const textNodes = [];
+    let node;
+    while (node = walker.nextNode()) {
+      if (node.textContent.includes('{{TIMESTAMP_')) {
+        textNodes.push(node);
+      }
+    }
+    
+    textNodes.forEach(textNode => {
+      const text = textNode.textContent;
+      const regex = /\{\{(TIMESTAMP_\d+)\}\}/g;
+      
+      if (regex.test(text)) {
+        const parent = textNode.parentNode;
+        const newHTML = text.replace(
+          /\{\{(TIMESTAMP_\d+)\}\}/g,
+          (match, placeholderId) => {
+            const placeholderData = placeholderMap.get(placeholderId);
+            if (!placeholderData) {
+              console.error(`[DEBUG] 无法找到占位符数据: "${placeholderId}"`);
+              return match; // 返回原始内容
+            }
+            
+            const { time, display } = placeholderData;
+            console.log(`[DEBUG] 生成时间戳按钮: time="${time}", display="${display}", id="${placeholderId}"`);
+            return `<button class="${finalButtonClass}" data-time="${time}" type="button">⏱️ ${display}</button>`;
+          }
+        );
+        
+        const wrapper = document.createElement('span');
+        wrapper.innerHTML = newHTML;
+        
+        // 替换文本节点
+        parent.replaceChild(wrapper, textNode);
+      }
+    });
+    
+    // 添加点击事件监听器
+    const handleClick = (e) => {
+      console.log("[DEBUG] 时间戳按钮点击事件被触发");
+      console.log("[DEBUG] 事件目标:", e.target);
+      console.log("[DEBUG] 事件目标类名:", e.target.className);
+      
+      // 查找时间戳按钮 - 使用更宽松的选择器
+      const button = e.target.closest('.timestamp-btn') || e.target.closest('button[data-time]');
+      
+      if (button) {
+        console.log("[DEBUG] 找到时间戳按钮:", button);
+        console.log("[DEBUG] 按钮data-time属性:", button.dataset.time);
+        
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const timeStr = button.dataset.time;
+        if (timeStr) {
+          console.log("[DEBUG] 从按钮获取的原始时间戳值:", timeStr);
+          console.log("[DEBUG] 按钮的完整HTML:", button.outerHTML);
+          console.log("[DEBUG] handleTimestampClickRef.current:", handleTimestampClickRef.current);
+          
+          // 使用ref中的最新函数引用，避免闭包问题
+          if (handleTimestampClickRef.current) {
+            const result = handleTimestampClickRef.current(timeStr);
+            console.log("[DEBUG] 时间戳点击处理结果:", result);
+          } else {
+            console.error("[DEBUG] handleTimestampClickRef.current 为空");
+            // 备用处理 - 直接调用handleTimestampClick
+            if (typeof handleTimestampClick === 'function') {
+              console.log("[DEBUG] 使用备用方法调用handleTimestampClick");
+              const result = handleTimestampClick(timeStr);
+              console.log("[DEBUG] 备用方法处理结果:", result);
+            }
+          }
+        } else {
+          console.error("[DEBUG] 按钮没有data-time属性");
+        }
+      } else {
+        console.log("[DEBUG] 未找到时间戳按钮，点击的是:", e.target);
+        console.log("[DEBUG] 检查是否是按钮内的子元素...");
+        
+        // 检查是否点击了按钮内的子元素（如图标）
+        const parentButton = e.target.parentElement;
+        if (parentButton && (parentButton.classList.contains('timestamp-btn') || parentButton.hasAttribute('data-time'))) {
+          console.log("[DEBUG] 找到父级时间戳按钮:", parentButton);
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const timeStr = parentButton.dataset.time;
+          if (timeStr && handleTimestampClickRef.current) {
+            console.log("[DEBUG] 通过父级按钮处理时间戳:", timeStr);
+            const result = handleTimestampClickRef.current(timeStr);
+            console.log("[DEBUG] 父级按钮处理结果:", result);
+          }
+        }
+      }
+    };
+    
+    containerRef.current.addEventListener('click', handleClick);
+    
+    return () => {
+      if (containerRef.current) {
+        containerRef.current.removeEventListener('click', handleClick);
+      }
+    };
+  }, [processedContent, timestampClassName, placeholderMapRef.current]);
 
   if (!markdownContent) {
     return (
@@ -274,12 +389,25 @@ const MarkdownWithTimestamps = ({
   }
 
   return (
-    <div className={`markdown-timestamps-container markdown-body overflow-auto p-4 bg-base-100 rounded-lg shadow ${className}`}>
-      {/* 使用直接插入 HTML 的方式渲染 */}
-      <div 
-        dangerouslySetInnerHTML={{ __html: processedContent }} 
-        onClick={handleDirectClick}
-      />
+    <div className={`markdown-timestamps-container markdown-body overflow-auto p-4 bg-base-100 rounded-lg shadow ${className}`} ref={containerRef}>
+      {/* 使用 ReactMarkdown 正确渲染包括表格在内的所有 markdown 内容 */}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
+        components={{
+          table: ({ node, ...props }) => (
+            <table className="border-collapse w-full my-4" {...props} />
+          ),
+          th: ({ node, ...props }) => (
+            <th className="border border-gray-300 px-4 py-2 bg-gray-50 font-semibold text-left" {...props} />
+          ),
+          td: ({ node, ...props }) => (
+            <td className="border border-gray-300 px-4 py-2" {...props} />
+          ),
+        }}
+      >
+        {processedContent}
+      </ReactMarkdown>
       
       {!isVideoAvailable && videoRef && (
         <div className="text-xs text-amber-600 mt-2 p-1 bg-amber-50 rounded">
@@ -289,7 +417,7 @@ const MarkdownWithTimestamps = ({
       
       {lastClickedTimestamp && (
         <div className="text-xs text-green-600 mt-1 p-1 bg-green-50 rounded">
-          最近点击的时间戳: {lastClickedTimestamp}
+          最近点击的时间戳: {lastClickedTimestamp} ✅
         </div>
       )}
     </div>

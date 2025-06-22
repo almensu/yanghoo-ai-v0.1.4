@@ -1,5 +1,6 @@
 import React, { useEffect, forwardRef, useRef, useImperativeHandle, useState, useCallback } from 'react';
 import axios from 'axios';
+import { timeToSeconds } from '../utils/timestampUtils';
 
 // Custom CSS for subtitles - Updated to position subtitles at the red rectangle area with more specific selectors
 const subtitleStyles = `
@@ -266,6 +267,8 @@ const VideoPlayer = forwardRef(({
   const videoRef = useRef(null); // Ref for the <video> element itself
   const trackRef = useRef(null); // Ref to keep track of the added <track> element
   const [currentCueIndex, setCurrentCueIndex] = useState(-1); // Track current cue index
+  // 添加标记来防止时间戳跳转和字幕管理逻辑冲突
+  const isSeekingToTimestamp = useRef(false);
   // 添加ASS字幕相关状态
   const [assContent, setAssContent] = useState('');
   const [useAssRenderer, setUseAssRenderer] = useState(false);
@@ -403,6 +406,21 @@ const VideoPlayer = forwardRef(({
     }
   };
 
+  // 移动 shouldShowLocal 计算到这里，确保在方法中能正确访问
+  const getIsLocalVideo = () => {
+    const localVideoAvailable = Boolean(localVideoPath);
+    let localVideoSrc = null;
+    if (localVideoAvailable && apiBaseUrl && taskUuid) {
+      const base = apiBaseUrl.endsWith('/') ? apiBaseUrl.slice(0, -1) : apiBaseUrl;
+      let filename = localVideoPath;
+      if (filename.includes('/') && filename.split('/')[0].length === 36) {
+        filename = filename.substring(filename.indexOf('/') + 1);
+      }
+      localVideoSrc = `${base}/api/tasks/${taskUuid}/files/${filename}`;
+    }
+    return preferLocalVideo && !!localVideoSrc;
+  };
+
   // Allow parent component (Studio) to get the video element ref if needed (for VttPreviewer sync)
   useImperativeHandle(ref, () => ({
     // 直接暴露DOM节点引用和必要的方法
@@ -411,60 +429,93 @@ const VideoPlayer = forwardRef(({
     // 时间戳跳转功能
     seekToTimestamp: (timestamp) => {
       // 时间戳合法性检查
-      if (!timestamp) return;
-      
-      console.log(`VideoPlayer: Attempting to seek to timestamp: ${timestamp}`);
-      
-      // 将[00:00:59]格式的时间戳转换为秒数
-      let seconds = 0;
-      if (typeof timestamp === 'string') {
-        // 处理带方括号的格式 [00:00:59]
-        if (timestamp.startsWith('[') && timestamp.endsWith(']')) {
-          const timeStr = timestamp.substring(1, timestamp.length - 1);
-          const timeParts = timeStr.split(':');
-          
-          // 处理时:分:秒格式
-          if (timeParts.length === 3) {
-            seconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
-          } 
-          // 处理分:秒格式
-          else if (timeParts.length === 2) {
-            seconds = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1]);
-          }
-        } 
-        // 处理不带方括号的格式 00:00:59
-        else if (timestamp.includes(':')) {
-          const timeParts = timestamp.split(':');
-          
-          // 处理时:分:秒格式
-          if (timeParts.length === 3) {
-            seconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
-          } 
-          // 处理分:秒格式
-          else if (timeParts.length === 2) {
-            seconds = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1]);
-          }
-        }
-        // 处理数字字符串
-        else if (!isNaN(timestamp)) {
-          seconds = parseInt(timestamp);
-        }
-      } else if (typeof timestamp === 'number') {
-        // 如果已经是秒数，直接使用
-        seconds = timestamp;
+      if (!timestamp) {
+        console.warn(`VideoPlayer: Invalid timestamp provided: ${timestamp}`);
+        return false;
       }
       
-      console.log(`VideoPlayer: Converted timestamp ${timestamp} to ${seconds} seconds`);
+      console.log(`VideoPlayer: Attempting to seek to timestamp: ${timestamp}`);
+      console.log(`VideoPlayer: Timestamp type: ${typeof timestamp}, value: "${timestamp}"`);
       
-      // 根据播放模式处理时间跳转
-      if (shouldShowLocal && videoRef.current) {
-        // 本地视频模式 - 直接设置currentTime
-        console.log(`VideoPlayer: Seeking local video to ${seconds}s`);
-        videoRef.current.currentTime = seconds;
-        videoRef.current.play().catch(err => console.log('Auto-play prevented:', err));
-      } else if (!shouldShowLocal) {
-        // YouTube嵌入模式 - 使用优化的跳转方法
-        seekYouTubeVideo(seconds);
+      // 使用 timestampUtils 统一处理时间戳转换
+      let seconds = 0;
+      if (typeof timestamp === 'number') {
+        // 如果已经是秒数，直接使用
+        seconds = timestamp;
+        console.log(`VideoPlayer: Using timestamp as number: ${seconds}s`);
+      } else {
+        // 使用标准化的时间戳转换函数
+        seconds = timeToSeconds(timestamp);
+        console.log(`VideoPlayer: Converted "${timestamp}" to ${seconds}s using timeToSeconds`);
+      }
+      
+      // 动态计算当前是否应该使用本地视频
+      const shouldShowLocal = getIsLocalVideo();
+      
+      console.log(`VideoPlayer: Converted timestamp ${timestamp} to ${seconds} seconds`);
+      console.log(`VideoPlayer: shouldShowLocal=${shouldShowLocal}, videoRef.current=${!!videoRef.current}`);
+      
+      try {
+        // 根据播放模式处理时间跳转
+        if (shouldShowLocal && videoRef.current) {
+          // 设置标记，防止字幕管理逻辑干扰
+          isSeekingToTimestamp.current = true;
+          
+          // 本地视频模式 - 直接设置currentTime
+          console.log(`VideoPlayer: Seeking local video to ${seconds}s`);
+          console.log(`VideoPlayer: Video readyState: ${videoRef.current.readyState}`);
+          console.log(`VideoPlayer: Video duration: ${videoRef.current.duration}`);
+          console.log(`VideoPlayer: Current time before seek: ${videoRef.current.currentTime}`);
+          
+          // 确保视频已经准备好播放
+          if (videoRef.current.readyState >= 1) { // HAVE_METADATA
+            videoRef.current.currentTime = seconds;
+            console.log(`VideoPlayer: Current time after seek: ${videoRef.current.currentTime}`);
+            
+            // 只有在视频暂停时才开始播放，避免重新开始播放
+            if (videoRef.current.paused) {
+              videoRef.current.play().catch(err => console.log('Auto-play prevented:', err));
+            }
+            
+            // 延迟清除标记，给字幕管理逻辑时间完成处理
+            setTimeout(() => {
+              isSeekingToTimestamp.current = false;
+            }, 1000);
+            
+            return true;
+          } else {
+            // 如果视频还没准备好，等待加载完成后再跳转
+            console.log('VideoPlayer: Video not ready, waiting for loadedmetadata');
+            const onLoadedMetadata = () => {
+              console.log('VideoPlayer: Video metadata loaded, now seeking');
+              videoRef.current.currentTime = seconds;
+              console.log(`VideoPlayer: Current time after delayed seek: ${videoRef.current.currentTime}`);
+              if (videoRef.current.paused) {
+                videoRef.current.play().catch(err => console.log('Auto-play prevented:', err));
+              }
+              videoRef.current.removeEventListener('loadedmetadata', onLoadedMetadata);
+              
+              // 延迟清除标记
+              setTimeout(() => {
+                isSeekingToTimestamp.current = false;
+              }, 1000);
+            };
+            videoRef.current.addEventListener('loadedmetadata', onLoadedMetadata);
+            return true; // 返回true表示操作已启动
+          }
+        } else if (!shouldShowLocal) {
+          // YouTube嵌入模式 - 使用优化的跳转方法
+          console.log(`VideoPlayer: Attempting YouTube video seek to ${seconds}s`);
+          const result = seekYouTubeVideo(seconds);
+          console.log(`VideoPlayer: YouTube seek result: ${result}`);
+          return result;
+        } else {
+          console.error(`VideoPlayer: Cannot seek - shouldShowLocal=${shouldShowLocal}, videoRef.current=${!!videoRef.current}`);
+          return false;
+        }
+      } catch (error) {
+        console.error(`VideoPlayer: Error in seekToTimestamp:`, error);
+        return false;
       }
     }
   }));
@@ -846,9 +897,11 @@ const VideoPlayer = forwardRef(({
             currentTrackElement.default = true; 
             
             // --- Attempt IMMEDIATE time restore ---  (尝试立即恢复时间)
-            if (currentTimeBeforeChange > 0) {
+            if (currentTimeBeforeChange > 0 && !isSeekingToTimestamp.current) {
                 console.log(`VideoPlayer Effect: Attempting IMMEDIATE currentTime restore after track update to ${currentTimeBeforeChange.toFixed(2)}`);
                 try { videoElement.currentTime = currentTimeBeforeChange; } catch(e){ console.error("Error setting current time immediately after update:", e); }
+            } else if (isSeekingToTimestamp.current) {
+                console.log(`VideoPlayer Effect: Skipping time restore - currently seeking to timestamp`);
             }
             // -------------------------------------
 
@@ -876,10 +929,12 @@ const VideoPlayer = forwardRef(({
                     }
 
                     // Restore time again (fallback) (再次恢复时间 - 备用)
-                    // Only restore if time significantly differs (e.g., more than 0.5s off)
-                    if (currentTimeBeforeChange > 0 && videoRef.current && Math.abs(videoRef.current.currentTime - currentTimeBeforeChange) > 0.5) { 
+                    // Only restore if time significantly differs (e.g., more than 0.5s off) and not seeking to timestamp
+                    if (currentTimeBeforeChange > 0 && videoRef.current && Math.abs(videoRef.current.currentTime - currentTimeBeforeChange) > 0.5 && !isSeekingToTimestamp.current) { 
                          console.log(`VideoPlayer Effect: Restoring currentTime (fallback) after track update to ${currentTimeBeforeChange.toFixed(2)}`);
                          try { videoRef.current.currentTime = currentTimeBeforeChange; } catch(e){ console.error("Error setting current time in fallback after update:", e); }
+                    } else if (isSeekingToTimestamp.current) {
+                         console.log(`VideoPlayer Effect: Skipping fallback time restore - currently seeking to timestamp`);
                     }
                 }, 200); // Increased delay (增加延迟)
             }
@@ -903,9 +958,11 @@ const VideoPlayer = forwardRef(({
             console.log("VideoPlayer Effect: Appended new track element.");
 
             // --- Attempt IMMEDIATE time restore --- (尝试立即恢复时间)
-            if (currentTimeBeforeChange > 0) {
+            if (currentTimeBeforeChange > 0 && !isSeekingToTimestamp.current) {
                 console.log(`VideoPlayer Effect: Attempting IMMEDIATE currentTime restore after track add to ${currentTimeBeforeChange.toFixed(2)}`);
                  try { videoElement.currentTime = currentTimeBeforeChange; } catch(e){ console.error("Error setting current time immediately after add:", e); }
+            } else if (isSeekingToTimestamp.current) {
+                console.log(`VideoPlayer Effect: Skipping immediate time restore - currently seeking to timestamp`);
             }
             // -------------------------------------
 
@@ -931,9 +988,11 @@ const VideoPlayer = forwardRef(({
                     }
 
                     // Restore time again (fallback) (再次恢复时间 - 备用)
-                    if (currentTimeBeforeChange > 0 && videoRef.current && Math.abs(videoRef.current.currentTime - currentTimeBeforeChange) > 0.5) {
+                    if (currentTimeBeforeChange > 0 && videoRef.current && Math.abs(videoRef.current.currentTime - currentTimeBeforeChange) > 0.5 && !isSeekingToTimestamp.current) {
                          console.log(`VideoPlayer Effect: Restoring currentTime (fallback) after track add to ${currentTimeBeforeChange.toFixed(2)}`);
                          try { videoRef.current.currentTime = currentTimeBeforeChange; } catch(e){ console.error("Error setting current time in fallback after add:", e); }
+                    } else if (isSeekingToTimestamp.current) {
+                         console.log(`VideoPlayer Effect: Skipping fallback time restore after add - currently seeking to timestamp`);
                     }
                 }, 200); // Increased delay (增加延迟)
             }

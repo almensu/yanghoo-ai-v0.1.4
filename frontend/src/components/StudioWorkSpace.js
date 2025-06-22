@@ -629,7 +629,8 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
                 ) : (
                   <MarkdownViewer 
                     key={`viewer-${selectedFile}`}
-                    markdownContent={currentMarkdownContent} 
+                    markdownContent={currentMarkdownContent}
+                    videoRef={videoRef}
                   />
                 )}
               </div>
@@ -683,7 +684,8 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
                 ) : (
                   <MarkdownViewer 
                     key="default-content"
-                    markdownContent={markdownContent} 
+                    markdownContent={markdownContent}
+                    videoRef={videoRef}
                   />
                 )}
               </div>

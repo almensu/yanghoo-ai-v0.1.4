@@ -28,10 +28,20 @@
   border-collapse: collapse;
   width: 100%;
   margin: 1em 0;
+  font-size: 0.9em;
 }
-.markdown-body th, .markdown-body td {
-  border: 1px solid #ddd;
-  padding: 0.5em 1em;
+.markdown-body th {
+  border: 1px solid #d1d5db;
+  padding: 0.75em 1em;
+  background-color: #f9fafb;
+  font-weight: 600;
+  text-align: left;
+  color: #374151;
+}
+.markdown-body td {
+  border: 1px solid #d1d5db;
+  padding: 0.75em 1em;
+  vertical-align: top;
 }
 .markdown-body img {
   max-width: 100%;
