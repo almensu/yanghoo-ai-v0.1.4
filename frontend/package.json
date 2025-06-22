@@ -9,7 +9,12 @@
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.9.0",
+    "html2canvas": "^1.4.1",
+    "html2pdf.js": "^0.10.3",
+    "jspdf": "^3.0.1",
+    "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.503.0",
+    "marked": "^15.0.12",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
@@ -18,7 +23,7 @@
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "web-vitals": "^2.1.4",
-    "webvtt-parser": "^0.5.0"
+    "webvtt-parser": "^2.2.0"
   },
   "scripts": {
     "start": "react-scripts start",

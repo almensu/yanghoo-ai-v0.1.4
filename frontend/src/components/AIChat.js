@@ -15,6 +15,8 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   const [availableModels, setAvailableModels] = useState([
     { id: 'qwen3:0.6b', name: 'Ollama - qwen3:0.6b' },
     { id: 'qwen3:14b', name: 'Ollama - qwen3:14b' },
+    { id: 'deepseek-r1:1.5b', name: 'Ollama - deepseek-r1:1.5b' },
+    { id: 'deepseek-r1:8b', name: 'Ollama - deepseek-r1:8b' },
     { id: 'deepseek', name: 'DeepSeek AI' },
     //{ id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
   ]);

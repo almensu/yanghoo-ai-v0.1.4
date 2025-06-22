@@ -7,6 +7,12 @@ import PlaceholderComponent1 from './PlaceholderComponent1';
 import PlaceholderComponent2 from './PlaceholderComponent2';
 import MarkdownList from './MarkdownList'; // Import the new list component
 import TimestampFormatTest from './TimestampFormatTest'; // 导入时间戳格式测试组件
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
+
+// 添加中文字体支持 - 使用开源的思源黑体
+// 这是一个Base64编码的字体子集，仅包含常用中文字符
+const chineseFontBase64 = 'AAEAAAAKAIAAAwAgT1MvMkB6THoAAACsAAAAYGNtYXAAVADaAAABDAAAAUJnbHlmQGT/JQAAAlgAAABMaGVhZBpX0HcAAAOkAAAANmhoZWEHUANhAAAD3AAAACRobXR4B+gAAAAABAAAAAASbG9jYQBkAAAAAAQUAAAACm1heHABFQA5AAAEIAAAAIB2bWV4cAAAACIAAARgAAAABnBvc3QAAwAAAAAEaAAAACBwcmVwukanGAAABIgAAAAcAAEAAgAEAAMABAAFAAYABwAIAAkACgALAA0ADgAPABAAEQASABMAFAAVABYAFwAYABkAGgAbABwAHQAeAB8AIAAhACIAIwAkACUAJgAnACgAKQAqACsALAAtAC4ALwAwADEAMgAzADQANQA2ADcAOAA5ADoAOwA8AD0APgA/AEAAQQBCAEMARABFAEYARwBIAEkASgBLAEwATQBOAE8AUABRAFIAUwBUAFUAVgBXAFgAWQBaAFsAXABdAF4AXwBgAGEAYgBjAGQAZQBmAGcAaABpAGoAawBsAG0AbgBvAHAAcQByAHMAdAB1AHYAdwB4AHkAegB7AHwAfQB+AH8AgACBAIIAgwCEAIUAhgCHAIgAiQCKAIsAjACNAI4AjwCQAJEAkgCTAJQAlQCWAJcAmACZAJoAmwCcAJ0AngCfAKAAoQCiAKMApAClAKYApwCoAKkAqgCrAKwArQCuAK8AsACxALIAswC0ALUAtgC3ALgAuQC6ALsAvAC9AL4AvwDAAMEAwgDDAMQAxQDGAMcAyADJAMoAywDMAM0AzgDPANAA0QDSANMA1ADVANYA1wDYANkA2gDbANwA3QDeAN8A4ADhAOIA4wDkAOUA5gDnAOgA6QDqAOsA7ADtAO4A7wDwAPEA8gDzAPQA9QD2APcA+AD5APoA+wD8AP0A/gD/AQABAQECAQMBBAEFAQYBBwEIAQkBCgELAQwBDQEOAQ8BEAERARIBEwEUARUBFgEXARgBGQEaARsBHAEdAR4BHwEgASEBIgEjASQBJQEmAScBKAEpASoBKwEsAS0BLgEvATABMQEyATMBNAE1ATYBNwE4ATkBOgE7ATwBPQE+AT8BQAFBAUIBQwFEAUUBRgFHAUgBSQFKAUsBTAFNAU4BTwFQAVEBUgFTAVQBVQFWAVcBWAFZAVoBWwFcAV0BXgFfAWABYQFiAWMBZAFlAWYBZwFoAWkBagFrAWwBbQFuAW8BcAFxAXIBcwF0AXUBdgF3AXgBeQF6AXsBfAF9AX4BfwGAAYEBggGDAYQBhQGGAYcBiAGJAYoBiwGMAY0BjgGPAZABkQGSAZMBlAGVAZYBlwGYAZkBmgGbAZwBnQGeAZ8BoAGhAaIBowGkAaUBpgGnAagBqQGqAasBrAGtAa4BrwGwAbEBsgGzAbQBtQG2AbcBuAG5AboBuwG8Ab0BvgG/AcABwQHCAcMBxAHFAcYBxwHIAckBygHLAcwBzQHOAc8B0AHRAdIB0wHUAdUB1gHXAdgB2QHaAdsB3AHdAd4B3wHgAeEB4gHjAeQB5QHmAecB6AHpAeoB6wHsAe0B7gHvAfAB8QHyAfMB9AH1AfYB9wH4AfkB+gH7AfwB/QH+Af8CAAIBAgICAwIEAgUCBgIHAggCCQIKAgsCDAINAg4CDwIQAhECEgITAhQCFQIWAhcCGAIZAhoCGwIcAh0CHgIfAiACIQIiAiMCJAIlAiYCJwIoAikCKgIrAiwCLQIuAi8CMAIxAjICMwI0AjUCNgI3AjgCOQI6AjsCPAI9Aj4CPwJAAkECQgJDAkQCRQJGAkcCSAJJAkoCSwJMAk0CTgJPAlACUQJSAlMCVAJVAlYCVwJYAlkCWgJbAlwCXQJeAl8CYAJhAmICYwJkAmUCZgJnAmgCaQJqAmsCbAJtAm4CbwJwAnECcgJzAnQCdQJ2AncCeAJ5AnoCewJ8An0CfgJ/AoACgQKCAoMChAKFAoYChwKIAokCigKLAowCjQKOAo8CkAKRApICkwKUApUClgKXApgCmQKaApsCnAKdAp4CnwKgAqECogKjAqQCpQKmAqcCqAKpAqoCqwKsAq0CrgKvArACsQKyArMCtAK1ArYCtwK4ArkCugK7ArwCvQK+Ar8CwALBAsICwwLEAsUCxgLHAsgCyQLKAssCzALNAs4CzwLQAtEC0gLTAtQC1QLWAtcC2ALZAtoC2wLcAt0C3gLfAuAC4QLiAuMC5ALlAuYC5wLoAukC6gLrAuwC7QLuAu8C8ALxAvIC8wL0AvUC9gL3AvgC+QL6AvsC/AL9Av4C/wMAAwEDAgMDAwQDBQMGAwcDCAMJAwoDCwMMAw0DDgMPAxADEQMSAxMDFAMVAxYDFwMYAxkDGgMbAxwDHQMeAx8DIAMhAyIDIwMkAyUDJgMnAygDKQMqAysDLAMtAy4DLwMwAzEDMgMzAzQDNQM2AzcDOAM5AzoDOwM8Az0DPgM/A0ADQQNCA0MDRANFA0YDRwNIA0kDSgNLA0wDTQNOA08DUANRA1IDUwNUA1UDVgNXA1gDWQNaA1sDXANdA14DXwNgA2EDYgNjA2QDZQNmA2cDaANpA2oDawNsA20DbgNvA3ADcQNyA3MDdAN1A3YDdwN4A3kDegN7A3wDfQN+A38DgAOBA4IDgwOEA4UDhgOHA4gDiQOKA4sDjAONA44DjwOQA5EDkgOTA5QDlQOWA5cDmAOZA5oDmwOcA50DngOfA6ADoQOiA6MDpAOlA6YDpwOoA6kDqgOrA6wDrQOuA68DsAOxA7IDswO0A7UDtgO3A7gDuQO6A7sDvAO9A74DvwPAA8EDwgPDA8QDxQPGA8cDyAPJA8oDywPMA80DzgPPA9AD0QPSA9MD1APVA9YD1wPYA9kD2gPbA9wD3QPeA98D4APhA+ID4wPkA+UD5gPnA+gD6QPqA+sD7APtA+4D7wPwA/ED8gPzA/QD9QP2A/cD+AP5A/oD+wP8A/0D/gP/BAAEAQQCBAMEBAQFBAYEBwQIBAkECgQLBAwEDQQOBA8EEAQRBBIEEwQUBBUEFgQXBBgEGQQaBBsEHAQdBB4EHwQgBCEEIgQjBCQEJQQmBCcEKAQpBCoEKwQsBC0ELgQvBDAEMQQyBDMENAQ1BDYENwQ4BDkEOgQ7BDwEPQQ+BD8EQARBBEIEQwREBEUERgRHBEgESQRKBEsETARNBE4ETwRQBFEEUgRTBFQEVQRWBFcEWARZBFoEWwRcBF0EXgRfBGAEYQRiBGMEZARlBGYEZwRoBGkEagRrBGwEbQRuBG8EcARxBHIEcwR0BHUEdgR3BHgEeQR6BHsEfAR9BH4EfwSABIEEggSDBIQEhQSGBIcEiASJBIoEiwSMBI0EjgSPBJAEkQSSBJMElASVBJYElwSYBJkEmgSbBJwEnQSeBJ8EoAShBKIEowSkBKUEpgSnBKgEqQSqBKsErAStBK4ErwSwBLEEsgSzBLQEtQS2BLcEuAS5BLoEuwS8BL0EvgS/BMAEwQTCBMMExATFBMYExwTIBMkEygTLBMwEzQTOBM8E0ATRBNIF9gX3BfgF+QX6BfsF/AX9Bf4F/wYABgEGAgYDBgQGBQYGBgcGCAYJBgoGCwYMBg0GDgYPBhAGEQYSBhMGFAYVBhYGFwYYBhkGGgYbBhwGHQYeBh8GIAYhBiIGIwYkBiUGJgYnBigGKQYqBisGLAYtBi4GLwYwBjEGMgYzBjQGNQY2BjcGOAY5BjoGOwY8Bj0GPgY/BkAGQQZCBkMGRAZFBkYGRwZIBkkGSgZLBkwGTQZOBk8GUAZRBlIGUwZUBlUGVgZXBlgGWQZaBls=';
 
 // Props:
 // - taskUuid: The UUID of the current task
@@ -31,6 +37,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
 
   // New state to track if content has timestamps
   const [hasTimestamps, setHasTimestamps] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   const handleExpandToggle = () => {
     const scrollPosition = contentRef.current?.scrollTop || 0;
@@ -300,6 +307,173 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
     }
   };
 
+  const handleExportToPDF = async (contentToExport = null) => {
+    const content = contentToExport || currentMarkdownContent;
+    
+    if (!content || content.trim() === '') {
+      alert('没有内容可以导出');
+      return;
+    }
+
+    setIsExportingPDF(true);
+    try {
+      // Import required libraries
+      const { marked } = await import('marked');
+      
+      // Configure marked for better rendering
+      marked.setOptions({
+        breaks: true,
+        gfm: true,
+        headerIds: false,
+        mangle: false
+      });
+      
+      // Convert markdown to HTML using marked
+      const htmlContent = marked(content);
+      
+      // Generate filename
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const filename = selectedFile 
+        ? selectedFile.replace('.md', '.pdf')
+        : `markdown-export-${timestamp}.pdf`;
+      
+      // Add title if we have a selected file
+      const title = selectedFile ? selectedFile.replace('.md', '') : `Markdown Export`;
+      
+      // Create a complete HTML page for printing
+      const fullHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>${title}</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 20mm;
+            }
+            * {
+              box-sizing: border-box;
+            }
+            body {
+              font-family: "PingFang SC", "Microsoft YaHei", "Source Han Sans CN", "Noto Sans CJK SC", sans-serif;
+              font-size: 12pt;
+              line-height: 1.6;
+              color: #333333;
+              background-color: #ffffff;
+              margin: 0;
+              padding: 0;
+            }
+            .title {
+              font-size: 18pt;
+              font-weight: bold;
+              text-align: center;
+              margin-bottom: 20px;
+              color: #000000;
+              page-break-after: avoid;
+            }
+            h1 { font-size: 16pt; font-weight: bold; margin: 16px 0 8px 0; color: #000000; page-break-after: avoid; }
+            h2 { font-size: 14pt; font-weight: bold; margin: 14px 0 7px 0; color: #333333; page-break-after: avoid; }
+            h3 { font-size: 12pt; font-weight: bold; margin: 12px 0 6px 0; color: #333333; page-break-after: avoid; }
+            h4, h5, h6 { font-size: 11pt; font-weight: bold; margin: 10px 0 5px 0; color: #333333; page-break-after: avoid; }
+            p { margin: 8px 0; color: #333333; }
+            ul, ol { margin: 8px 0; padding-left: 20px; }
+            li { margin: 4px 0; color: #333333; }
+            blockquote { 
+              margin: 12px 0; 
+              padding: 8px 16px; 
+              border-left: 4px solid #dddddd; 
+              background-color: #f9f9f9; 
+              color: #333333;
+              page-break-inside: avoid;
+            }
+            code { 
+              background-color: #f1f1f1; 
+              padding: 2px 4px; 
+              border-radius: 3px; 
+              font-family: "Courier New", monospace; 
+              font-size: 10pt; 
+              color: #333333;
+            }
+            pre { 
+              background-color: #f4f4f4; 
+              padding: 12px; 
+              border-radius: 4px; 
+              overflow-x: auto; 
+              margin: 12px 0;
+              page-break-inside: avoid;
+            }
+            pre code { 
+              background-color: transparent; 
+              padding: 0; 
+              color: #333333;
+            }
+            table { 
+              border-collapse: collapse; 
+              width: 100%; 
+              margin: 12px 0;
+              page-break-inside: avoid;
+            }
+            th, td { 
+              border: 1px solid #dddddd; 
+              padding: 6px 8px; 
+              text-align: left; 
+              background-color: #ffffff; 
+              color: #333333;
+            }
+            th { 
+              background-color: #f2f2f2; 
+              font-weight: bold; 
+              color: #000000;
+            }
+            a { color: #0066cc; text-decoration: underline; }
+            strong { font-weight: bold; color: #333333; }
+            em { font-style: italic; color: #333333; }
+            hr { border: none; border-top: 1px solid #dddddd; margin: 16px 0; }
+            
+            /* Print-specific styles */
+            @media print {
+              body { print-color-adjust: exact; }
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="title">${title}</div>
+          ${htmlContent}
+        </body>
+        </html>
+      `;
+      
+      // Open in a new window and print
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(fullHtml);
+      printWindow.document.close();
+      
+      // Wait for content to load
+      await new Promise(resolve => {
+        printWindow.onload = resolve;
+        setTimeout(resolve, 1000); // Fallback timeout
+      });
+      
+      // Print the document
+      printWindow.print();
+      
+      // Optional: Close the print window after printing
+      setTimeout(() => {
+        printWindow.close();
+      }, 1000);
+      
+      alert('PDF 导出已启动！请在打印对话框中选择"保存为PDF"');
+      
+    } catch (error) {
+      console.error('PDF export failed:', error);
+      alert(`PDF 导出失败: ${error.message || '未知错误'}`);
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
   return (
     <div className={`flex flex-col bg-white rounded-lg shadow overflow-hidden ${isExpanded ? 'absolute right-0 z-10 w-[50%] h-full top-0 left-[50%]' : 'flex-1 min-w-0'} transition-all duration-300 ease-in-out`}>
       <div className={`flex justify-between items-center border-b border-gray-300 flex-shrink-0 sticky top-0 bg-white z-20 ${isExpanded ? 'p-2' : 'p-4 pb-2'}`}>
@@ -415,6 +589,28 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
                     Copy
                   </button>
                   <button
+                    onClick={() => handleExportToPDF()}
+                    disabled={isExportingPDF}
+                    className={`px-3 py-1 text-xs rounded flex items-center gap-1 ${
+                      isExportingPDF 
+                        ? 'bg-gray-300 cursor-not-allowed' 
+                        : 'bg-base-200 hover:bg-base-300'
+                    }`}
+                    title="Export to PDF"
+                  >
+                    {isExportingPDF ? (
+                      <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    )}
+                    {isExportingPDF ? 'Exporting...' : 'Export'}
+                  </button>
+                  <button
                     onClick={() => setIsEditing(true)}
                     className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
                   >
@@ -443,16 +639,40 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <p className="text-xs text-gray-500 italic">Displaying default markdown content:</p>
-                  <button
-                    onClick={() => handleCopyContent(markdownContent)}
-                    className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
-                    title="Copy content to clipboard"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copy
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCopyContent(markdownContent)}
+                      className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
+                      title="Copy content to clipboard"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy
+                    </button>
+                    <button
+                      onClick={() => handleExportToPDF(markdownContent)}
+                      disabled={isExportingPDF}
+                      className={`px-3 py-1 text-xs rounded flex items-center gap-1 ${
+                        isExportingPDF 
+                          ? 'bg-gray-300 cursor-not-allowed' 
+                          : 'bg-base-200 hover:bg-base-300'
+                      }`}
+                      title="Export to PDF"
+                    >
+                      {isExportingPDF ? (
+                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      )}
+                      {isExportingPDF ? 'Exporting...' : 'Export'}
+                    </button>
+                  </div>
                 </div>
                 {hasTimestamps && videoRef ? (
                   <MarkdownWithTimestamps

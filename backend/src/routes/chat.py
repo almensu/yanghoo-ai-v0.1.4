@@ -80,6 +80,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(get_openai_api_key))
         # 检查模型是否使用Ollama
         if model_to_use and (model_to_use.startswith('llama') or 
                             model_to_use.startswith('qwen') or 
+                            model_to_use.startswith('deepseek-r1') or
                             model_to_use == 'llama2'):
             # 使用Ollama API
             logger.info(f"Using Ollama API for model: {model_to_use}")
