@@ -6,6 +6,8 @@ import json
 import logging
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Literal, Union
+from google import genai
+from google.genai import types
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -20,6 +22,14 @@ def get_openai_api_key():
         logger.error("OPENAI_API_KEY environment variable not set.")
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable not set.")
     logger.info(f"API key successfully loaded (length: {len(api_key)})")
+    return api_key
+
+def get_gemini_api_key():
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        logger.error("GEMINI_API_KEY environment variable not set.")
+        raise HTTPException(status_code=400, detail="请设置 GEMINI_API_KEY 环境变量或选择其他模型")
+    logger.info(f"Gemini API key successfully loaded (length: {len(api_key)})")
     return api_key
 
 class Message(BaseModel):
@@ -77,8 +87,13 @@ async def chat(request: ChatRequest, api_key: str = Depends(get_openai_api_key))
         model_to_use = request.model
         logger.info(f"Processing model: {model_to_use}")
         
+        # 检查模型是否使用Gemini
+        if model_to_use and model_to_use.startswith('gemini'):
+            # 使用Gemini API
+            logger.info(f"Using Gemini API for model: {model_to_use}")
+            return await process_gemini_request(model_to_use, messages_for_api)
         # 检查模型是否使用Ollama
-        if model_to_use and (model_to_use.startswith('llama') or 
+        elif model_to_use and (model_to_use.startswith('llama') or 
                             model_to_use.startswith('qwen') or 
                             model_to_use.startswith('deepseek-r1') or
                             model_to_use == 'llama2'):
@@ -206,6 +221,70 @@ async def process_ollama_request(model: str, messages: List[Dict], base_url: str
         raise HTTPException(
             status_code=503, 
             detail=f"Ollama服务连接失败，请确保Ollama正在运行: {str(e)}"
+        )
+
+# 处理Gemini API请求
+async def process_gemini_request(model: str, messages: List[Dict]) -> ChatResponse:
+    try:
+        # 验证Gemini API Key
+        gemini_api_key = get_gemini_api_key()
+        
+        # 设置环境变量（确保google.genai能够获取到API key）
+        os.environ["GEMINI_API_KEY"] = gemini_api_key
+        
+        logger.info(f"Using Gemini API for model: {model}")
+        
+        # 初始化Gemini客户端
+        client = genai.Client()
+        
+        # 将消息转换为Gemini格式
+        # Gemini的消息格式与OpenAI略有不同，需要转换
+        contents = []
+        for msg in messages:
+            if msg["role"] == "system":
+                # 系统消息作为第一条用户消息
+                contents.append(f"System: {msg['content']}")
+            elif msg["role"] == "user":
+                contents.append(f"User: {msg['content']}")
+            elif msg["role"] == "assistant":
+                contents.append(f"Assistant: {msg['content']}")
+        
+        # 合并所有内容为一个字符串
+        combined_content = "\n\n".join(contents)
+        
+        logger.info(f"Sending request to Gemini with model {model}")
+        
+        # 调用Gemini API，禁用思考模式以获得更直接的回复
+        response = client.models.generate_content(
+            model=model,
+            contents=combined_content,
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_budget=0),  # 禁用思考
+                temperature=0.8,
+                max_output_tokens=8192
+            ),
+        )
+        
+        assistant_reply = response.text
+        
+        if not assistant_reply:
+            error_msg = "Gemini returned empty response"
+            logger.error(error_msg)
+            raise HTTPException(status_code=500, detail=error_msg)
+        
+        logger.info(f"Received response from Gemini model {model} (length: {len(assistant_reply)})")
+        
+        return ChatResponse(
+            content=assistant_reply.strip(),
+            model_used=f"gemini/{model}"
+        )
+        
+    except Exception as e:
+        error_msg = f"Gemini API Error: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Gemini服务错误: {str(e)}"
         )
 
 @router.post("/tasks/{task_uuid}/convert-srt-to-ass")

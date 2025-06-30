@@ -18,6 +18,8 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     { id: 'deepseek-r1:1.5b', name: 'Ollama - deepseek-r1:1.5b' },
     { id: 'deepseek-r1:8b', name: 'Ollama - deepseek-r1:8b' },
     { id: 'deepseek', name: 'DeepSeek AI' },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
     //{ id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
   ]);
   const [debugInfo, setDebugInfo] = useState(null);
