@@ -472,10 +472,10 @@ const VideoPlayer = forwardRef(({
             videoRef.current.currentTime = seconds;
             console.log(`VideoPlayer: Current time after seek: ${videoRef.current.currentTime}`);
             
-            // 只有在视频暂停时才开始播放，避免重新开始播放
-            if (videoRef.current.paused) {
-              videoRef.current.play().catch(err => console.log('Auto-play prevented:', err));
-            }
+            // 不自动播放，让调用者决定是否播放
+            // if (videoRef.current.paused) {
+            //   videoRef.current.play().catch(err => console.log('Auto-play prevented:', err));
+            // }
             
             // 延迟清除标记，给字幕管理逻辑时间完成处理
             setTimeout(() => {
@@ -490,9 +490,10 @@ const VideoPlayer = forwardRef(({
               console.log('VideoPlayer: Video metadata loaded, now seeking');
               videoRef.current.currentTime = seconds;
               console.log(`VideoPlayer: Current time after delayed seek: ${videoRef.current.currentTime}`);
-              if (videoRef.current.paused) {
-                videoRef.current.play().catch(err => console.log('Auto-play prevented:', err));
-              }
+              // 不自动播放，让调用者决定是否播放
+              // if (videoRef.current.paused) {
+              //   videoRef.current.play().catch(err => console.log('Auto-play prevented:', err));
+              // }
               videoRef.current.removeEventListener('loadedmetadata', onLoadedMetadata);
               
               // 延迟清除标记

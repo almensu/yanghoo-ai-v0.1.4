@@ -2363,6 +2363,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
               <KeyframeClipPanel 
                 taskUuid={taskUuid}
                 onClipSegments={handleKeyframeClipSegments}
+                videoRef={videoElementRef}
               />
             </div>
           ) : (

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { formatTime } from '../utils/formatTime';
 
-const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
+const KeyframeClipPanel = ({ taskUuid, onClipSegments, videoRef }) => {
   const [keyframes, setKeyframes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -22,6 +22,9 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [gridColumns, setGridColumns] = useState(4); // 默认4列
   const [showTimestamps, setShowTimestamps] = useState(false); // 默认关闭时间戳显示
+  const [isLoopPlaying, setIsLoopPlaying] = useState(false); // 循环播放状态
+  const [currentLoopSegment, setCurrentLoopSegment] = useState(null); // 当前循环播放的片段
+  const loopIntervalRef = useRef(null);
 
   // 拖拽选择相关状态
   const [isDragging, setIsDragging] = useState(false);
@@ -38,6 +41,57 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
     loadKeyframes();
     loadStats();
   }, [taskUuid]);
+
+  // 监听选中关键帧变化，自动更新循环播放片段
+  useEffect(() => {
+    // 只在非剪辑模式下且正在循环播放时才处理
+    if (!clipMode && isLoopPlaying) {
+      // 如果选中的关键帧少于2个，停止循环播放
+      if (selectedFrames.length < 2) {
+        console.log('选中关键帧少于2个，停止循环播放');
+        stopLoopPlaying();
+        return;
+      }
+      
+      // 如果有多个关键帧被选中，更新循环播放片段
+      const sortedFrames = [...selectedFrames].sort((a, b) => a - b);
+      const firstFrame = keyframes.find(f => f.index === sortedFrames[0]);
+      const lastFrame = keyframes.find(f => f.index === sortedFrames[sortedFrames.length - 1]);
+      
+      if (firstFrame && lastFrame) {
+        const newSegment = {
+          start: firstFrame.timestamp,
+          end: lastFrame.timestamp
+        };
+        
+        // 检查新片段是否与当前循环片段不同
+        if (!currentLoopSegment || 
+            newSegment.start !== currentLoopSegment.start || 
+            newSegment.end !== currentLoopSegment.end) {
+          
+          console.log(`选中关键帧变化，更新循环播放片段: ${formatTime(newSegment.start)} → ${formatTime(newSegment.end)}`);
+          
+          // 停止当前循环播放
+          if (loopIntervalRef.current) {
+            clearInterval(loopIntervalRef.current);
+            loopIntervalRef.current = null;
+          }
+          
+          // 开始新的循环播放
+          startLoopPlayingSegment(newSegment);
+        }
+      }
+    }
+  }, [selectedFrames, clipMode, isLoopPlaying, keyframes, currentLoopSegment]);
+
+  // 组件卸载时清理循环播放
+  useEffect(() => {
+    return () => {
+      if (loopIntervalRef.current) {
+        clearInterval(loopIntervalRef.current);
+      }
+    };
+  }, []);
 
   const loadKeyframes = async () => {
     setLoading(true);
@@ -170,8 +224,18 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
         // Ctrl+点击：切换选择
         toggleFrameSelection(frame.index);
       } else {
-        // 普通点击：单选
+        // 普通单击：选择并跳转到时间戳，但不自动播放
         setSelectedFrames([frame.index]);
+        
+        // 跳转到关键帧时间戳但不播放
+        if (videoRef?.current) {
+          console.log(`单击关键帧 #${frame.index}，跳转到时间戳: ${frame.timestamp}s (不自动播放)`);
+          videoRef.current.seekToTimestamp(frame.timestamp);
+          // 确保视频暂停
+          if (videoRef.current.video && !videoRef.current.video.paused) {
+            videoRef.current.video.pause();
+          }
+        }
       }
       
       // 注意：Shift+点击时不更新lastClickedFrame，保持原有的锚点
@@ -184,6 +248,7 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
     // 剪辑模式下的逻辑
     if (currentSegment.start === null) {
       setCurrentSegment({ start: frame.timestamp, end: null });
+      console.log(`设置开始点: ${formatTime(frame.timestamp)}`);
     } else if (currentSegment.end === null) {
       const start = Math.min(currentSegment.start, frame.timestamp);
       const end = Math.max(currentSegment.start, frame.timestamp);
@@ -191,6 +256,18 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
       const newSegment = { start, end };
       setSegments(prev => [...prev, newSegment]);
       setCurrentSegment({ start: null, end: null });
+      console.log(`创建片段: ${formatTime(start)} → ${formatTime(end)}`);
+    }
+  };
+
+  // 处理双击事件
+  const handleFrameDoubleClick = (frame, event) => {
+    if (!clipMode) {
+      // 双击：跳转到关键帧时间戳
+      if (videoRef?.current) {
+        console.log(`双击关键帧 #${frame.index}，跳转到时间戳: ${frame.timestamp}s`);
+        videoRef.current.seekToTimestamp(frame.timestamp);
+      }
     }
   };
 
@@ -299,7 +376,10 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
     const clickedFrame = e.target.closest('[data-frame-index]');
     if (clickedFrame) {
       const frameIndex = parseInt(clickedFrame.dataset.frameIndex);
-      handleFrameClick({ index: frameIndex }, e);
+      const frame = keyframes.find(f => f.index === frameIndex);
+      if (frame) {
+        handleFrameClick(frame, e);
+      }
       return;
     }
 
@@ -375,18 +455,40 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
   // 键盘快捷键支持
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (clipMode || keyframes.length === 0) return;
+      // 空格键：播放/暂停或循环播放
+      if (e.code === 'Space') {
+        e.preventDefault();
+        console.log('空格键被按下，调用 togglePlayPause');
+        togglePlayPause();
+        return;
+      }
+      
+      // Escape: 取消循环播放或清空选择
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (isLoopPlaying) {
+          stopLoopPlaying();
+          console.log('取消循环播放');
+        } else if (clipMode) {
+          // 剪辑模式下清空当前片段
+          setCurrentSegment({ start: null, end: null });
+          console.log('取消当前片段标记');
+        } else {
+          // 非剪辑模式下清空选择
+          setSelectedFrames([]);
+          setLastClickedFrame(null);
+          console.log('清空关键帧选择');
+        }
+        return;
+      }
+      
+      // 只在非剪辑模式下处理其他键盘事件
+      if (clipMode) return;
       
       // Ctrl/Cmd + A: 全选
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         e.preventDefault();
         setSelectedFrames(keyframes.map(f => f.index));
-      }
-      
-      // Escape: 清空选择
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setSelectedFrames([]);
       }
       
       // Ctrl/Cmd + I: 反选
@@ -406,7 +508,7 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [clipMode, keyframes, selectedFrames]);
+  }, [clipMode, keyframes, selectedFrames, isLoopPlaying]);
 
   const renderKeyframeGrid = () => {
     const selectionStyle = isDragging ? {
@@ -459,6 +561,7 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
                     : 'border-gray-200 hover:border-gray-400'
                 }`}
                 onClick={(e) => handleFrameClick(frame, e)}
+                onDoubleClick={(e) => handleFrameDoubleClick(frame, e)}
               >
                 {/* 16:9 等比例容器 */}
                 <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
@@ -533,6 +636,7 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
               }`}
               style={{ left: position - 30, top: 10 }}
               onClick={(e) => handleFrameClick(frame, e)}
+              onDoubleClick={(e) => handleFrameDoubleClick(frame, e)}
             >
               <img
                 src={`http://127.0.0.1:8000/files/${taskUuid}/${frame.relative_path}`}
@@ -577,6 +681,176 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
         })}
       </div>
     );
+  };
+
+  // 播放选中关键帧的功能
+  const playSelectedFrame = () => {
+    if (selectedFrames.length === 0) {
+      alert('请先选择一个关键帧');
+      return;
+    }
+
+    // 如果选中多个关键帧，创建临时片段并循环播放
+    if (selectedFrames.length > 1) {
+      const selectedTimestamps = selectedFrames
+        .map(index => keyframes.find(f => f.index === index)?.timestamp)
+        .filter(t => t !== undefined)
+        .sort((a, b) => a - b);
+
+      const tempSegment = {
+        start: selectedTimestamps[0],
+        end: selectedTimestamps[selectedTimestamps.length - 1]
+      };
+
+      console.log(`循环播放选中的关键帧片段: ${formatTime(tempSegment.start)} → ${formatTime(tempSegment.end)} (${selectedFrames.length}个关键帧)`);
+      
+      // 开始循环播放选中的片段
+      startLoopPlayingSegment(tempSegment);
+      return;
+    }
+
+    // 如果只选中一个关键帧，正常播放
+    const firstSelectedIndex = selectedFrames[0];
+    const selectedFrame = keyframes.find(f => f.index === firstSelectedIndex);
+    
+    if (!selectedFrame || !videoRef?.current) {
+      console.error('无法找到选中的关键帧或视频播放器');
+      return;
+    }
+
+    console.log(`播放关键帧 #${selectedFrame.index} 时间戳: ${selectedFrame.timestamp}s`);
+    
+    // 跳转到关键帧时间戳并播放
+    const success = videoRef.current.seekToTimestamp(selectedFrame.timestamp);
+    if (success) {
+      console.log(`成功跳转到关键帧 #${selectedFrame.index}`);
+      // 延迟一点确保跳转完成，然后开始播放
+      setTimeout(() => {
+        if (videoRef.current?.video) {
+          videoRef.current.video.play().catch(err => console.log('播放选中关键帧失败:', err));
+          console.log(`开始播放关键帧 #${selectedFrame.index}`);
+        }
+      }, 100);
+    }
+  };
+
+  // 暂停播放
+  const pauseVideo = () => {
+    if (videoRef?.current?.video) {
+      videoRef.current.video.pause();
+    }
+  };
+
+  // 停止循环播放
+  const stopLoopPlaying = () => {
+    if (loopIntervalRef.current) {
+      clearInterval(loopIntervalRef.current);
+      loopIntervalRef.current = null;
+    }
+    setIsLoopPlaying(false);
+    setCurrentLoopSegment(null);
+    if (videoRef?.current?.video) {
+      videoRef.current.video.pause();
+    }
+  };
+
+  // 开始循环播放指定片段（通用函数）
+  const startLoopPlayingSegment = (segment) => {
+    const duration = segment.end - segment.start;
+    
+    if (duration <= 0) {
+      alert('无效的片段时长');
+      return;
+    }
+
+    console.log(`开始循环播放片段: ${formatTime(segment.start)} → ${formatTime(segment.end)} (时长: ${formatTime(duration)})`);
+    
+    setIsLoopPlaying(true);
+    setCurrentLoopSegment(segment);
+    
+    // 跳转到开始位置并手动播放
+    if (videoRef?.current) {
+      // 先跳转到开始位置
+      videoRef.current.seekToTimestamp(segment.start);
+      
+      // 延迟一点确保跳转完成，然后开始播放
+      setTimeout(() => {
+        if (videoRef.current?.video) {
+          videoRef.current.video.play().catch(err => console.log('播放失败:', err));
+          console.log(`开始播放片段，当前时间: ${videoRef.current.video.currentTime}s`);
+        }
+      }, 100);
+    }
+
+    // 设置循环定时器
+    loopIntervalRef.current = setInterval(() => {
+      if (videoRef?.current) {
+        console.log(`循环播放：跳转回开始位置 ${segment.start}s`);
+        videoRef.current.seekToTimestamp(segment.start);
+        
+        // 延迟一点确保跳转完成，然后继续播放
+        setTimeout(() => {
+          if (videoRef.current?.video) {
+            videoRef.current.video.play().catch(err => console.log('循环播放失败:', err));
+          }
+        }, 100);
+      }
+    }, duration * 1000);
+  };
+
+  // 开始循环播放片段（剪辑模式使用）
+  const startLoopPlaying = () => {
+    if (segments.length === 0) {
+      alert('请先标记开始和结束点创建片段');
+      return;
+    }
+
+    // 使用最新创建的片段
+    const segment = segments[segments.length - 1];
+    startLoopPlayingSegment(segment);
+  };
+
+  // 切换播放/暂停
+  const togglePlayPause = () => {
+    console.log(`togglePlayPause 被调用: clipMode=${clipMode}, segments.length=${segments.length}, isLoopPlaying=${isLoopPlaying}`);
+    
+    // 如果正在循环播放，停止循环播放
+    if (isLoopPlaying) {
+      console.log('停止循环播放');
+      stopLoopPlaying();
+      return;
+    }
+
+    // 如果在剪辑模式且已标记开始和结束点，开始循环播放
+    if (clipMode && segments.length > 0) {
+      console.log('开始循环播放，片段数量:', segments.length);
+      startLoopPlaying();
+      return;
+    }
+
+    if (!videoRef?.current?.video) {
+      // 如果视频播放器不可用，尝试播放选中的关键帧
+      playSelectedFrame();
+      return;
+    }
+
+    const video = videoRef.current.video;
+    
+    console.log(`视频状态: paused=${video.paused}, selectedFrames.length=${selectedFrames.length}`);
+    
+    // 优先处理选中的关键帧
+    if (selectedFrames.length > 0) {
+      console.log('播放选中的关键帧');
+      playSelectedFrame();
+    } else if (video.paused) {
+      // 如果没有选中关键帧且视频暂停，在当前位置播放
+      console.log('在当前位置播放视频');
+      video.play().catch(err => console.log('播放失败:', err));
+    } else {
+      // 如果正在播放且没有选中关键帧，暂停
+      console.log('暂停视频');
+      pauseVideo();
+    }
   };
 
   if (loading) {
@@ -1119,6 +1393,11 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
                         (已选择起始: {formatTime(currentSegment.start)})
                       </span>
                     )}
+                    {isLoopPlaying && (
+                      <span className="ml-2 text-purple-600 animate-pulse">
+                        🔄 循环播放中 (按ESC取消)
+                      </span>
+                    )}
                   </span>
                 )}
                 {!clipMode && selectedFrames.length > 0 && (
@@ -1148,8 +1427,11 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
         <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
           <h4 className="font-medium text-blue-800 mb-2">使用说明</h4>
           <div className="text-sm text-blue-700 space-y-1">
-            <p>• <strong>网格模式</strong>: 点击关键帧选择，然后点击"创建片段" - 会创建从第一帧到最后一帧的连续片段</p>
+            <p>• <strong>单击关键帧</strong>: 标记选择关键帧，左侧播放器跳转到时间戳(不自动播放)</p>
+            <p>• <strong>双击关键帧</strong>: 左侧视频播放器跳转到对应时间戳</p>
+            <p>• <strong>网格模式</strong>: 选择多个关键帧后点击"创建片段" - 会创建从第一帧到最后一帧的连续片段</p>
             <p>• <strong>剪辑模式</strong>: 依次点击两个关键帧自动创建连续片段 - 包含中间所有画面，避免卡顿</p>
+            <p>• <strong>循环播放</strong>: 标记开始和结束点后，按空格键循环播放片段，ESC取消</p>
             <p>• <strong>时间轴模式</strong>: 在时间轴上可视化查看关键帧分布</p>
             <p>• <strong>连续剪辑</strong>: 选中的关键帧之间会自动补全中间画面，确保视频流畅</p>
             <p>• 创建片段后点击"开始剪辑"进行视频剪切</p>
@@ -1162,6 +1444,8 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
         <div className="mt-2 text-xs text-gray-500 bg-gray-50 p-2 rounded">
           <div className="flex flex-wrap gap-4">
             <span>💡 <strong>选择提示:</strong></span>
+            <span>• 单击关键帧标记选择</span>
+            <span>• 双击关键帧跳转时间戳</span>
             <span>• 鼠标拖拽框选多个关键帧</span>
             <span>• Ctrl/Cmd+点击切换选择</span>
             <span>• Shift+点击范围选择(从锚点⚓到当前帧)</span>
@@ -1169,8 +1453,9 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
           </div>
           <div className="flex flex-wrap gap-4 mt-1">
             <span>⌨️ <strong>快捷键:</strong></span>
+            <span>• 空格键 播放选中关键帧(多选时循环播放片段)</span>
             <span>• Ctrl/Cmd+A 全选</span>
-            <span>• Escape 清空选择</span>
+            <span>• Escape 取消循环播放或清空选择</span>
             <span>• Ctrl/Cmd+I 反选</span>
           </div>
           {lastClickedFrame !== null && (
