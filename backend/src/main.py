@@ -46,7 +46,10 @@ from .schemas import (
     ExtractAudioResponse,
     TranscribeRequest, TranscribeResponse, Platform,
     MergeResponse,
-    DownloadAudioResponse
+    DownloadAudioResponse,
+    # 关键帧相关Schema
+    ExtractKeyframesRequest, ExtractKeyframesResponse, 
+    KeyframesData, KeyframesStatsResponse
 )
 # --- Tasks Import --- 
 from .tasks.ingest import create_ingest_task
@@ -58,6 +61,7 @@ from .tasks.merge_vtt import main as run_merge_vtt
 from .tasks.merge_whisperx import run_merge_whisperx
 from .tasks.download_youtueb_vtt import download_youtube_vtt
 from .tasks.download_audio import download_audio_sync, AUDIO_DOWNLOAD_PLATFORMS
+from .tasks.extract_keyframes import KeyframeExtractor, detect_scenes
 # --- Data Management Import --- 
 from .data_management import delete_video_files_sync, delete_audio_file_sync
 # --- Restore Archived Task Import ---
@@ -1398,11 +1402,15 @@ def run_ffmpeg_cut(
     """
     Execute video cutting with FFmpeg using optimized continuous segment merging
     """
-    logger.info(f"[Job {job_id}] Starting FFmpeg cut operation")
+    global cut_job_statuses
+    
+    logger.info(f"[Job {job_id}] === STARTING FFmpeg cut operation ===")
     logger.info(f"[Job {job_id}] Input: {input_path}")
     logger.info(f"[Job {job_id}] Output: {output_path}")
     logger.info(f"[Job {job_id}] Original segments count: {len(segments)}")
     logger.info(f"[Job {job_id}] Output format: {output_format}")
+    logger.info(f"[Job {job_id}] Embed subtitle: {embed_subtitle_lang}")
+    logger.info(f"[Job {job_id}] Subtitle type: {subtitle_type}")
     
     # 合并连续片段，避免断断续续的拼接
     merged_segments = merge_continuous_segments(segments, max_gap=2.0)
@@ -1411,9 +1419,10 @@ def run_ffmpeg_cut(
     # 使用合并后的片段继续处理
     segments = merged_segments
     
-    global cut_job_statuses
     logger.info(f"[Job {job_id}] Starting ffmpeg cut for {task_uuid_str} (Embed: {embed_subtitle_lang}, Format: {output_format})")
     cut_job_statuses[job_id]["status"] = "processing"
+    cut_job_statuses[job_id]["message"] = "FFmpeg cut operation started"
+    logger.info(f"[Job {job_id}] Updated status to processing")
 
     # 临时文件列表，用于后续清理
     temp_files_to_clean = []
@@ -1436,21 +1445,33 @@ def run_ffmpeg_cut(
         for temp_file in temp_files_to_clean:
             if temp_file and temp_file.exists():
                 try:
-                    temp_file.unlink()
-                    logger.debug(f"[Job {job_id}] Removed temporary file: {temp_file}")
+                    if temp_file.is_dir():
+                        import shutil
+                        shutil.rmtree(temp_file)
+                        logger.debug(f"[Job {job_id}] Removed temporary directory: {temp_file}")
+                    else:
+                        temp_file.unlink()
+                        logger.debug(f"[Job {job_id}] Removed temporary file: {temp_file}")
                 except Exception as e:
-                    logger.error(f"[Job {job_id}] Failed to remove temporary file {temp_file}: {e}")
+                    logger.error(f"[Job {job_id}] Failed to remove temporary file/dir {temp_file}: {e}")
 
     try:
+        logger.info(f"[Job {job_id}] Checking input file: {input_path}")
         if not input_path.exists():
+            logger.error(f"[Job {job_id}] Input file not found: {input_path}")
             raise FileNotFoundError(f"Input file not found: {input_path}")
+        logger.info(f"[Job {job_id}] Input file exists: {input_path}, size: {input_path.stat().st_size} bytes")
         if not segments:
+            logger.error(f"[Job {job_id}] No segments provided")
             raise ValueError("No segments provided for cutting.")
 
         # Ensure output directory exists
+        logger.info(f"[Job {job_id}] Creating output directory: {output_path.parent}")
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"[Job {job_id}] Output directory created successfully")
 
         # --- Subtitle Setup --- 
+        logger.info(f"[Job {job_id}] Setting up subtitle processing...")
         subtitle_filter = None
         subtitle_vtt_path = None
         subtitle_srt_path = None
@@ -1458,6 +1479,8 @@ def run_ffmpeg_cut(
         
         if embed_subtitle_lang and embed_subtitle_lang != 'none':
             logger.info(f"[Job {job_id}] Setting up subtitles: {embed_subtitle_lang}, type: {subtitle_type}")
+            logger.info(f"[Job {job_id}] VTT files: {vtt_files}")
+            logger.info(f"[Job {job_id}] ASS files: {ass_files}")
             
             source_subtitle_path_for_conversion = None
             
@@ -1911,8 +1934,11 @@ def run_ffmpeg_cut(
                 else:
                     logger.warning(f"[Job {job_id}] No source VTT file available for conversion ('{embed_subtitle_lang}'). Proceeding without subtitles.")
                     subtitle_filter = None
+        else:
+            logger.info(f"[Job {job_id}] No subtitle embedding requested")
 
             # --- 准备视频剪切过程 - 优化连续片段处理 ---
+            logger.info(f"[Job {job_id}] Starting video cutting process...")
             valid_segments = [seg for seg in segments if seg['end'] > seg['start']]
             if not valid_segments:
                 raise ValueError("No valid segments found after filtering.")
@@ -1934,12 +1960,13 @@ def run_ffmpeg_cut(
                     # 直接提取WAV音频片段
                     direct_cmd = [
                         "ffmpeg", "-v", "info",
+                        "-i", str(input_path),
                         "-ss", str(start_time),
                         "-t", str(duration),
-                        "-i", str(input_path),
                         "-acodec", "pcm_s16le",
                         "-ar", "16000",
                         "-ac", "1",
+                        "-avoid_negative_ts", "make_zero",
                         "-y", str(output_path)
                     ]
                 else:
@@ -1948,29 +1975,33 @@ def run_ffmpeg_cut(
                         # 带字幕的视频
                         direct_cmd = [
                             "ffmpeg", "-v", "info",
+                            "-i", str(input_path),
                             "-ss", str(start_time),
                             "-t", str(duration),
-                            "-i", str(input_path),
                             "-vf", subtitle_filter,
                             "-c:v", "libx264", "-preset", "fast",
                             "-c:a", "aac",
                             "-movflags", "+faststart",
+                            "-avoid_negative_ts", "make_zero",
                             "-y", str(output_path)
                         ]
                     else:
                         # 无字幕的视频
                         direct_cmd = [
                             "ffmpeg", "-v", "info",
+                            "-i", str(input_path),
                             "-ss", str(start_time),
                             "-t", str(duration),
-                            "-i", str(input_path),
                             "-c:v", "libx264", "-preset", "fast",
                             "-c:a", "aac",
                             "-movflags", "+faststart",
+                            "-avoid_negative_ts", "make_zero",
                             "-y", str(output_path)
                         ]
                 
                 logger.info(f"[Job {job_id}] Running direct extraction command: {' '.join(shlex.quote(str(c)) for c in direct_cmd)}")
+                logger.info(f"[Job {job_id}] Input file exists: {input_path.exists()}, size: {input_path.stat().st_size if input_path.exists() else 'N/A'} bytes")
+                logger.info(f"[Job {job_id}] Output directory exists: {output_path.parent.exists()}")
                 
                 # 执行直接提取
                 direct_process = subprocess.run(
@@ -1981,8 +2012,38 @@ def run_ffmpeg_cut(
                     encoding='utf-8'
                 )
                 
+                logger.info(f"[Job {job_id}] FFmpeg return code: {direct_process.returncode}")
+                if direct_process.stdout:
+                    logger.info(f"[Job {job_id}] FFmpeg stdout: {direct_process.stdout}")
+                if direct_process.stderr:
+                    logger.info(f"[Job {job_id}] FFmpeg stderr: {direct_process.stderr}")
+                
                 if direct_process.returncode == 0:
                     logger.info(f"[Job {job_id}] Direct extraction completed successfully")
+                    
+                    # 检查输出文件是否真正创建且有效
+                    if not output_path.exists():
+                        error_message = "Output file was not created despite successful FFmpeg return code"
+                        logger.error(f"[Job {job_id}] {error_message}")
+                        cut_job_statuses[job_id]["status"] = "failed"
+                        cut_job_statuses[job_id]["message"] = error_message
+                        return
+                    
+                    file_size = output_path.stat().st_size
+                    if file_size < 1024:  # 文件小于1KB，可能是空文件
+                        error_message = f"Output file is too small ({file_size} bytes). Possible FFmpeg error."
+                        logger.error(f"[Job {job_id}] {error_message}")
+                        logger.error(f"[Job {job_id}] FFmpeg stdout: {direct_process.stdout}")
+                        logger.error(f"[Job {job_id}] FFmpeg stderr: {direct_process.stderr}")
+                        cut_job_statuses[job_id]["status"] = "failed"
+                        cut_job_statuses[job_id]["message"] = error_message
+                        try:
+                            output_path.unlink()
+                        except OSError:
+                            pass
+                        return
+                    
+                    logger.info(f"[Job {job_id}] Output file created successfully: {output_path} ({file_size} bytes)")
                     output_files["main_output"] = str(output_path.relative_to(DATA_DIR))
                     
                     # 为单个连续片段创建调整后的字幕文件（仅对视频格式）
@@ -2010,16 +2071,19 @@ def run_ffmpeg_cut(
                             available_vtt_path = zh_vtt_abs
                         
                         if available_vtt_path:
-                            create_adjusted_subtitle_for_single_segment(
-                                available_vtt_path, 
-                                temp_dir, 
-                                output_path, 
-                                seg, 
-                                job_id, 
-                                output_files, 
-                                temp_files_to_clean
-                            )
-                            logger.info(f"[Job {job_id}] Created adjusted subtitle file for single segment using: {available_vtt_path}")
+                            try:
+                                create_adjusted_subtitle_for_single_segment(
+                                    available_vtt_path, 
+                                    temp_dir, 
+                                    output_path, 
+                                    seg, 
+                                    job_id, 
+                                    output_files, 
+                                    temp_files_to_clean
+                                )
+                                logger.info(f"[Job {job_id}] Created adjusted subtitle file for single segment using: {available_vtt_path}")
+                            except Exception as e:
+                                logger.error(f"[Job {job_id}] Failed to create adjusted subtitle file: {e}")
                         else:
                             logger.info(f"[Job {job_id}] No VTT files available for creating adjusted subtitles")
                     
@@ -2028,10 +2092,12 @@ def run_ffmpeg_cut(
                     cut_job_statuses[job_id]["message"] = f"Single segment extraction completed successfully"
                     cut_job_statuses[job_id]["output_path"] = str(output_path.relative_to(DATA_DIR))
                     cut_job_statuses[job_id]["output_files"] = output_files
+                    logger.info(f"[Job {job_id}] Job completed successfully. Output: {output_files}")
                     return
                 else:
-                    error_message = f"Direct extraction failed. Error: {direct_process.stderr}"
+                    error_message = f"Direct extraction failed. Return code: {direct_process.returncode}. Error: {direct_process.stderr}. Output: {direct_process.stdout}"
                     logger.error(f"[Job {job_id}] {error_message}")
+                    logger.error(f"[Job {job_id}] Command: {' '.join(shlex.quote(str(c)) for c in direct_cmd)}")
                     cut_job_statuses[job_id]["status"] = "failed"
                     cut_job_statuses[job_id]["message"] = error_message
                     return
@@ -2060,24 +2126,25 @@ def run_ffmpeg_cut(
                         # WAV 音频提取命令
                         segment_cmd = [
                             "ffmpeg", "-v", "error",
+                            "-i", str(input_path),
                             "-ss", str(start_time),
                             "-t", str(duration),
-                            "-i", str(input_path),
                             "-acodec", "pcm_s16le",  # WAV 编码
                             "-ar", "16000",          # 采样率
                             "-ac", "1",              # 单声道
+                            "-avoid_negative_ts", "make_zero",
                             "-y", str(temp_file)
                         ]
                     else:
                         # 视频切分命令（保持原有逻辑）
                         segment_cmd = [
                             "ffmpeg", "-v", "error",
+                            "-i", str(input_path),
                             "-ss", str(start_time),
                             "-t", str(duration),
-                            "-i", str(input_path),
                             "-c:v", "libx264", "-preset", "fast",
                             "-c:a", "aac",
-                            "-avoid_negative_ts", "1",
+                            "-avoid_negative_ts", "make_zero",
                             "-y", str(temp_file)
                         ]
                     
@@ -2094,12 +2161,16 @@ def run_ffmpeg_cut(
                         )
                         
                         if seg_process.returncode != 0:
-                            logger.error(f"[Job {job_id}] Failed to extract segment {i}. Error: {seg_process.stderr}")
+                            error_msg = f"Failed to extract segment {i} ({start_time:.2f}s-{end_time:.2f}s). Return code: {seg_process.returncode}. Error: {seg_process.stderr}. Output: {seg_process.stdout}"
+                            logger.error(f"[Job {job_id}] {error_msg}")
+                            logger.error(f"[Job {job_id}] Command: {' '.join(shlex.quote(str(c)) for c in segment_cmd)}")
+                            logger.error(f"[Job {job_id}] Input file: {input_path} (exists: {input_path.exists()})")
                             continue
                             
                         # 如果成功创建了片段，添加到列表文件
                         if temp_file.exists() and temp_file.stat().st_size > 1024:
                             f.write(f"file '{temp_file.resolve()}'\n")
+                            logger.info(f"[Job {job_id}] Segment {i} extracted successfully: {temp_file} ({temp_file.stat().st_size} bytes)")
                         else:
                             logger.warning(f"[Job {job_id}] Segment {i} file missing or too small, skipping")
                             
@@ -2143,14 +2214,35 @@ def run_ffmpeg_cut(
                 )
                 
                 if concat_process.returncode != 0:
-                    error_message = f"Failed to concatenate WAV segments. Error: {concat_process.stderr}"
+                    error_message = f"Failed to concatenate WAV segments. Return code: {concat_process.returncode}. Error: {concat_process.stderr}. Output: {concat_process.stdout}"
+                    logger.error(f"[Job {job_id}] {error_message}")
+                    logger.error(f"[Job {job_id}] Command: {' '.join(shlex.quote(str(c)) for c in concat_cmd)}")
+                    cut_job_statuses[job_id]["status"] = "failed"
+                    cut_job_statuses[job_id]["message"] = error_message
+                    return
+                
+                # 验证WAV文件是否正确创建
+                if not output_path.exists():
+                    error_message = f"WAV output file was not created at {output_path}"
                     logger.error(f"[Job {job_id}] {error_message}")
                     cut_job_statuses[job_id]["status"] = "failed"
                     cut_job_statuses[job_id]["message"] = error_message
                     return
                 
+                wav_file_size = output_path.stat().st_size
+                if wav_file_size < 1024:
+                    error_message = f"WAV output file is too small ({wav_file_size} bytes)"
+                    logger.error(f"[Job {job_id}] {error_message}")
+                    cut_job_statuses[job_id]["status"] = "failed"
+                    cut_job_statuses[job_id]["message"] = error_message
+                    try:
+                        output_path.unlink()
+                    except OSError:
+                        pass
+                    return
+                
                 # WAV 处理完成，不需要后续字幕处理
-                logger.info(f"[Job {job_id}] WAV processing completed successfully")
+                logger.info(f"[Job {job_id}] WAV processing completed successfully ({wav_file_size} bytes)")
                 
             else:
                 # 视频处理流程（保持原有逻辑）
@@ -2180,8 +2272,9 @@ def run_ffmpeg_cut(
                 )
                 
                 if concat_process.returncode != 0:
-                    error_message = f"Failed to concatenate video segments. Error: {concat_process.stderr}"
+                    error_message = f"Failed to concatenate video segments. Return code: {concat_process.returncode}. Error: {concat_process.stderr}. Output: {concat_process.stdout}"
                     logger.error(f"[Job {job_id}] {error_message}")
+                    logger.error(f"[Job {job_id}] Command: {' '.join(shlex.quote(str(c)) for c in concat_cmd)}")
                     cut_job_statuses[job_id]["status"] = "failed"
                     cut_job_statuses[job_id]["message"] = error_message
                     return
@@ -2264,6 +2357,26 @@ def run_ffmpeg_cut(
                     pass
                 return
             
+            # 最终验证：确保输出文件真的存在并且有合理的大小
+            if not output_path.exists():
+                error_message = f"Final check failed: Output file does not exist at {output_path}"
+                logger.error(f"[Job {job_id}] {error_message}")
+                cut_job_statuses[job_id]["status"] = "failed"
+                cut_job_statuses[job_id]["message"] = error_message
+                return
+                
+            final_file_size = output_path.stat().st_size
+            if final_file_size < 1024:  # 文件小于1KB，可能是空文件或损坏
+                error_message = f"Final check failed: Output file is too small ({final_file_size} bytes) at {output_path}"
+                logger.error(f"[Job {job_id}] {error_message}")
+                cut_job_statuses[job_id]["status"] = "failed"
+                cut_job_statuses[job_id]["message"] = error_message
+                try:
+                    output_path.unlink()  # 删除无效文件
+                except OSError:
+                    pass
+                return
+            
             # 更新任务状态为完成
             cut_job_statuses[job_id]["status"] = "completed"
             cut_job_statuses[job_id]["output_path"] = str(output_path.relative_to(DATA_DIR))
@@ -2272,17 +2385,21 @@ def run_ffmpeg_cut(
             # 根据输出格式显示不同的完成消息
             if output_format == 'wav':
                 cut_job_statuses[job_id]["message"] = "Audio processing completed successfully."
-                logger.info(f"[Job {job_id}] Audio processing completed successfully with outputs: {output_files}")
+                logger.info(f"[Job {job_id}] Audio processing completed successfully. Final file: {output_path} ({final_file_size} bytes), outputs: {output_files}")
             else:
                 cut_job_statuses[job_id]["message"] = "Video processing completed successfully."
-                logger.info(f"[Job {job_id}] Video processing completed successfully with outputs: {output_files}")
+                logger.info(f"[Job {job_id}] Video processing completed successfully. Final file: {output_path} ({final_file_size} bytes), outputs: {output_files}")
 
     except Exception as e:
         error_msg = f"Error during ffmpeg cut task: {e}"
         logger.error(f"[Job {job_id}] {error_msg}", exc_info=True)
-        cut_job_statuses[job_id]["status"] = "failed"
-        cut_job_statuses[job_id]["message"] = error_msg
-        cut_job_statuses[job_id].pop("output_path", None)
+        logger.error(f"[Job {job_id}] Full traceback:", exc_info=True)
+        try:
+            cut_job_statuses[job_id]["status"] = "failed"
+            cut_job_statuses[job_id]["message"] = error_msg
+            cut_job_statuses[job_id].pop("output_path", None)
+        except Exception as status_error:
+            logger.error(f"[Job {job_id}] Failed to update job status: {status_error}")
     
     finally:
         # 确保在所有情况下都执行清理
@@ -2338,20 +2455,34 @@ async def start_video_cut(
         "embed_lang_requested": request.embed_subtitle_lang # Store requested lang for info
     }
 
-    # 5. Add FFMPEG task to background
-    background_tasks.add_task(
-        run_ffmpeg_cut,
-        task_uuid_str=task_uuid_str,
-        input_path=input_abs_path,
-        output_path=output_abs_path,
-        segments=[seg.dict() for seg in request.segments], # Pass segment data
-        job_id=job_id,
-        embed_subtitle_lang=request.embed_subtitle_lang, # Pass the lang preference
-        vtt_files=task_vtt_files, # Pass VTT file info
-        ass_files=task_ass_files, # Pass ASS file info
-        output_format=request.output_format,
-        subtitle_type=request.subtitle_type # Add subtitle type parameter
-    )
+    # 5. Start FFMPEG task immediately in background using asyncio
+    import asyncio
+    
+    async def run_ffmpeg_cut_async():
+        """异步包装器，用于在后台运行FFmpeg剪辑"""
+        try:
+            logger.info(f"[Job {job_id}] Starting async background task")
+            # 在线程池中运行FFmpeg剪辑任务
+            await run_in_threadpool(
+                run_ffmpeg_cut,
+                task_uuid_str=task_uuid_str,
+                input_path=input_abs_path,
+                output_path=output_abs_path,
+                segments=[seg.dict() for seg in request.segments], # Pass segment data
+                job_id=job_id,
+                embed_subtitle_lang=request.embed_subtitle_lang, # Pass the lang preference
+                vtt_files=task_vtt_files, # Pass VTT file info
+                ass_files=task_ass_files, # Pass ASS file info
+                output_format=request.output_format,
+                subtitle_type=request.subtitle_type # Add subtitle type parameter
+            )
+        except Exception as e:
+            logger.error(f"[Job {job_id}] Async task failed: {e}", exc_info=True)
+            cut_job_statuses[job_id]["status"] = "failed"
+            cut_job_statuses[job_id]["message"] = f"Async task failed: {str(e)}"
+    
+    # 立即启动异步任务
+    asyncio.create_task(run_ffmpeg_cut_async())
 
     logger.info(f"Queued cut job {job_id} for task {task_uuid_str}. Output target: {output_abs_path}")
 
@@ -3343,6 +3474,153 @@ def create_adjusted_subtitle_for_single_segment(
         
     except Exception as e:
         logger.error(f"[Job {job_id}] Error creating adjusted subtitle for single segment: {e}", exc_info=True)
+
+# ================================
+# 关键帧提取相关API端点
+# ================================
+
+@app.post("/api/tasks/{task_uuid}/extract_keyframes", response_model=ExtractKeyframesResponse)
+async def extract_keyframes(task_uuid: UUID, request: ExtractKeyframesRequest):
+    """提取视频关键帧"""
+    task_uuid_str = str(task_uuid)
+    metadata = await load_metadata()
+    
+    if task_uuid_str not in metadata:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_meta = metadata[task_uuid_str]
+    task_dir = DATA_DIR / task_uuid_str
+    
+    # 找到视频文件
+    video_extensions = ["*.mp4", "*.webm", "*.mkv", "*.avi", "*.mov"]
+    video_files = []
+    for ext in video_extensions:
+        video_files.extend(task_dir.glob(ext))
+    
+    if not video_files:
+        raise HTTPException(status_code=404, detail="No video file found")
+    
+    # 使用最大的视频文件（通常是最高质量的）
+    video_path = max(video_files, key=lambda f: f.stat().st_size)
+    logger.info(f"使用视频文件: {video_path}")
+    
+    try:
+        extractor = KeyframeExtractor(task_uuid_str, task_dir)
+        
+        # 检查是否已存在关键帧
+        if not request.regenerate:
+            existing_keyframes = await extractor.load_keyframes_json()
+            if existing_keyframes:
+                logger.info("使用现有关键帧数据")
+                return ExtractKeyframesResponse(
+                    task_uuid=task_uuid,
+                    keyframes_data=KeyframesData(**existing_keyframes),
+                    message="使用现有关键帧数据"
+                )
+        
+        # 提取关键帧
+        logger.info(f"开始提取关键帧: 方案={request.method}, 间隔={request.interval}s, 数量={request.count}, 质量={request.quality}")
+        
+        keyframes_data = await extractor.extract_keyframes(
+            video_path, 
+            method=request.method,
+            interval=request.interval,
+            count=request.count,
+            quality=request.quality
+        )
+        
+        # 更新任务元数据
+        await _update_task_metadata_and_save(task_uuid, {
+            "keyframes_json_path": str(extractor.keyframes_json.relative_to(DATA_DIR)),
+            "keyframes_count": len(keyframes_data["keyframes"]),
+            "keyframes_extracted_at": datetime.now(),
+            "keyframes_quality": request.quality
+        })
+        
+        success_count = keyframes_data["extraction_settings"]["actual_count"]
+        success_rate = keyframes_data["extraction_settings"]["success_rate"]
+        
+        return ExtractKeyframesResponse(
+            task_uuid=task_uuid,
+            keyframes_data=KeyframesData(**keyframes_data),
+            message=f"成功提取 {success_count} 个关键帧 (方案: {request.method}, 成功率: {success_rate:.1%})"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to extract keyframes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"关键帧提取失败: {str(e)}")
+
+@app.get("/api/tasks/{task_uuid}/keyframes", response_model=KeyframesData)
+async def get_keyframes(task_uuid: UUID):
+    """获取任务的关键帧数据"""
+    task_uuid_str = str(task_uuid)
+    task_dir = DATA_DIR / task_uuid_str
+    
+    extractor = KeyframeExtractor(task_uuid_str, task_dir)
+    keyframes_data = await extractor.load_keyframes_json()
+    
+    if not keyframes_data:
+        raise HTTPException(status_code=404, detail="No keyframes found")
+    
+    return KeyframesData(**keyframes_data)
+
+@app.get("/api/tasks/{task_uuid}/keyframes/stats", response_model=KeyframesStatsResponse)
+async def get_keyframes_stats(task_uuid: UUID):
+    """获取关键帧统计信息"""
+    task_uuid_str = str(task_uuid)
+    task_dir = DATA_DIR / task_uuid_str
+    
+    extractor = KeyframeExtractor(task_uuid_str, task_dir)
+    stats = await extractor.get_keyframes_stats()
+    
+    return KeyframesStatsResponse(
+        task_uuid=task_uuid,
+        stats=stats
+    )
+
+@app.delete("/api/tasks/{task_uuid}/keyframes", status_code=204)
+async def delete_keyframes(task_uuid: UUID):
+    """删除任务的关键帧"""
+    task_uuid_str = str(task_uuid)
+    task_dir = DATA_DIR / task_uuid_str
+    
+    extractor = KeyframeExtractor(task_uuid_str, task_dir)
+    deleted_count = await extractor.delete_keyframes()
+    
+    # 更新任务元数据
+    await _update_task_metadata_and_save(task_uuid, {
+        "keyframes_json_path": None,
+        "keyframes_count": 0,
+        "keyframes_extracted_at": None,
+        "keyframes_quality": None
+    })
+    
+    logger.info(f"已删除任务 {task_uuid_str} 的 {deleted_count} 个关键帧文件")
+
+@app.post("/api/tasks/{task_uuid}/detect_scenes")
+async def detect_scenes_endpoint(task_uuid: UUID, threshold: float = 0.3):
+    """检测视频场景变化点"""
+    task_uuid_str = str(task_uuid)
+    metadata = await load_metadata()
+    
+    if task_uuid_str not in metadata:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_dir = DATA_DIR / task_uuid_str
+    video_files = list(task_dir.glob("*.mp4")) + list(task_dir.glob("*.webm"))
+    
+    if not video_files:
+        raise HTTPException(status_code=404, detail="No video file found")
+    
+    try:
+        scenes = await detect_scenes(video_files[0], threshold)
+        return {
+            "task_uuid": task_uuid,
+            "scenes": scenes,
+            "total_scenes": len(scenes)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"场景检测失败: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

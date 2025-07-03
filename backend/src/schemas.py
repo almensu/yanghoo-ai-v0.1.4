@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, HttpUrl, Field, field_validator
 from enum import Enum
 from typing import Optional, Dict, Literal, List, Union
 from uuid import UUID
@@ -44,6 +44,10 @@ class TaskMetadata(BaseModel):
     embed_url: Optional[str] = None
     created_at: Optional[datetime] = None
     last_modified: Optional[datetime] = None
+    keyframes_json_path: Optional[str] = None
+    keyframes_count: int = 0
+    keyframes_extracted_at: Optional[datetime] = None
+    keyframes_quality: Optional[str] = None
 
 class FetchInfoJsonResponse(BaseModel):
     task_uuid: UUID
@@ -91,3 +95,80 @@ class DownloadAudioResponse(BaseModel):
 
 class IngestResponse(BaseModel):
     metadata: TaskMetadata
+
+# 关键帧相关的Schema
+class KeyframeInfo(BaseModel):
+    index: int
+    timestamp: float
+    filename: str
+    relative_path: str
+    file_size: int
+    resolution: str
+    format: str
+    extracted_at: str
+    url_path: str
+
+class VideoInfo(BaseModel):
+    duration: float
+    size: int
+    bitrate: int
+    width: int
+    height: int
+    fps: float
+    codec: str
+    format: str
+
+class ExtractionSettings(BaseModel):
+    # 通用字段
+    method: str
+    quality: str
+    quality_settings: Dict
+    extracted_at: str
+    extractor_version: str
+    actual_count: int
+    success_rate: float
+    
+    # 方案1（固定间隔）相关字段
+    requested_interval: Optional[int] = None
+    actual_interval: Optional[float] = None
+    max_keyframes: Optional[int] = None  # 允许None表示无限制
+    interval_adjusted: Optional[bool] = None
+    estimated_count: Optional[int] = None
+    unlimited_mode: Optional[bool] = None
+    
+    # 方案2（固定数量）相关字段
+    requested_count: Optional[int] = None
+    calculated_interval: Optional[float] = None
+    distribution: Optional[str] = None
+
+class KeyframesData(BaseModel):
+    task_uuid: str
+    video_path: str
+    video_info: VideoInfo
+    extraction_settings: ExtractionSettings
+    keyframes: List[KeyframeInfo]
+
+class ExtractKeyframesRequest(BaseModel):
+    method: str = Field(default="interval", pattern="^(interval|count|scene|ai|percentage)$", description="提取方案")
+    interval: int = Field(default=10, ge=1, le=60, description="固定间隔（秒）- 方案1")
+    count: int = Field(default=100, description="固定数量 - 方案2，-1表示无限制")
+    quality: str = Field(default="medium", pattern="^(low|medium|high)$", description="图片质量")
+    regenerate: bool = Field(default=False, description="是否重新生成")
+    
+    @field_validator('count')
+    @classmethod
+    def validate_count(cls, v):
+        if v == -1:  # 无限制模式
+            return v
+        if v < 10 or v > 500:
+            raise ValueError('count must be between 10 and 500, or -1 for unlimited')
+        return v
+
+class ExtractKeyframesResponse(BaseModel):
+    task_uuid: UUID
+    keyframes_data: KeyframesData
+    message: str
+
+class KeyframesStatsResponse(BaseModel):
+    task_uuid: UUID
+    stats: Dict

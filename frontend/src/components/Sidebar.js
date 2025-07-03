@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List, Youtube } from 'lucide-react'; // Added Youtube icon
+import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List, Youtube, Camera } from 'lucide-react'; // Added Camera icon
 
 function Sidebar() {
   // Use localStorage to persist sidebar state across page navigation
@@ -29,6 +29,7 @@ function Sidebar() {
     { name: 'Markdown 测试', icon: <Settings size={20} />, path: '/test/markdown' }, // Added Markdown Test Page link
     { name: 'Markdown List 测试', icon: <List size={20} />, path: '/test/markdownlist' }, // Added MarkdownList Test Page link
     { name: 'YouTube 时间戳 测试', icon: <Youtube size={20} />, path: '/test/youtube-timestamp' }, // Added YouTube timestamp test page
+    { name: '关键帧剪辑 测试', icon: <Camera size={20} />, path: '/test/keyframe-clip' }, // Added Keyframe Clip test page
   ];
 
   return (

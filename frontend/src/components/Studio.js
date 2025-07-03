@@ -9,6 +9,7 @@ import MarkdownWithTimestamps from './MarkdownWithTimestamps';
 import StudioWorkSpace from './StudioWorkSpace';
 import AIChat from './AIChat';
 import TimestampFormatTest from './TimestampFormatTest';
+import KeyframeClipPanel from './KeyframeClipPanel';
 
 // 视频任务选择器组件
 function VideoTaskSelector({ apiBaseUrl, currentTaskUuid }) {
@@ -865,6 +866,9 @@ function Studio({ taskUuid, apiBaseUrl }) {
 
   // --- NEW: State for VTT Previewer mode --- 
   const [vttMode, setVttMode] = useState('preview'); // 'preview' or 'cut'
+  
+  // --- NEW: State for clip mode type ---
+  const [clipModeType, setClipModeType] = useState('subtitle'); // 'subtitle' or 'keyframe'
 
   // Define subtitleLangToEmbed at the component scope level
   const [embeddingSubtitleLang, setEmbeddingSubtitleLang] = useState('none');
@@ -1695,6 +1699,109 @@ function Studio({ taskUuid, apiBaseUrl }) {
     }
   };
 
+  // --- Handler to toggle clip mode type ---
+  const toggleClipModeType = (newType) => {
+    if (clipModeType === newType) return; // No change
+    setClipModeType(newType);
+    // Reset any existing selections when switching between subtitle and keyframe clipping
+    setSelectedCueIds(new Set());
+    
+    // Reset cutting status when switching modes
+    if (newType === 'keyframe') {
+      // Keep cutting status if switching to keyframe mode
+    } else {
+      // Reset cutting status if switching to subtitle mode
+      setCuttingJobId(null);
+      setCuttingStatus('idle');
+      setCuttingMessage('');
+      setCutOutputPath(null);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    }
+    
+    logger.info(`Switched to ${newType} clipping mode.`);
+  };
+
+  // --- Handler for keyframe-based video clipping ---
+  const handleKeyframeClipSegments = async (segments) => {
+    if (!segments || segments.length === 0) {
+      console.warn('No segments provided for keyframe clipping');
+      return;
+    }
+
+    try {
+      setCuttingStatus('processing');
+      setCuttingMessage('');
+      
+      // Convert keyframe segments to the format expected by the cut API
+      const cutSegments = segments.map(segment => ({
+        start: segment.start,
+        end: segment.end
+      }));
+
+      // Find a suitable media file for cutting
+      let mediaIdentifier = '';
+      const mediaFiles = taskDetails.media_files;
+      if (typeof mediaFiles === 'string' && mediaFiles.trim() !== '') {
+        mediaIdentifier = mediaFiles.trim();
+      } else if (typeof mediaFiles === 'object' && mediaFiles !== null) {
+        // Use the same priority logic as the video player
+        const prioritizedKeys = ['best', '1080p', '720p', '480p', '360p'];
+        for (const key of prioritizedKeys) {
+          if (typeof mediaFiles[key] === 'string' && mediaFiles[key].trim() !== '') {
+            mediaIdentifier = mediaFiles[key].trim();
+            break;
+          }
+        }
+        if (!mediaIdentifier) {
+          for (const key in mediaFiles) {
+            if (Object.hasOwnProperty.call(mediaFiles, key) && typeof mediaFiles[key] === 'string' && mediaFiles[key].trim() !== '') {
+              mediaIdentifier = mediaFiles[key].trim();
+              break;
+            }
+          }
+        }
+      }
+
+      if (!mediaIdentifier) {
+        throw new Error('No media file found for cutting');
+      }
+
+      const cutRequest = {
+        media_identifier: mediaIdentifier,
+        segments: cutSegments,
+        embed_subtitle_lang: 'none', // Keyframe clipping typically doesn't need subtitles
+        subtitle_type: 'vtt',
+        output_format: outputFormat
+      };
+
+      console.log('Starting keyframe-based video cut with request:', cutRequest);
+
+      const response = await axios.post(
+        `${apiBaseUrl}/api/tasks/${taskUuid}/cut`,
+        cutRequest,
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+
+      if (response.status === 202 && response.data.job_id) {
+        setCuttingJobId(response.data.job_id);
+        setCuttingMessage(response.data.message || 'Cut job started');
+        console.log('Keyframe cut job started:', response.data);
+        
+        // Start polling for status
+        pollCutStatus(response.data.job_id, taskUuid);
+      } else {
+        throw new Error(response.data.message || 'Unexpected response from cut API');
+      }
+    } catch (error) {
+      console.error('Keyframe cutting failed:', error);
+      setCuttingStatus('failed');
+      setCuttingMessage(error.response?.data?.detail || error.message || 'Unknown error during keyframe cutting');
+    }
+  };
+
   // Reset selection and last clicked cue when language or VTT mode changes significantly
   useEffect(() => {
     setSelectedCueIds(new Set());
@@ -1869,7 +1976,9 @@ function Studio({ taskUuid, apiBaseUrl }) {
             <div className="flex justify-between items-center p-4 pb-2 border-b border-gray-200 flex-shrink-0">
               <div className="flex items-center gap-2">
                   <h3 className="font-semibold">
-                      {vttMode === 'cut' ? '字幕选择 (原位置占位)' : '字幕预览'} {/* Title changes */} 
+                      {vttMode === 'cut' 
+                        ? (clipModeType === 'subtitle' ? '字幕选择 (剪辑模式)' : '截图选择 (剪辑模式)')
+                        : '字幕预览'} {/* Title changes */} 
                   </h3>
                    {/* Mode Toggle Buttons - RETAIN THESE */}
                   <div className="btn-group">
@@ -1886,6 +1995,24 @@ function Studio({ taskUuid, apiBaseUrl }) {
                           剪辑
                       </button>
                   </div>
+
+                  {/* Clip Mode Type Toggle - NEW */}
+                  {vttMode === 'cut' && (
+                    <div className="btn-group ml-2">
+                      <button 
+                        className={`btn btn-xs ${clipModeType === 'subtitle' ? 'btn-active btn-primary' : 'btn-outline btn-primary'}`}
+                        onClick={() => toggleClipModeType('subtitle')}
+                      >
+                        字幕剪辑
+                      </button>
+                      <button 
+                        className={`btn btn-xs ${clipModeType === 'keyframe' ? 'btn-active btn-primary' : 'btn-outline btn-primary'}`}
+                        onClick={() => toggleClipModeType('keyframe')}
+                      >
+                        截图剪辑
+                      </button>
+                    </div>
+                  )}
                   
                   {/* Subtitle Optimization Settings Toggle - NEW */}
                   {vttMode === 'preview' && (
@@ -1920,8 +2047,8 @@ function Studio({ taskUuid, apiBaseUrl }) {
               </div>
             </div>
             
-            {/* Batch Selection Controls (only in cut mode AND if VttPreviewer is in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
-            {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
+            {/* Batch Selection Controls (only in subtitle cut mode AND if VttPreviewer is in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
+            {vttMode === 'cut' && clipModeType === 'subtitle' && preferLocalVideo && displayedCues.length > 0 && (
               <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-base-200/50">
                 <span className="text-xs text-gray-600">批量操作:</span>
                 <button 
@@ -2066,12 +2193,14 @@ function Studio({ taskUuid, apiBaseUrl }) {
               </div>
             ) : ( /* vttMode === 'cut' */
               <div className="flex-grow flex items-center justify-center bg-base-200 p-4 rounded-lg shadow text-gray-500 italic">
-                剪辑模式进行中...
+                {clipModeType === 'subtitle' 
+                  ? '字幕剪辑模式 - 请在中间面板选择字幕进行剪辑'
+                  : '截图剪辑模式 - 请在中间面板进行关键帧剪辑'}
               </div>
             )}
             
-            {/* Cutting Controls Section (Only in Cut Mode AND if VttPreviewer is NOT in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
-            {vttMode === 'cut' && preferLocalVideo && displayedCues.length > 0 && (
+            {/* Cutting Controls Section (Only in Subtitle Cut Mode) - RETAIN & ADJUST LOGIC IF NEEDED */}
+            {vttMode === 'cut' && clipModeType === 'subtitle' && preferLocalVideo && displayedCues.length > 0 && (
               <div className="p-4 border-t border-gray-200 flex-shrink-0 space-y-3">
                 {/* 连续片段检测提示 */}
                 {selectedCueIds.size > 1 && (() => {
@@ -2143,31 +2272,83 @@ function Studio({ taskUuid, apiBaseUrl }) {
             )}
           </div>
 
-          {vttMode === 'cut' && selectedCueIds.size > 0 && (
-            <div className="flex flex-col w-full mt-4">
-              <div className="flex items-center gap-2 my-2">
-                <span className="text-sm font-medium">将嵌入字幕:</span>
-                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                  embeddingSubtitleLang !== 'none' 
-                    ? 'bg-success text-success-content' 
-                    : 'bg-error text-error-content'
-                }`}>
-                  {getSubtitleLangLabel(embeddingSubtitleLang)}
-                </span>
-                <span className="text-xs text-gray-500">
-                  (取决于当前选择的字幕语言)
-                </span>
-              </div>
+          {/* 剪辑状态和控制面板 */}
+          {vttMode === 'cut' && (
+            <div className="flex flex-col w-full mt-4 space-y-4">
+              
+              {/* 字幕剪辑状态 */}
+              {clipModeType === 'subtitle' && selectedCueIds.size > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">将嵌入字幕:</span>
+                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                    embeddingSubtitleLang !== 'none' 
+                      ? 'bg-success text-success-content' 
+                      : 'bg-error text-error-content'
+                  }`}>
+                    {getSubtitleLangLabel(embeddingSubtitleLang)}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    (取决于当前选择的字幕语言)
+                  </span>
+                </div>
+              )}
+
+              {/* 统一的剪辑状态面板 */}
+              {cuttingJobId && (
+                <div className="p-4 border border-gray-200 rounded-lg bg-gray-50">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">
+                        {clipModeType === 'subtitle' ? '字幕剪辑状态:' : '关键帧剪辑状态:'}
+                      </span>
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        cuttingStatus === 'processing' ? 'bg-yellow-100 text-yellow-700' :
+                        cuttingStatus === 'completed' ? 'bg-green-100 text-green-700' :
+                        cuttingStatus === 'failed' ? 'bg-red-100 text-red-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {cuttingStatus === 'processing' ? '处理中...' :
+                         cuttingStatus === 'completed' ? '完成' :
+                         cuttingStatus === 'failed' ? '失败' : '待处理'}
+                      </span>
+                    </div>
+                    
+                    {cuttingMessage && (
+                      <div className="text-sm text-gray-600">
+                        {cuttingMessage}
+                      </div>
+                    )}
+
+                    {cuttingJobId && cuttingStatus === 'completed' && cutOutputPath && (
+                      <div>
+                        <a 
+                          href={`${apiBaseUrl}/files/${cutOutputPath}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-sm btn-success"
+                          download
+                        >
+                          下载{outputFormat === 'video' ? '视频' : '音频'}片段
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
+
+
         </div>
 
-        {/* --- Middle Column (AI Chat Placeholder or VTT Previewer in Cut Mode) --- */}
+        {/* --- Middle Column (AI Chat, VTT Previewer, or Keyframe Clip Panel) --- */}
         <div className="flex flex-col flex-1 bg-white p-4 rounded-lg shadow overflow-auto custom-scrollbar">
           <h3 className="text-lg font-semibold mb-2 border-b border-gray-300 pb-2 flex-shrink-0">
-            {vttMode === 'cut' ? "字幕选择 (剪辑模式)" : "AI 对话"}
+            {vttMode === 'cut' && clipModeType === 'subtitle' ? "字幕选择 (剪辑模式)" :
+             vttMode === 'cut' && clipModeType === 'keyframe' ? "关键帧剪辑 (剪辑模式)" : 
+             "AI 对话"}
           </h3>
-          {vttMode === 'cut' ? (
+          {vttMode === 'cut' && clipModeType === 'subtitle' ? (
             <div className="flex-grow min-h-0 custom-scrollbar">
               <VttPreviewer
                 cues={displayedCues}
@@ -2175,6 +2356,13 @@ function Studio({ taskUuid, apiBaseUrl }) {
                 syncEnabled={true} 
                 onCueSelect={handleCueSelect}
                 selectedCues={selectedCueIds}
+              />
+            </div>
+          ) : vttMode === 'cut' && clipModeType === 'keyframe' ? (
+            <div className="flex-grow min-h-0 custom-scrollbar">
+              <KeyframeClipPanel 
+                taskUuid={taskUuid}
+                onClipSegments={handleKeyframeClipSegments}
               />
             </div>
           ) : (
