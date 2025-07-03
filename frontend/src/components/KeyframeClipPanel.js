@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { formatTime } from '../utils/formatTime';
 
 const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
@@ -23,7 +23,16 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
   const [gridColumns, setGridColumns] = useState(4); // 默认4列
   const [showTimestamps, setShowTimestamps] = useState(false); // 默认关闭时间戳显示
 
+  // 拖拽选择相关状态
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [dragEnd, setDragEnd] = useState({ x: 0, y: 0 });
+  const [dragSelection, setDragSelection] = useState(new Set());
+  const [lastClickedFrame, setLastClickedFrame] = useState(null);
+
   const timelineRef = useRef(null);
+  const gridContainerRef = useRef(null);
+  const frameRefs = useRef(new Map());
 
   useEffect(() => {
     loadKeyframes();
@@ -122,9 +131,53 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
     });
   };
 
-  const handleFrameClick = (frame) => {
+  const handleFrameClick = (frame, event) => {
     if (!clipMode) {
-      toggleFrameSelection(frame.index);
+      const isCtrlPressed = event?.ctrlKey || event?.metaKey;
+      const isShiftPressed = event?.shiftKey;
+      
+      if (isShiftPressed && lastClickedFrame !== null) {
+        // Shift+点击：范围选择
+        // 基于关键帧在数组中的位置，而不是frame.index
+        const currentFramePosition = keyframes.findIndex(f => f.index === frame.index);
+        const lastFramePosition = keyframes.findIndex(f => f.index === lastClickedFrame);
+        
+        if (currentFramePosition !== -1 && lastFramePosition !== -1) {
+          const startPos = Math.min(lastFramePosition, currentFramePosition);
+          const endPos = Math.max(lastFramePosition, currentFramePosition);
+          
+          // 获取范围内所有关键帧的index
+          const rangeFrames = keyframes
+            .slice(startPos, endPos + 1)
+            .map(f => f.index);
+          
+          setSelectedFrames(prev => {
+            // 智能范围选择：如果范围内大部分帧已选中，则取消选择；否则添加选择
+            const currentlySelected = rangeFrames.filter(frameIndex => prev.includes(frameIndex));
+            const shouldDeselect = currentlySelected.length > rangeFrames.length / 2;
+            
+            if (shouldDeselect) {
+              // 取消选择范围内的帧
+              return prev.filter(frameIndex => !rangeFrames.includes(frameIndex));
+            } else {
+              // 添加选择范围内的帧
+              const newSelection = new Set([...prev, ...rangeFrames]);
+              return Array.from(newSelection).sort((a, b) => a - b);
+            }
+          });
+        }
+      } else if (isCtrlPressed) {
+        // Ctrl+点击：切换选择
+        toggleFrameSelection(frame.index);
+      } else {
+        // 普通点击：单选
+        setSelectedFrames([frame.index]);
+      }
+      
+      // 注意：Shift+点击时不更新lastClickedFrame，保持原有的锚点
+      if (!isShiftPressed) {
+        setLastClickedFrame(frame.index);
+      }
       return;
     }
 
@@ -184,60 +237,277 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
     onClipSegments(segments);
   };
 
-  const renderKeyframeGrid = () => {    
+  // 拖拽选择工具函数
+  const getElementBounds = (element) => {
+    const rect = element.getBoundingClientRect();
+    const containerRect = gridContainerRef.current?.getBoundingClientRect();
+    if (!containerRect) return null;
+    
+    return {
+      left: rect.left - containerRect.left,
+      top: rect.top - containerRect.top,
+      right: rect.right - containerRect.left,
+      bottom: rect.bottom - containerRect.top,
+      width: rect.width,
+      height: rect.height
+    };
+  };
+
+  const isElementInSelection = (elementBounds, selectionBounds) => {
+    if (!elementBounds || !selectionBounds) return false;
+    
+    const { left: selLeft, top: selTop, right: selRight, bottom: selBottom } = selectionBounds;
+    const { left: elLeft, top: elTop, right: elRight, bottom: elBottom } = elementBounds;
+    
+    // 检查是否有重叠
+    return !(elRight < selLeft || elLeft > selRight || elBottom < selTop || elTop > selBottom);
+  };
+
+  const updateDragSelection = useCallback(() => {
+    if (!isDragging || !gridContainerRef.current) return;
+
+    const selectionBounds = {
+      left: Math.min(dragStart.x, dragEnd.x),
+      top: Math.min(dragStart.y, dragEnd.y),
+      right: Math.max(dragStart.x, dragEnd.x),
+      bottom: Math.max(dragStart.y, dragEnd.y)
+    };
+
+    const newSelection = new Set();
+    
+    keyframes.forEach(frame => {
+      const frameElement = frameRefs.current.get(frame.index);
+      if (frameElement) {
+        const elementBounds = getElementBounds(frameElement);
+        if (isElementInSelection(elementBounds, selectionBounds)) {
+          newSelection.add(frame.index);
+        }
+      }
+    });
+
+    setDragSelection(newSelection);
+  }, [isDragging, dragStart, dragEnd, keyframes]);
+
+  // 处理鼠标事件
+  const handleMouseDown = useCallback((e) => {
+    if (clipMode) return; // 剪辑模式下不启用拖拽选择
+    
+    const containerRect = gridContainerRef.current?.getBoundingClientRect();
+    if (!containerRect) return;
+
+    // 检查是否点击在关键帧元素上
+    const clickedFrame = e.target.closest('[data-frame-index]');
+    if (clickedFrame) {
+      const frameIndex = parseInt(clickedFrame.dataset.frameIndex);
+      handleFrameClick({ index: frameIndex }, e);
+      return;
+    }
+
+    // 开始拖拽选择
+    const startX = e.clientX - containerRect.left;
+    const startY = e.clientY - containerRect.top;
+    
+    setIsDragging(true);
+    setDragStart({ x: startX, y: startY });
+    setDragEnd({ x: startX, y: startY });
+    setDragSelection(new Set());
+    
+    e.preventDefault();
+  }, [clipMode]);
+
+  const handleMouseMove = useCallback((e) => {
+    if (!isDragging || !gridContainerRef.current) return;
+
+    const containerRect = gridContainerRef.current.getBoundingClientRect();
+    const currentX = e.clientX - containerRect.left;
+    const currentY = e.clientY - containerRect.top;
+    
+    setDragEnd({ x: currentX, y: currentY });
+  }, [isDragging]);
+
+  const handleMouseUp = useCallback((e) => {
+    if (!isDragging) return;
+
+    const isCtrlPressed = e.ctrlKey || e.metaKey;
+    
+    if (dragSelection.size > 0) {
+      setSelectedFrames(prev => {
+        if (isCtrlPressed) {
+          // Ctrl+拖拽：切换选择状态
+          const newSelection = new Set(prev);
+          dragSelection.forEach(frameIndex => {
+            if (newSelection.has(frameIndex)) {
+              newSelection.delete(frameIndex);
+            } else {
+              newSelection.add(frameIndex);
+            }
+          });
+          return Array.from(newSelection).sort((a, b) => a - b);
+        } else {
+          // 普通拖拽：替换选择
+          return Array.from(dragSelection).sort((a, b) => a - b);
+        }
+      });
+    }
+
+    setIsDragging(false);
+    setDragSelection(new Set());
+  }, [isDragging, dragSelection]);
+
+  // 更新拖拽选择
+  useEffect(() => {
+    updateDragSelection();
+  }, [updateDragSelection]);
+
+  // 添加全局鼠标事件监听
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  // 键盘快捷键支持
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (clipMode || keyframes.length === 0) return;
+      
+      // Ctrl/Cmd + A: 全选
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        setSelectedFrames(keyframes.map(f => f.index));
+      }
+      
+      // Escape: 清空选择
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelectedFrames([]);
+      }
+      
+      // Ctrl/Cmd + I: 反选
+      if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+        e.preventDefault();
+        setSelectedFrames(keyframes.filter(f => !selectedFrames.includes(f.index)).map(f => f.index));
+      }
+      
+      // Delete: 删除选中的关键帧（可以根据需要实现）
+      if (e.key === 'Delete' && selectedFrames.length > 0) {
+        // 这里可以添加删除选中关键帧的逻辑
+        console.log('Delete selected frames:', selectedFrames);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [clipMode, keyframes, selectedFrames]);
+
+  const renderKeyframeGrid = () => {
+    const selectionStyle = isDragging ? {
+      position: 'absolute',
+      left: Math.min(dragStart.x, dragEnd.x),
+      top: Math.min(dragStart.y, dragEnd.y),
+      width: Math.abs(dragEnd.x - dragStart.x),
+      height: Math.abs(dragEnd.y - dragStart.y),
+      border: '2px dashed #3b82f6',
+      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+      pointerEvents: 'none',
+      zIndex: 1000
+    } : {};
+
     return (
       <div 
-        className="grid gap-2"
-        style={{ 
-          gridTemplateColumns: `repeat(${gridColumns}, 1fr)`,
-        }}
+        ref={gridContainerRef}
+        className="relative select-none"
+        onMouseDown={handleMouseDown}
+        style={{ userSelect: 'none' }}
       >
-        {keyframes.map((frame) => (
-          <div
-            key={frame.index}
-            className={`relative cursor-pointer border-2 rounded transition-all overflow-hidden group ${
-              selectedFrames.includes(frame.index)
-                ? 'border-blue-500 bg-blue-50'
-                : clipMode && currentSegment.start === frame.timestamp
-                ? 'border-orange-500 bg-orange-50'
-                : 'border-gray-200 hover:border-gray-400'
-            }`}
-            onClick={() => handleFrameClick(frame)}
-          >
-            {/* 16:9 等比例容器 */}
-            <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-              <img
-                src={`http://127.0.0.1:8000/files/${taskUuid}/${frame.relative_path}`}
-                alt={`Frame ${frame.index}`}
-                className="absolute inset-0 w-full h-full object-cover rounded transition-transform group-hover:scale-105"
-                loading="lazy"
-              />
-              {/* 时间戳叠加层 */}
-              {showTimestamps && (
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent text-white text-xs p-2 rounded-b">
-                  <div className="font-medium">{formatTime(frame.timestamp)}</div>
-                  {gridColumns <= 4 && (
-                    <div className="text-gray-300 text-[10px]">#{frame.index}</div>
+        <div 
+          className="grid gap-2"
+          style={{ 
+            gridTemplateColumns: `repeat(${gridColumns}, 1fr)`,
+          }}
+        >
+          {keyframes.map((frame) => {
+            const isSelected = selectedFrames.includes(frame.index) || dragSelection.has(frame.index);
+            const isAnchor = !clipMode && lastClickedFrame === frame.index;
+            
+            return (
+              <div
+                key={frame.index}
+                ref={el => {
+                  if (el) {
+                    frameRefs.current.set(frame.index, el);
+                  } else {
+                    frameRefs.current.delete(frame.index);
+                  }
+                }}
+                data-frame-index={frame.index}
+                className={`relative cursor-pointer border-2 rounded transition-all overflow-hidden group ${
+                  isSelected
+                    ? 'border-blue-500 bg-blue-50'
+                    : isAnchor
+                    ? 'border-purple-400 bg-purple-50'
+                    : clipMode && currentSegment.start === frame.timestamp
+                    ? 'border-orange-500 bg-orange-50'
+                    : 'border-gray-200 hover:border-gray-400'
+                }`}
+                onClick={(e) => handleFrameClick(frame, e)}
+              >
+                {/* 16:9 等比例容器 */}
+                <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                  <img
+                    src={`http://127.0.0.1:8000/files/${taskUuid}/${frame.relative_path}`}
+                    alt={`Frame ${frame.index}`}
+                    className="absolute inset-0 w-full h-full object-cover rounded transition-transform group-hover:scale-105"
+                    loading="lazy"
+                    draggable={false}
+                  />
+                  {/* 时间戳叠加层 */}
+                  {showTimestamps && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent text-white text-xs p-2 rounded-b">
+                      <div className="font-medium">{formatTime(frame.timestamp)}</div>
+                      {gridColumns <= 4 && (
+                        <div className="text-gray-300 text-[10px]">#{frame.index}</div>
+                      )}
+                    </div>
                   )}
+                  {/* 选中标记 */}
+                  {isSelected && (
+                    <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-lg">
+                      ✓
+                    </div>
+                  )}
+                  {/* 锚点标记 */}
+                  {isAnchor && !isSelected && (
+                    <div className="absolute top-2 right-2 bg-purple-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-lg">
+                      ⚓
+                    </div>
+                  )}
+                  {/* 剪辑模式起始帧标记 */}
+                  {clipMode && currentSegment.start === frame.timestamp && (
+                    <div className="absolute top-2 right-2 bg-orange-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-lg">
+                      ▶
+                    </div>
+                  )}
+                  {/* 悬停效果 */}
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded" />
                 </div>
-              )}
-              {/* 选中标记 */}
-              {selectedFrames.includes(frame.index) && (
-                <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-lg">
-                  ✓
-                </div>
-              )}
-              {/* 剪辑模式起始帧标记 */}
-              {clipMode && currentSegment.start === frame.timestamp && (
-                <div className="absolute top-2 right-2 bg-orange-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-lg">
-                  ▶
-                </div>
-              )}
-              {/* 悬停效果 */}
-              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded" />
-            </div>
-          </div>
-        ))}
+              </div>
+            );
+          })}
+        </div>
+        
+        {/* 拖拽选择框 */}
+        {isDragging && (
+          <div style={selectionStyle} />
+        )}
       </div>
     );
   };
@@ -262,7 +532,7 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
                 selectedFrames.includes(frame.index) ? 'z-20' : 'z-10'
               }`}
               style={{ left: position - 30, top: 10 }}
-              onClick={() => handleFrameClick(frame)}
+              onClick={(e) => handleFrameClick(frame, e)}
             >
               <img
                 src={`http://127.0.0.1:8000/files/${taskUuid}/${frame.relative_path}`}
@@ -410,6 +680,33 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
             >
               {clipMode ? '退出剪辑模式' : '进入剪辑模式'}
             </button>
+            
+            {/* 批量选择操作按钮 */}
+            {!clipMode && keyframes.length > 0 && (
+              <>
+                <div className="h-4 border-l border-gray-300"></div>
+                <button
+                  onClick={() => setSelectedFrames(keyframes.map(f => f.index))}
+                  className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+                >
+                  全选
+                </button>
+                <button
+                  onClick={() => setSelectedFrames([])}
+                  className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+                  disabled={selectedFrames.length === 0}
+                >
+                  清空选择
+                </button>
+                <button
+                  onClick={() => setSelectedFrames(keyframes.filter(f => !selectedFrames.includes(f.index)).map(f => f.index))}
+                  className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+                  disabled={keyframes.length === 0}
+                >
+                  反选
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -857,6 +1154,30 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments }) => {
             <p>• <strong>连续剪辑</strong>: 选中的关键帧之间会自动补全中间画面，确保视频流畅</p>
             <p>• 创建片段后点击"开始剪辑"进行视频剪切</p>
           </div>
+        </div>
+      )}
+
+      {/* 使用说明 */}
+      {!clipMode && keyframes.length > 0 && (
+        <div className="mt-2 text-xs text-gray-500 bg-gray-50 p-2 rounded">
+          <div className="flex flex-wrap gap-4">
+            <span>💡 <strong>选择提示:</strong></span>
+            <span>• 鼠标拖拽框选多个关键帧</span>
+            <span>• Ctrl/Cmd+点击切换选择</span>
+            <span>• Shift+点击范围选择(从锚点⚓到当前帧)</span>
+            <span>• Ctrl/Cmd+拖拽切换框选区域</span>
+          </div>
+          <div className="flex flex-wrap gap-4 mt-1">
+            <span>⌨️ <strong>快捷键:</strong></span>
+            <span>• Ctrl/Cmd+A 全选</span>
+            <span>• Escape 清空选择</span>
+            <span>• Ctrl/Cmd+I 反选</span>
+          </div>
+          {lastClickedFrame !== null && (
+            <div className="mt-1 text-purple-600">
+              <span>⚓ <strong>当前锚点:</strong> 关键帧 #{lastClickedFrame} (Shift+点击其他帧可选择范围)</span>
+            </div>
+          )}
         </div>
       )}
     </div>
