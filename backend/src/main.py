@@ -2951,6 +2951,77 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # --- END: New GET Markdown Endpoint ---
 
+# --- START: Prompt Files Endpoints ---
+@app.get("/api/prompt-files", response_model=List[str])
+async def list_prompt_files():
+    """List all prompt files in the docs/Prompt directory"""
+    try:
+        # Get the project root directory
+        project_root = Path(__file__).parent.parent.parent
+        prompt_dir = project_root / "docs" / "Prompt"
+        
+        if not prompt_dir.exists() or not prompt_dir.is_dir():
+            logger.warning(f"Prompt directory not found: {prompt_dir}")
+            return []
+        
+        # List all .md files in the prompt directory
+        files = []
+        for file_path in prompt_dir.glob("*.md"):
+            if file_path.is_file():
+                files.append(file_path.name)
+        
+        # Sort files alphabetically
+        files.sort()
+        
+        logger.info(f"Found {len(files)} prompt files")
+        return files
+        
+    except Exception as e:
+        logger.error(f"Error listing prompt files: {e}")
+        raise HTTPException(status_code=500, detail=f"Error listing prompt files: {str(e)}")
+
+@app.get("/api/prompt-files/{filename}", response_class=FileResponse)
+async def get_prompt_file(filename: str):
+    """Get a specific prompt file from the docs/Prompt directory"""
+    try:
+        # Basic security check: prevent path traversal
+        if ".." in filename or filename.startswith("/") or not filename.endswith(".md"):
+            logger.warning(f"Detected illegal prompt filename request: {filename}")
+            raise HTTPException(status_code=400, detail="Illegal filename")
+        
+        # Get the project root directory
+        project_root = Path(__file__).parent.parent.parent
+        prompt_dir = project_root / "docs" / "Prompt"
+        file_path = prompt_dir / filename
+        
+        if not file_path.exists() or not file_path.is_file():
+            raise HTTPException(status_code=404, detail=f"Prompt file '{filename}' not found")
+        
+        # Ensure the file path stays within prompt directory
+        try:
+            resolved_file_path = file_path.resolve()
+            expected_prompt_dir = prompt_dir.resolve()
+            
+            if not str(resolved_file_path).startswith(str(expected_prompt_dir)):
+                logger.warning(f"Path traversal attempt detected: {resolved_file_path}")
+                raise HTTPException(status_code=400, detail="File path outside allowed directory")
+        except Exception as e:
+            logger.error(f"Error resolving file path: {file_path} - {e}")
+            raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+        
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type="text/markdown"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving prompt file {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving prompt file: {str(e)}")
+# --- END: Prompt Files Endpoints ---
+
 # --- START: SRT Processing Endpoints ---
 @app.post("/api/tasks/{task_uuid}/process_srt", status_code=200)
 async def process_srt_endpoint(task_uuid: UUID):
@@ -3621,6 +3692,81 @@ async def detect_scenes_endpoint(task_uuid: UUID, threshold: float = 0.3):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"场景检测失败: {str(e)}")
+
+# --- END: New GET Markdown Endpoint ---
+
+# --- START: Prompt Files Endpoints ---
+@app.get("/api/prompt-files", response_model=List[str])
+async def list_prompt_files():
+    """List all prompt files in the docs/Prompt directory"""
+    try:
+        # Get the project root directory
+        project_root = Path(__file__).parent.parent.parent
+        prompt_dir = project_root / "docs" / "Prompt"
+        
+        if not prompt_dir.exists() or not prompt_dir.is_dir():
+            logger.warning(f"Prompt directory not found: {prompt_dir}")
+            return []
+        
+        # List all .md files in the prompt directory
+        files = []
+        for file_path in prompt_dir.glob("*.md"):
+            if file_path.is_file():
+                files.append(file_path.name)
+        
+        # Sort files alphabetically
+        files.sort()
+        
+        logger.info(f"Found {len(files)} prompt files")
+        return files
+        
+    except Exception as e:
+        logger.error(f"Error listing prompt files: {e}")
+        raise HTTPException(status_code=500, detail=f"Error listing prompt files: {str(e)}")
+
+@app.get("/api/prompt-files/{filename}", response_class=FileResponse)
+async def get_prompt_file(filename: str):
+    """Get a specific prompt file from the docs/Prompt directory"""
+    try:
+        # Basic security check: prevent path traversal
+        if ".." in filename or filename.startswith("/") or not filename.endswith(".md"):
+            logger.warning(f"Detected illegal prompt filename request: {filename}")
+            raise HTTPException(status_code=400, detail="Illegal filename")
+        
+        # Get the project root directory
+        project_root = Path(__file__).parent.parent.parent
+        prompt_dir = project_root / "docs" / "Prompt"
+        file_path = prompt_dir / filename
+        
+        if not file_path.exists() or not file_path.is_file():
+            raise HTTPException(status_code=404, detail=f"Prompt file '{filename}' not found")
+        
+        # Ensure the file path stays within prompt directory
+        try:
+            resolved_file_path = file_path.resolve()
+            expected_prompt_dir = prompt_dir.resolve()
+            
+            if not str(resolved_file_path).startswith(str(expected_prompt_dir)):
+                logger.warning(f"Path traversal attempt detected: {resolved_file_path}")
+                raise HTTPException(status_code=400, detail="File path outside allowed directory")
+        except Exception as e:
+            logger.error(f"Error resolving file path: {file_path} - {e}")
+            raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+        
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type="text/markdown"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving prompt file {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving prompt file: {str(e)}")
+# --- END: Prompt Files Endpoints ---
+
+# --- START: SRT Processing Endpoints ---
 
 if __name__ == "__main__":
     import uvicorn

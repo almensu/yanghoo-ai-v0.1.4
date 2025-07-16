@@ -86,26 +86,60 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     
     setLoadingFiles(true);
     try {
-      const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/list`, {
+      // 1. 获取任务相关的markdown文件
+      const taskFilesResponse = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/list`, {
         params: { extension: '.md' }
       });
-      const files = response.data || [];
-      setAvailableFiles(files);
+      const taskFiles = (taskFilesResponse.data || []).map(filename => ({
+        filename,
+        type: 'task',
+        displayName: filename,
+        category: '任务文档'
+      }));
       
-      // 获取token计数
+      // 2. 获取prompt文件
+      let promptFiles = [];
+      try {
+        const promptResponse = await axios.get(`${apiBaseUrl}/api/prompt-files`);
+        promptFiles = (promptResponse.data || []).map(filename => ({
+          filename,
+          type: 'prompt',
+          displayName: filename.replace(/^prompt_/, '').replace(/\.md$/, ''),
+          category: 'Prompt模板'
+        }));
+        console.log(`Loaded ${promptFiles.length} prompt files:`, promptFiles);
+      } catch (error) {
+        console.warn('Failed to fetch prompt files:', error);
+        // 如果无法获取prompt文件，继续使用任务文件
+      }
+      
+      // 3. 合并所有文件
+      const allFiles = [...promptFiles, ...taskFiles]; // prompt文件优先显示
+      setAvailableFiles(allFiles);
+      
+      // 4. 获取token计数
       const tokenCounts = {};
-      const fetchPromises = files.map(async (filename) => {
+      const fetchPromises = allFiles.map(async (fileInfo) => {
         try {
-          const encodedFilename = encodeURIComponent(filename);
-          const response = await axios.get(
-            `${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`,
-            { responseType: 'text' }
-          );
+          let response;
+          if (fileInfo.type === 'task') {
+            const encodedFilename = encodeURIComponent(fileInfo.filename);
+            response = await axios.get(
+              `${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`,
+              { responseType: 'text' }
+            );
+          } else {
+            // prompt文件
+            response = await axios.get(
+              `${apiBaseUrl}/api/prompt-files/${encodeURIComponent(fileInfo.filename)}`,
+              { responseType: 'text' }
+            );
+          }
           const content = response.data || '';
-          tokenCounts[filename] = estimateTokenCount(content);
+          tokenCounts[fileInfo.filename] = estimateTokenCount(content);
         } catch (error) {
-          console.error(`Failed to fetch content for ${filename}:`, error);
-          tokenCounts[filename] = 0;
+          console.error(`Failed to fetch content for ${fileInfo.filename}:`, error);
+          tokenCounts[fileInfo.filename] = 0;
         }
       });
       await Promise.all(fetchPromises);
@@ -223,11 +257,26 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       throw new Error('缺少taskUuid或apiBaseUrl');
     }
     
-    const encodedFilename = encodeURIComponent(filename);
-    const response = await axios.get(
-      `${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`,
-      { responseType: 'text' }
-    );
+    // 查找文件信息
+    const fileInfo = availableFiles.find(f => f.filename === filename);
+    if (!fileInfo) {
+      throw new Error(`File info not found for ${filename}`);
+    }
+    
+    let response;
+    if (fileInfo.type === 'task') {
+      const encodedFilename = encodeURIComponent(filename);
+      response = await axios.get(
+        `${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodedFilename}`,
+        { responseType: 'text' }
+      );
+    } else {
+      // prompt文件
+      response = await axios.get(
+        `${apiBaseUrl}/api/prompt-files/${encodeURIComponent(filename)}`,
+        { responseType: 'text' }
+      );
+    }
     return response.data || '';
   };
 
@@ -509,18 +558,23 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
           try {
             console.log(`开始加载文件: ${filename}`);
             const content = await fetchFileContent(filename);
+            const fileInfo = availableFiles.find(f => f.filename === filename);
             console.log(`文件 ${filename} 加载成功，内容长度: ${content.length}`);
             return { 
               filename, 
               content,
-              success: true
+              success: true,
+              type: fileInfo?.type || 'unknown',
+              category: fileInfo?.category || '未知'
             };
           } catch (error) {
             console.error(`加载文件 ${filename} 失败:`, error);
             return { 
               filename, 
               content: '[文件内容加载失败]',
-              success: false
+              success: false,
+              type: 'unknown',
+              category: '未知'
             };
           }
         });
@@ -528,14 +582,25 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         // 等待所有文件加载完成
         const results = await Promise.all(loadPromises);
         
-        // 组合所有文件内容
+        // 组合所有文件内容，按类型分组
+        const taskContents = [];
+        const promptContents = [];
+        
         for (const result of results) {
-          const { filename, content, success } = result;
+          const { filename, content, success, type, category } = result;
           const header = success 
-            ? `\n\n=== ${filename} ===\n` 
-            : `\n\n=== ${filename} (加载失败) ===\n`;
-          fileContents.push(header + content);
+            ? `\n\n=== ${category}: ${filename} ===\n` 
+            : `\n\n=== ${category}: ${filename} (加载失败) ===\n`;
+          
+          if (type === 'prompt') {
+            promptContents.push(header + content);
+          } else {
+            taskContents.push(header + content);
+          }
         }
+        
+        // 先添加prompt内容，再添加任务内容
+        fileContents.push(...promptContents, ...taskContents);
         
         combinedDocument += fileContents.join('\n');
         console.log(`所有文件内容加载完成，总长度: ${combinedDocument.length}`);
@@ -880,39 +945,92 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
                   </div>
                   
                   <div className="max-h-64 overflow-y-auto">
-                    {availableFiles.length > 0 ? (
-                      availableFiles.map(filename => (
-                        <div 
-                          key={filename} 
-                          className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer"
-                          onClick={() => toggleFileSelection(filename)}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedFiles.has(filename)}
-                            onChange={() => {}} // 通过父div的onClick处理
-                            className="checkbox checkbox-sm checkbox-primary"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-gray-900 truncate" title={filename}>
-                              {filename}
-                            </div>
-                            {fileTokenCounts[filename] !== undefined && (
-                              <div className="text-xs text-gray-500">
-                                ~{formatTokenCount(fileTokenCounts[filename])} tokens
-                              </div>
-                            )}
+                    {/* Prompt文件组 */}
+                    {availableFiles.filter(f => f.type === 'prompt').length > 0 && (
+                      <>
+                        <div className="px-3 py-2 bg-blue-50 border-b border-blue-100">
+                          <div className="text-xs font-medium text-blue-800">Prompt模板</div>
+                          <div className="text-xs text-blue-600">
+                            {availableFiles.filter(f => f.type === 'prompt').length} 个模板
                           </div>
                         </div>
-                      ))
-                    ) : (
+                        {availableFiles.filter(f => f.type === 'prompt').map(fileInfo => (
+                          <div 
+                            key={fileInfo.filename} 
+                            className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer"
+                            onClick={() => toggleFileSelection(fileInfo.filename)}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedFiles.has(fileInfo.filename)}
+                              onChange={() => {}}
+                              className="checkbox checkbox-sm checkbox-primary"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-900 truncate" title={fileInfo.filename}>
+                                {fileInfo.displayName}
+                              </div>
+                              {fileTokenCounts[fileInfo.filename] !== undefined && (
+                                <div className="text-xs text-blue-600">
+                                  ~{formatTokenCount(fileTokenCounts[fileInfo.filename])} tokens
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                              Prompt
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    
+                    {/* 任务文件组 */}
+                    {availableFiles.filter(f => f.type === 'task').length > 0 && (
+                      <>
+                        <div className="px-3 py-2 bg-green-50 border-b border-green-100">
+                          <div className="text-xs font-medium text-green-800">任务文档</div>
+                          <div className="text-xs text-green-600">
+                            {availableFiles.filter(f => f.type === 'task').length} 个文档
+                          </div>
+                        </div>
+                        {availableFiles.filter(f => f.type === 'task').map(fileInfo => (
+                          <div 
+                            key={fileInfo.filename} 
+                            className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer"
+                            onClick={() => toggleFileSelection(fileInfo.filename)}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedFiles.has(fileInfo.filename)}
+                              onChange={() => {}}
+                              className="checkbox checkbox-sm checkbox-primary"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-900 truncate" title={fileInfo.filename}>
+                                {fileInfo.displayName}
+                              </div>
+                              {fileTokenCounts[fileInfo.filename] !== undefined && (
+                                <div className="text-xs text-green-600">
+                                  ~{formatTokenCount(fileTokenCounts[fileInfo.filename])} tokens
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">
+                              任务
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    
+                    {availableFiles.length === 0 && (
                       <div className="text-center text-gray-500 text-sm py-6">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mx-auto mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        <div>没有找到markdown文件</div>
+                        <div>没有找到文档</div>
                         <div className="text-xs text-gray-400 mt-1">
-                          或从右侧工作区拖拽文档到此处
+                          请检查任务文件或Prompt模板
                         </div>
                       </div>
                     )}
@@ -983,28 +1101,38 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
           
           {/* 文档标签列表 */}
           <div className="flex flex-wrap gap-2 max-h-20 overflow-y-auto">
-            {Array.from(selectedFiles).map(filename => (
-              <div 
-                key={filename} 
-                className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-sm group hover:bg-blue-200 transition-colors aichat-file-tag"
-              >
-                <span className="truncate max-w-32" title={filename}>
-                  {filename}
-                </span>
-                <span className="text-xs opacity-75">
-                  ~{formatTokenCount(fileTokenCounts[filename] || 0)}
-                </span>
-                <button
-                  onClick={() => removeFile(filename)}
-                  className="ml-1 text-blue-600 hover:text-blue-800 hover:bg-blue-300 rounded-full p-0.5 opacity-70 group-hover:opacity-100 transition-all"
-                  title={`移除 ${filename}`}
+            {Array.from(selectedFiles).map(filename => {
+              const fileInfo = availableFiles.find(f => f.filename === filename);
+              const isPrompt = fileInfo?.type === 'prompt';
+              return (
+                <div 
+                  key={filename} 
+                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm group transition-colors aichat-file-tag ${
+                    isPrompt ? 'bg-blue-100 text-blue-800 hover:bg-blue-200' : 'bg-green-100 text-green-800 hover:bg-green-200'
+                  }`}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            ))}
+                  <span className="truncate max-w-32" title={filename}>
+                    {fileInfo?.displayName || filename}
+                  </span>
+                  <span className="text-xs opacity-75">
+                    ~{formatTokenCount(fileTokenCounts[filename] || 0)}
+                  </span>
+                  <button
+                    onClick={() => removeFile(filename)}
+                    className={`ml-1 rounded-full p-0.5 opacity-70 group-hover:opacity-100 transition-all ${
+                      isPrompt 
+                        ? 'text-blue-600 hover:text-blue-800 hover:bg-blue-300' 
+                        : 'text-green-600 hover:text-green-800 hover:bg-green-300'
+                    }`}
+                    title={`移除 ${filename}`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
