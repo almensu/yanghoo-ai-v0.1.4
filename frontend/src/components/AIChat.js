@@ -2,6 +2,45 @@ import React, { useState, useEffect, useRef, memo } from 'react';
 import axios from 'axios';
 import MarkdownViewer from './MarkdownViewer'; // Assuming MarkdownViewer is in the same directory
 import { estimateTokenCount, formatTokenCount, getTokenCountColorClass } from '../utils/tokenUtils';
+import { Copy, Save } from 'lucide-react';
+
+// 复制到剪贴板功能
+const copyToClipboard = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (err) {
+    console.error('Failed to copy text: ', err);
+    return false;
+  }
+};
+
+// 保存回复功能
+const saveReply = async (content, taskUuid, apiBaseUrl) => {
+  if (!taskUuid || !apiBaseUrl) {
+    console.error('Missing taskUuid or apiBaseUrl');
+    return false;
+  }
+  
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `${timestamp}.md`;
+    
+    await axios.post(
+      `${apiBaseUrl}/api/tasks/${taskUuid}/files/${filename}`,
+      content,
+      {
+        headers: {
+          'Content-Type': 'text/plain',
+        },
+      }
+    );
+    return true;
+  } catch (error) {
+    console.error('Failed to save reply:', error);
+    return false;
+  }
+};
 
 // Complete rewrite of thinking block handling
 function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
@@ -10,6 +49,27 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentStreamedContent, setCurrentStreamedContent] = useState('');
+  const [copyStatus, setCopyStatus] = useState({});
+  const [saveStatus, setSaveStatus] = useState({});
+
+  // 处理复制功能
+  const handleCopy = async (content, messageId) => {
+    const success = await copyToClipboard(content);
+    setCopyStatus(prev => ({ ...prev, [messageId]: success ? 'copied' : 'failed' }));
+    setTimeout(() => {
+      setCopyStatus(prev => ({ ...prev, [messageId]: null }));
+    }, 2000);
+  };
+
+  // 处理保存功能
+  const handleSave = async (content, messageId) => {
+    setSaveStatus(prev => ({ ...prev, [messageId]: 'saving' }));
+    const success = await saveReply(content, taskUuid, apiBaseUrl);
+    setSaveStatus(prev => ({ ...prev, [messageId]: success ? 'saved' : 'failed' }));
+    setTimeout(() => {
+      setSaveStatus(prev => ({ ...prev, [messageId]: null }));
+    }, 2000);
+  };
   const chatContainerRef = useRef(null);
   const [selectedModel, setSelectedModel] = useState('deepseek');
   const [availableModels, setAvailableModels] = useState([
@@ -503,6 +563,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     }
     
     // 流式显示结束，最终更新消息
+    console.log('Stream finished, updating final message with content:', content);
     const { thinkingIds, reply } = processThinking(content, responseId);
     
     setMessages(prev => {
@@ -510,11 +571,14 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       const newMessages = [...prev];
       if (newMessages.length > 0) {
         const lastMsg = newMessages[newMessages.length - 1];
+        console.log('Final message update - before:', { role: lastMsg.role, isPlaceholder: lastMsg.isPlaceholder, content: lastMsg.content });
         if (lastMsg.role === 'assistant') {
           lastMsg.content = content;
           lastMsg.id = responseId;
           lastMsg.thinkingIds = thinkingIds;
           lastMsg.reply = reply;
+          delete lastMsg.isPlaceholder; // 移除占位符标记
+          console.log('Final message update - after:', { role: lastMsg.role, isPlaceholder: lastMsg.isPlaceholder, content: lastMsg.content });
         }
       }
       return newMessages;
@@ -646,9 +710,11 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
           const newMessages = [...prev];
           // 替换最后一条占位消息
           if (newMessages.length > 0 && newMessages[newMessages.length - 1].isPlaceholder) {
+            const lastMessage = newMessages[newMessages.length - 1];
             newMessages[newMessages.length - 1] = { 
               role: 'assistant', 
-              content: '抱歉，服务器返回了空响应。请检查您的请求和服务器日志。'
+              content: '抱歉，服务器返回了空响应。请检查您的请求和服务器日志。',
+              id: lastMessage.id
             };
           }
           return newMessages;
@@ -695,9 +761,11 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         const newMessages = [...prev];
         // 替换最后一条占位消息
         if (newMessages.length > 0 && newMessages[newMessages.length - 1].isPlaceholder) {
+          const lastMessage = newMessages[newMessages.length - 1];
           newMessages[newMessages.length - 1] = { 
             role: 'assistant', 
-            content: errorMessage
+            content: errorMessage,
+            id: lastMessage.id
           };
         }
         return newMessages;
@@ -1265,6 +1333,33 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
                   <div className="markdown-content break-words">
                     {renderMessageContent(msg, false)}
                   </div>
+                  
+                  {/* 复制和保存按钮 */}
+                  {!msg.isPlaceholder && msg.content && (
+                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-100">
+                      <button
+                        onClick={() => handleCopy(msg.content, msg.id || msg.timestamp)}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                        title="复制回复"
+                      >
+                        <Copy size={14} />
+                        {copyStatus[msg.id || msg.timestamp] === 'copied' ? '已复制' : 
+                         copyStatus[msg.id || msg.timestamp] === 'failed' ? '复制失败' : '复制'}
+                      </button>
+                      
+                      <button
+                        onClick={() => handleSave(msg.content, msg.id || msg.timestamp)}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                        title="保存回复"
+                        disabled={saveStatus[msg.id || msg.timestamp] === 'saving'}
+                      >
+                        <Save size={14} />
+                        {saveStatus[msg.id || msg.timestamp] === 'saving' ? '保存中...' :
+                         saveStatus[msg.id || msg.timestamp] === 'saved' ? '已保存' :
+                         saveStatus[msg.id || msg.timestamp] === 'failed' ? '保存失败' : '保存'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             )}
