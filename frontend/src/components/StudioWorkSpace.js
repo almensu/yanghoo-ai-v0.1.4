@@ -68,6 +68,32 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
     }, 10);
   };
 
+  const handleFileDeleted = (filename) => {
+    // Remove file from the list
+    setMarkdownFiles(prev => prev.filter(f => f !== filename));
+    
+    // If the deleted file was selected, clear selection
+    if (selectedFile === filename) {
+      setSelectedFile(null);
+      setCurrentMarkdownContent('');
+    }
+    
+    // Exit editing mode if we were editing the deleted file
+    if (isEditing) {
+      setIsEditing(false);
+    }
+  };
+
+  const handleFileRenamed = (oldFilename, newFilename) => {
+    // Update the file in the list
+    setMarkdownFiles(prev => prev.map(f => f === oldFilename ? newFilename : f));
+    
+    // Update selection if the renamed file was selected
+    if (selectedFile === oldFilename) {
+      setSelectedFile(newFilename);
+    }
+  };
+
   // Effect to fetch the list of markdown files for the task
   useEffect(() => {
     if (!taskUuid || !apiBaseUrl) return;
@@ -512,6 +538,8 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
             files={markdownFiles}
             selectedFile={selectedFile}
             onSelectFile={handleSelectFile}
+            onFileDeleted={handleFileDeleted}
+            onFileRenamed={handleFileRenamed}
             taskUuid={taskUuid}
             apiBaseUrl={apiBaseUrl}
           />

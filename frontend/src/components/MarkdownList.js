@@ -6,13 +6,19 @@ import { estimateTokenCount, formatTokenCount, getTokenCountColorClass } from '.
 // - files: Array of markdown filenames (strings)
 // - selectedFile: The currently selected filename (string)
 // - onSelectFile: Function to call when a file is clicked (passes filename)
+// - onFileDeleted: Function to call when a file is deleted (passes filename)
+// - onFileRenamed: Function to call when a file is renamed (passes old and new filename)
 // - taskUuid: UUID of the current task for fetching file contents
 // - apiBaseUrl: Base URL for API calls
 
-function MarkdownList({ files, selectedFile, onSelectFile, taskUuid, apiBaseUrl }) {
+function MarkdownList({ files, selectedFile, onSelectFile, onFileDeleted, onFileRenamed, taskUuid, apiBaseUrl }) {
   const [fileTokenCounts, setFileTokenCounts] = useState({});
   const [loadingTokenCounts, setLoadingTokenCounts] = useState(false);
   const [draggedFile, setDraggedFile] = useState(null);
+  const [editingFile, setEditingFile] = useState(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(null);
 
   // Fetch token counts for all files
   useEffect(() => {
@@ -55,9 +61,9 @@ function MarkdownList({ files, selectedFile, onSelectFile, taskUuid, apiBaseUrl 
   }, [files, taskUuid, apiBaseUrl]);
 
   const handleDragStart = (e, filename) => {
+    console.log(`开始拖拽文件: ${filename}`);
     setDraggedFile(filename);
     const safeFilename = String(filename);
-    console.log(`开始拖拽文件: ${safeFilename}`);
     
     // 简化数据设置，只使用最可靠的 text/plain 格式
     e.dataTransfer.setData('text/plain', safeFilename);
@@ -71,20 +77,111 @@ function MarkdownList({ files, selectedFile, onSelectFile, taskUuid, apiBaseUrl 
       padding: 8px 12px; background: #3b82f6; color: white;
       border-radius: 8px; font-size: 14px; font-weight: 500;
       box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000;
+      pointer-events: none;
     `;
     dragImage.textContent = `📄 ${safeFilename}`;
     document.body.appendChild(dragImage);
-    e.dataTransfer.setDragImage(dragImage, 10, 10);
     
+    try {
+      e.dataTransfer.setDragImage(dragImage, 10, 10);
+    } catch (error) {
+      console.warn('Failed to set drag image:', error);
+    }
+    
+    // 立即清理拖拽图片
     setTimeout(() => {
       if (dragImage.parentNode) {
         document.body.removeChild(dragImage);
       }
     }, 0);
+    
+    // 添加调试信息
+    console.log(`拖拽状态已设置: ${filename}, isDragging应该为true`);
   };
 
   const handleDragEnd = () => {
+    console.log('拖拽结束，清理状态');
     setDraggedFile(null);
+  };
+
+  const handleEditClick = (filename, e) => {
+    e.stopPropagation();
+    setEditingFile(filename);
+    // Remove .md extension for editing
+    const titleWithoutExt = filename.endsWith('.md') ? filename.slice(0, -3) : filename;
+    setEditingTitle(titleWithoutExt);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.stopPropagation();
+    if (!editingTitle.trim() || !editingFile) return;
+
+    const newFilename = editingTitle.trim().endsWith('.md') ? editingTitle.trim() : `${editingTitle.trim()}.md`;
+    
+    if (newFilename === editingFile) {
+      // No change, just cancel editing
+      setEditingFile(null);
+      setEditingTitle('');
+      return;
+    }
+
+    setIsRenaming(true);
+    try {
+      await axios.put(
+        `${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodeURIComponent(editingFile)}/rename`,
+        { new_filename: newFilename }
+      );
+      
+      // Notify parent component about the rename
+      if (onFileRenamed) {
+        onFileRenamed(editingFile, newFilename);
+      }
+      
+      setEditingFile(null);
+      setEditingTitle('');
+    } catch (error) {
+      console.error('Failed to rename file:', error);
+      alert(`重命名失败: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const handleCancelEdit = (e) => {
+    e.stopPropagation();
+    setEditingFile(null);
+    setEditingTitle('');
+  };
+
+  const handleDeleteClick = async (filename, e) => {
+    e.stopPropagation();
+    
+    if (!window.confirm(`确定要删除文件 "${filename}" 吗？此操作不可撤销。`)) {
+      return;
+    }
+
+    setIsDeleting(filename);
+    try {
+      await axios.delete(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodeURIComponent(filename)}`);
+      
+      // Notify parent component about the deletion
+      if (onFileDeleted) {
+        onFileDeleted(filename);
+      }
+    } catch (error) {
+      console.error('Failed to delete file:', error);
+      alert(`删除失败: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleSaveEdit(e);
+    } else if (e.key === 'Escape') {
+      handleCancelEdit(e);
+    }
   };
 
   if (!files || files.length === 0) {
@@ -112,61 +209,136 @@ function MarkdownList({ files, selectedFile, onSelectFile, taskUuid, apiBaseUrl 
           const tokenCount = fileTokenCounts[filename];
           const hasTokenCount = tokenCount !== undefined;
           const isDragging = draggedFile === filename;
+          const isEditing = editingFile === filename;
+          const isCurrentlyDeleting = isDeleting === filename;
+          
+          // 调试信息
+          if (isDragging) {
+            console.log(`渲染拖拽状态: ${filename}, isDragging: ${isDragging}, draggedFile: ${draggedFile}`);
+          }
           
           return (
             <li key={filename}>
-              <button 
-                onClick={() => onSelectFile(filename)}
-                draggable={true}
-                onDragStart={(e) => handleDragStart(e, filename)}
-                onDragEnd={handleDragEnd}
-                className={`text-sm text-left w-full px-2 py-2 rounded border transition-colors relative cursor-move ${
+              <div 
+                className={`text-sm w-full px-2 py-2 rounded border transition-colors relative ${
                   selectedFile === filename 
                     ? 'bg-primary text-primary-content font-semibold border-primary' 
                     : 'hover:bg-base-200 border-transparent hover:border-gray-200'
                 } ${
                   isDragging ? 'opacity-50 scale-95' : ''
+                } ${
+                  isCurrentlyDeleting ? 'opacity-50' : ''
                 }`}
-                title={`点击选择 • 拖拽到AI对话区添加 • ${filename}`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 truncate flex-1">
-                    {/* 拖拽图标 */}
-                    <svg 
-                      xmlns="http://www.w3.org/2000/svg" 
-                      className="h-3 w-3 text-gray-400 flex-shrink-0" 
-                      fill="none" 
-                      viewBox="0 0 24 24" 
-                      stroke="currentColor"
+                {isEditing ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onKeyPress={handleKeyPress}
+                      className="flex-1 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-primary text-gray-900"
+                      placeholder="输入文件标题..."
+                      autoFocus
+                    />
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={isRenaming}
+                      className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
                     >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
-                    </svg>
-                    <div className="truncate" title={filename}>
-                      {filename}
+                      {isRenaming ? '保存中...' : '保存'}
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600"
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    {/* 左侧：拖拽区域 */}
+                    <div 
+                      className="flex items-center gap-2 truncate flex-1 cursor-move"
+                      draggable={true}
+                      onDragStart={(e) => handleDragStart(e, filename)}
+                      onDragEnd={handleDragEnd}
+                      onClick={() => onSelectFile(filename)}
+                      title={`点击选择 • 拖拽到AI对话区添加 • ${filename}`}
+                    >
+                      {/* 拖拽图标 */}
+                      <svg 
+                        xmlns="http://www.w3.org/2000/svg" 
+                        className="h-3 w-3 text-gray-400 flex-shrink-0" 
+                        fill="none" 
+                        viewBox="0 0 24 24" 
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                      </svg>
+                      <div className="truncate" title={filename}>
+                        {filename}
+                      </div>
+                    </div>
+                    
+                    {/* 右侧：操作按钮和token信息 */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {/* Edit button */}
+                      <button
+                        onClick={(e) => handleEditClick(filename, e)}
+                        className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        title="编辑标题"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      {/* Delete button */}
+                      <button
+                        onClick={(e) => handleDeleteClick(filename, e)}
+                        disabled={isCurrentlyDeleting}
+                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                        title="删除文件"
+                      >
+                        {isCurrentlyDeleting ? (
+                          <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        )}
+                      </button>
+                      {hasTokenCount && (
+                        <>
+                          <span 
+                            className={`text-xs font-medium px-1.5 py-0.5 rounded-full bg-white/20 ${
+                              selectedFile === filename 
+                                ? 'text-primary-content' 
+                                : getTokenCountColorClass(tokenCount)
+                            }`}
+                            title={`约 ${tokenCount} tokens`}
+                          >
+                            {formatTokenCount(tokenCount)}
+                          </span>
+                          <span className="text-xs opacity-70">tokens</span>
+                        </>
+                      )}
                     </div>
                   </div>
-                  {hasTokenCount && (
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <span 
-                        className={`text-xs font-medium px-1.5 py-0.5 rounded-full bg-white/20 ${
-                          selectedFile === filename 
-                            ? 'text-primary-content' 
-                            : getTokenCountColorClass(tokenCount)
-                        }`}
-                        title={`约 ${tokenCount} tokens`}
-                      >
-                        {formatTokenCount(tokenCount)}
-                      </span>
-                      <span className="text-xs opacity-70">tokens</span>
-                    </div>
-                  )}
-                </div>
+                )}
                 
                 {/* 拖拽状态指示 */}
                 {isDragging && (
-                  <div className="absolute inset-0 bg-blue-500 bg-opacity-20 rounded border-2 border-blue-500 border-dashed"></div>
+                  <div className="absolute inset-0 bg-blue-500 bg-opacity-20 rounded border-2 border-blue-500 border-dashed z-10 pointer-events-none">
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-blue-700 font-semibold text-xs">
+                      拖拽中...
+                    </div>
+                  </div>
                 )}
-              </button>
+              </div>
             </li>
           );
         })}

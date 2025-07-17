@@ -2637,6 +2637,120 @@ async def create_or_update_file(
         raise HTTPException(status_code=500, detail=f"Failed to write file: {str(e)}")
 # --- END: Add POST endpoint for file creation/update ---
 
+# --- START: Add DELETE endpoint for file deletion ---
+@app.delete("/api/tasks/{task_uuid}/files/{filename}", status_code=204)
+async def delete_file(task_uuid: UUID, filename: str):
+    """
+    Delete a file from the task's data directory.
+    Used primarily for markdown files deletion.
+    """
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Request to delete file '{filename}' for task {task_uuid_str}")
+
+    # Basic security check: prevent path traversal
+    if ".." in filename or filename.startswith("/"):
+        logger.warning(f"Detected illegal filename request: {filename} (task: {task_uuid_str})")
+        raise HTTPException(status_code=400, detail="Illegal filename")
+
+    # Build the full path
+    task_data_dir = DATA_DIR / task_uuid_str
+    file_path = task_data_dir / filename
+
+    # Ensure task directory exists
+    if not task_data_dir.exists() or not task_data_dir.is_dir():
+        logger.warning(f"Task data directory not found: {task_data_dir}")
+        raise HTTPException(status_code=404, detail="Task data directory not found")
+
+    # Check if file exists
+    if not file_path.exists() or not file_path.is_file():
+        logger.warning(f"File not found: {file_path}")
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+
+    # Ensure the file path stays within task directory
+    try:
+        expected_task_dir = (DATA_DIR / task_uuid_str).resolve(strict=True)
+        resolved_file_path = await run_in_threadpool(file_path.resolve)
+        
+        if not str(resolved_file_path).startswith(str(expected_task_dir)):
+            logger.warning(f"Path Traversal Check Failed: Resolved path {resolved_file_path} does not start with expected directory {expected_task_dir}")
+            raise HTTPException(status_code=400, detail="File path outside allowed directory")
+    except Exception as e:
+        logger.error(f"Error checking file path: {file_path} - {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
+    # Delete the file
+    try:
+        await run_in_threadpool(file_path.unlink)
+        logger.info(f"Successfully deleted file: {file_path}")
+        return
+    except Exception as e:
+        logger.error(f"Error deleting file {file_path}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+# --- END: Add DELETE endpoint for file deletion ---
+
+# --- START: Add PUT endpoint for file renaming ---
+@app.put("/api/tasks/{task_uuid}/files/{filename}/rename", status_code=200)
+async def rename_file(
+    task_uuid: UUID, 
+    filename: str, 
+    new_filename: str = Body(..., embed=True)
+):
+    """
+    Rename a file in the task's data directory.
+    Used primarily for markdown files renaming.
+    """
+    task_uuid_str = str(task_uuid)
+    logger.info(f"Request to rename file '{filename}' to '{new_filename}' for task {task_uuid_str}")
+
+    # Basic security check: prevent path traversal for both old and new filenames
+    if ".." in filename or filename.startswith("/") or ".." in new_filename or new_filename.startswith("/"):
+        logger.warning(f"Detected illegal filename request: {filename} -> {new_filename} (task: {task_uuid_str})")
+        raise HTTPException(status_code=400, detail="Illegal filename")
+
+    # Build the full paths
+    task_data_dir = DATA_DIR / task_uuid_str
+    old_file_path = task_data_dir / filename
+    new_file_path = task_data_dir / new_filename
+
+    # Ensure task directory exists
+    if not task_data_dir.exists() or not task_data_dir.is_dir():
+        logger.warning(f"Task data directory not found: {task_data_dir}")
+        raise HTTPException(status_code=404, detail="Task data directory not found")
+
+    # Check if old file exists
+    if not old_file_path.exists() or not old_file_path.is_file():
+        logger.warning(f"File not found: {old_file_path}")
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+
+    # Check if new file already exists
+    if new_file_path.exists():
+        logger.warning(f"Target file already exists: {new_file_path}")
+        raise HTTPException(status_code=409, detail=f"File '{new_filename}' already exists")
+
+    # Ensure both file paths stay within task directory
+    try:
+        expected_task_dir = (DATA_DIR / task_uuid_str).resolve(strict=True)
+        
+        resolved_old_path = await run_in_threadpool(old_file_path.resolve)
+        resolved_new_path = await run_in_threadpool(new_file_path.resolve)
+        
+        if not str(resolved_old_path).startswith(str(expected_task_dir)) or not str(resolved_new_path).startswith(str(expected_task_dir)):
+            logger.warning(f"Path Traversal Check Failed: Paths outside allowed directory")
+            raise HTTPException(status_code=400, detail="File path outside allowed directory")
+    except Exception as e:
+        logger.error(f"Error checking file paths: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
+    # Rename the file
+    try:
+        await run_in_threadpool(old_file_path.rename, new_file_path)
+        logger.info(f"Successfully renamed file: {old_file_path} -> {new_file_path}")
+        return {"message": f"File renamed from '{filename}' to '{new_filename}' successfully"}
+    except Exception as e:
+        logger.error(f"Error renaming file {old_file_path} to {new_file_path}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to rename file: {str(e)}")
+# --- END: Add PUT endpoint for file renaming ---
+
 # --- SRT Parsing and Conversion Functions ---
 
 def parse_srt_file(srt_file_path: Path) -> List[Dict]:
