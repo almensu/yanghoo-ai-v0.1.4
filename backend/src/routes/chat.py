@@ -254,16 +254,29 @@ async def process_gemini_request(model: str, messages: List[Dict]) -> ChatRespon
         
         logger.info(f"Sending request to Gemini with model {model}")
         
-        # 调用Gemini API，禁用思考模式以获得更直接的回复
-        response = client.models.generate_content(
-            model=model,
-            contents=combined_content,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=0),  # 禁用思考
-                temperature=0.8,
-                max_output_tokens=8192
-            ),
-        )
+        # 调用Gemini API，为2.5 Pro启用思考模式
+        if "2.5" in model.lower() and "pro" in model.lower():
+            # Gemini 2.5 Pro 需要启用思考模式，budget范围128-32768
+            response = client.models.generate_content(
+                model=model,
+                contents=combined_content,
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=1024),  # 启用思考模式
+                    temperature=0.8,
+                    max_output_tokens=8192
+                ),
+            )
+        else:
+            # 其他Gemini模型禁用思考模式
+            response = client.models.generate_content(
+                model=model,
+                contents=combined_content,
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),  # 禁用思考
+                    temperature=0.8,
+                    max_output_tokens=8192
+                ),
+            )
         
         assistant_reply = response.text
         
