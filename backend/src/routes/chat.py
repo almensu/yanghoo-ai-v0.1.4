@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Literal, Union
 from google import genai
 from google.genai import types
+from pathlib import Path
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -237,68 +238,190 @@ async def process_gemini_request(model: str, messages: List[Dict]) -> ChatRespon
         # 初始化Gemini客户端
         client = genai.Client()
         
-        # 将消息转换为Gemini格式
-        # Gemini的消息格式与OpenAI略有不同，需要转换
+        # 将消息转换为Gemini格式并检查长度
         contents = []
+        total_length = 0
+        
         for msg in messages:
             if msg["role"] == "system":
-                # 系统消息作为第一条用户消息
-                contents.append(f"System: {msg['content']}")
+                content = f"System: {msg['content']}"
             elif msg["role"] == "user":
-                contents.append(f"User: {msg['content']}")
+                content = f"User: {msg['content']}"
             elif msg["role"] == "assistant":
-                contents.append(f"Assistant: {msg['content']}")
+                content = f"Assistant: {msg['content']}"
+            
+            contents.append(content)
+            total_length += len(content)
         
         # 合并所有内容为一个字符串
         combined_content = "\n\n".join(contents)
         
-        logger.info(f"Sending request to Gemini with model {model}")
+        # 检查内容长度，如果太长则进行分块处理
+        max_content_length = 100000  # 约100K字符限制
+        if len(combined_content) > max_content_length:
+            logger.warning(f"Content too long ({len(combined_content)} chars), attempting document chunking")
+            return await process_gemini_with_chunking(client, model, messages, max_content_length)
         
-        # 调用Gemini API，为2.5 Pro启用思考模式
-        if "2.5" in model.lower() and "pro" in model.lower():
-            # Gemini 2.5 Pro 需要启用思考模式，budget范围128-32768
-            response = client.models.generate_content(
-                model=model,
-                contents=combined_content,
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(thinking_budget=1024),  # 启用思考模式
-                    temperature=0.8,
-                    max_output_tokens=8192
-                ),
-            )
-        else:
-            # 其他Gemini模型禁用思考模式
-            response = client.models.generate_content(
-                model=model,
-                contents=combined_content,
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),  # 禁用思考
-                    temperature=0.8,
-                    max_output_tokens=8192
-                ),
-            )
-        
-        assistant_reply = response.text
-        
-        if not assistant_reply:
-            error_msg = "Gemini returned empty response"
-            logger.error(error_msg)
-            raise HTTPException(status_code=500, detail=error_msg)
-        
-        logger.info(f"Received response from Gemini model {model} (length: {len(assistant_reply)})")
-        
-        return ChatResponse(
-            content=assistant_reply.strip(),
-            model_used=f"gemini/{model}"
-        )
+        # 使用重试机制调用Gemini API
+        return await call_gemini_with_retry(client, model, combined_content, max_retries=3)
         
     except Exception as e:
         error_msg = f"Gemini API Error: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Gemini服务错误: {str(e)}"
-        )
+        
+        # 检查是否是过载错误，如果是则建议降级
+        if "503" in str(e) or "overloaded" in str(e).lower() or "UNAVAILABLE" in str(e):
+            raise HTTPException(
+                status_code=503, 
+                detail=f"Gemini服务过载，请稍后重试或切换到其他模型（如 DeepSeek 或 Ollama 模型）: {str(e)}"
+            )
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Gemini服务错误: {str(e)}"
+            )
+
+# 新增：带重试机制的Gemini调用
+async def call_gemini_with_retry(client, model: str, content: str, max_retries: int = 3) -> ChatResponse:
+    import asyncio
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Gemini API attempt {attempt + 1}/{max_retries} for model {model}")
+            
+            # 调用Gemini API，为2.5 Pro启用思考模式
+            if "2.5" in model.lower() and "pro" in model.lower():
+                # Gemini 2.5 Pro 需要启用思考模式，但减少thinking_budget以降低负载
+                response = client.models.generate_content(
+                    model=model,
+                    contents=content,
+                    config=types.GenerateContentConfig(
+                        thinking_config=types.ThinkingConfig(thinking_budget=512),  # 减少思考预算
+                        temperature=0.7,  # 稍微降低温度
+                        max_output_tokens=6144  # 减少输出token数
+                    ),
+                )
+            else:
+                # 其他Gemini模型禁用思考模式
+                response = client.models.generate_content(
+                    model=model,
+                    contents=content,
+                    config=types.GenerateContentConfig(
+                        thinking_config=types.ThinkingConfig(thinking_budget=0),  # 禁用思考
+                        temperature=0.7,
+                        max_output_tokens=6144
+                    ),
+                )
+            
+            assistant_reply = response.text
+            
+            if not assistant_reply:
+                error_msg = "Gemini returned empty response"
+                logger.error(error_msg)
+                if attempt == max_retries - 1:
+                    raise HTTPException(status_code=500, detail=error_msg)
+                continue
+            
+            logger.info(f"Received response from Gemini model {model} (length: {len(assistant_reply)})")
+            
+            return ChatResponse(
+                content=assistant_reply.strip(),
+                model_used=f"gemini/{model}"
+            )
+            
+        except Exception as e:
+            error_str = str(e)
+            logger.warning(f"Gemini API attempt {attempt + 1} failed: {error_str}")
+            
+            # 检查是否是过载错误
+            if ("503" in error_str or "overloaded" in error_str.lower() or 
+                "UNAVAILABLE" in error_str or "quota" in error_str.lower()):
+                
+                if attempt < max_retries - 1:
+                    # 指数退避：等待时间递增
+                    wait_time = (2 ** attempt) * 2  # 2, 4, 8 秒
+                    logger.info(f"Service overloaded, waiting {wait_time} seconds before retry...")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    # 最后一次尝试失败，抛出带建议的错误
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"Gemini 2.5 Pro 服务过载，已重试 {max_retries} 次。建议：1) 稍后重试 2) 减少文档长度 3) 切换到 DeepSeek 或 Ollama 模型"
+                    )
+            else:
+                # 非过载错误，直接抛出
+                if attempt == max_retries - 1:
+                    raise e
+                continue
+
+# 新增：文档分块处理
+async def process_gemini_with_chunking(client, model: str, messages: List[Dict], max_chunk_size: int) -> ChatResponse:
+    """当文档过长时，将其分块处理"""
+    
+    # 分离系统消息（包含文档）和对话历史
+    system_messages = [msg for msg in messages if msg["role"] == "system"]
+    conversation_messages = [msg for msg in messages if msg["role"] != "system"]
+    
+    if not system_messages:
+        # 没有系统消息，直接处理
+        combined_content = "\n\n".join([f"{msg['role'].title()}: {msg['content']}" for msg in messages])
+        return await call_gemini_with_retry(client, model, combined_content, max_retries=3)
+    
+    # 提取文档内容
+    system_content = system_messages[0]["content"]
+    
+    # 查找文档部分
+    doc_start = system_content.find("--- 文档开始 ---")
+    doc_end = system_content.find("--- 文档结束 ---")
+    
+    if doc_start == -1 or doc_end == -1:
+        # 没有找到文档标记，按原方式处理
+        combined_content = "\n\n".join([f"{msg['role'].title()}: {msg['content']}" for msg in messages])
+        return await call_gemini_with_retry(client, model, combined_content, max_retries=3)
+    
+    # 提取文档内容和系统提示
+    system_prompt_prefix = system_content[:doc_start]
+    document_content = system_content[doc_start + len("--- 文档开始 ---"):doc_end]
+    system_prompt_suffix = system_content[doc_end + len("--- 文档结束 ---"):]
+    
+    # 如果文档仍然太长，进行摘要处理
+    if len(document_content) > max_chunk_size * 0.7:  # 留出空间给其他内容
+        logger.info(f"Document too long ({len(document_content)} chars), creating summary")
+        
+        # 创建文档摘要
+        summary_prompt = f"""请为以下文档创建一个详细摘要，保留关键信息和结构：
+
+{document_content[:max_chunk_size//2]}
+
+摘要要求：
+1. 保留文档的主要内容和结构
+2. 包含重要的细节和数据
+3. 使用中文
+4. 长度控制在原文档的1/3左右"""
+
+        try:
+            summary_response = await call_gemini_with_retry(client, model, summary_prompt, max_retries=2)
+            document_summary = summary_response.content
+            logger.info(f"Created document summary (length: {len(document_summary)})")
+        except Exception as e:
+            logger.warning(f"Failed to create summary: {e}, using truncated document")
+            document_summary = document_content[:max_chunk_size//2] + "\n\n[文档已截断...]"
+        
+        # 使用摘要替换原文档
+        modified_system_content = f"""{system_prompt_prefix}
+--- 文档开始 ---
+{document_summary}
+--- 文档结束 ---
+{system_prompt_suffix}"""
+    else:
+        modified_system_content = system_content
+    
+    # 重新构建消息
+    final_messages = [{"role": "system", "content": modified_system_content}] + conversation_messages
+    combined_content = "\n\n".join([f"{msg['role'].title()}: {msg['content']}" for msg in final_messages])
+    
+    return await call_gemini_with_retry(client, model, combined_content, max_retries=3)
 
 @router.post("/tasks/{task_uuid}/convert-srt-to-ass")
 async def convert_srt_to_ass_endpoint(task_uuid: str):
@@ -357,4 +480,167 @@ async def convert_srt_to_ass_endpoint(task_uuid: str):
         raise
     except Exception as e:
         logger.error(f"Error converting SRT to ASS: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 新增：获取任务列表的API
+@router.get("/api/tasks")
+async def get_tasks():
+    """获取所有任务目录列表"""
+    try:
+        from ..data_management import DATA_DIR
+        
+        if not DATA_DIR.exists():
+            return {"tasks": []}
+        
+        tasks = []
+        for task_dir in DATA_DIR.iterdir():
+            if task_dir.is_dir() and not task_dir.name.startswith('.'):
+                # 获取任务的基本信息
+                task_info = {
+                    "uuid": task_dir.name,
+                    "name": task_dir.name,
+                    "path": str(task_dir),
+                    "created_time": task_dir.stat().st_ctime if task_dir.exists() else None
+                }
+                
+                # 检查是否有info.json文件获取更多信息
+                info_file = task_dir / "info.json"
+                if info_file.exists():
+                    try:
+                        with open(info_file, 'r', encoding='utf-8') as f:
+                            info_data = json.load(f)
+                            task_info["title"] = info_data.get("title", task_dir.name)
+                            task_info["description"] = info_data.get("description", "")
+                            task_info["url"] = info_data.get("url", "")
+                    except Exception as e:
+                        logger.warning(f"Failed to read info.json for task {task_dir.name}: {e}")
+                
+                tasks.append(task_info)
+        
+        # 按创建时间排序，最新的在前
+        tasks.sort(key=lambda x: x.get("created_time", 0), reverse=True)
+        
+        return {"tasks": tasks}
+        
+    except Exception as e:
+        logger.error(f"Error getting tasks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 新增：获取任务文档列表的API
+@router.get("/api/tasks/{task_uuid}/documents")
+async def get_task_documents(task_uuid: str):
+    """获取指定任务的文档列表"""
+    try:
+        from ..data_management import DATA_DIR
+        
+        task_dir = DATA_DIR / task_uuid
+        if not task_dir.exists():
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        documents = []
+        
+        # 获取所有markdown文件
+        for md_file in task_dir.glob("*.md"):
+            if md_file.is_file():
+                try:
+                    # 读取文件内容来计算大小和预览
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 获取文件的前几行作为预览
+                    preview_lines = content.split('\n')[:3]
+                    preview = '\n'.join(preview_lines)
+                    if len(content.split('\n')) > 3:
+                        preview += '\n...'
+                    
+                    doc_info = {
+                        "filename": md_file.name,
+                        "path": str(md_file.relative_to(task_dir)),
+                        "size": len(content),
+                        "lines": len(content.split('\n')),
+                        "preview": preview[:200],  # 限制预览长度
+                        "modified_time": md_file.stat().st_mtime,
+                        "type": "markdown"
+                    }
+                    documents.append(doc_info)
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to read file {md_file}: {e}")
+                    # 即使读取失败也添加基本信息
+                    documents.append({
+                        "filename": md_file.name,
+                        "path": str(md_file.relative_to(task_dir)),
+                        "size": 0,
+                        "lines": 0,
+                        "preview": "[无法读取文件内容]",
+                        "modified_time": md_file.stat().st_mtime,
+                        "type": "markdown",
+                        "error": True
+                    })
+        
+        # 按修改时间排序，最新的在前
+        documents.sort(key=lambda x: x.get("modified_time", 0), reverse=True)
+        
+        return {
+            "task_uuid": task_uuid,
+            "documents": documents,
+            "total": len(documents)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting documents for task {task_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 新增：获取文档内容的API（用于"@"功能）
+@router.get("/api/tasks/{task_uuid}/documents/{filename}/content")
+async def get_document_content(task_uuid: str, filename: str):
+    """获取指定文档的完整内容"""
+    try:
+        from ..data_management import DATA_DIR
+        
+        task_dir = DATA_DIR / task_uuid
+        if not task_dir.exists():
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        doc_path = task_dir / filename
+        if not doc_path.exists() or not doc_path.is_file():
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # 安全检查：确保文件在任务目录内
+        if not str(doc_path.resolve()).startswith(str(task_dir.resolve())):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        try:
+            with open(doc_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            return {
+                "filename": filename,
+                "content": content,
+                "size": len(content),
+                "lines": len(content.split('\n')),
+                "encoding": "utf-8"
+            }
+            
+        except UnicodeDecodeError:
+            # 尝试其他编码
+            try:
+                with open(doc_path, 'r', encoding='gbk') as f:
+                    content = f.read()
+                return {
+                    "filename": filename,
+                    "content": content,
+                    "size": len(content),
+                    "lines": len(content.split('\n')),
+                    "encoding": "gbk"
+                }
+            except:
+                raise HTTPException(status_code=400, detail="Cannot decode file content")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting document content: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

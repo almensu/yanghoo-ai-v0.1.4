@@ -3,11 +3,10 @@ import logging
 from typing import Dict, Any
 from pathlib import Path # Added pathlib import
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Add DATA_DIR definition
+DATA_DIR = Path(os.environ.get("DATA_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "backend", "data")))
 
-# DATA_DIR can be passed as an argument or kept global if consistently used from main.py's context
-# Let's assume it might be passed for flexibility
-# DATA_DIR = 'backend/data'
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def _delete_file_if_exists(file_path: Path): # Argument type hint changed to Path
     """Helper to delete a file, logging success or failure."""

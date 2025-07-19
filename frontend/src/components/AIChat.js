@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import MarkdownViewer from './MarkdownViewer'; // Assuming MarkdownViewer is in the same directory
-import { estimateTokenCount, formatTokenCount, getTokenCountColorClass } from '../utils/tokenUtils';
+import { estimateTokenCount, formatTokenCount } from '../utils/tokenUtils';
 import { Copy, Save } from 'lucide-react';
+import DocumentMention from './DocumentMention';
 
 // 复制到剪贴板功能
 const copyToClipboard = async (text) => {
@@ -72,7 +72,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   };
   const chatContainerRef = useRef(null);
   const [selectedModel, setSelectedModel] = useState('deepseek');
-  const [availableModels, setAvailableModels] = useState([
+  const [availableModels] = useState([
     { id: 'qwen3:0.6b', name: 'Ollama - qwen3:0.6b' },
     { id: 'qwen3:14b', name: 'Ollama - qwen3:14b' },
     { id: 'deepseek-r1:1.5b', name: 'Ollama - deepseek-r1:1.5b' },
@@ -103,6 +103,11 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [dragCounter, setDragCounter] = useState(0);
   const chatAreaRef = useRef(null);
+
+  // "@" 文档提及功能相关状态
+  const [cursorPosition, setCursorPosition] = useState(0);
+  const textareaRef = useRef(null);
+  const [mentionedDocuments, setMentionedDocuments] = useState(new Map());
 
   useEffect(() => {
     setMessages([
@@ -390,6 +395,49 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     }, 3000);
   };
 
+  // 处理文档提及选择
+  const handleDocumentMention = (documentInfo) => {
+    // 将文档内容存储到提及的文档映射中
+    const newMentionedDocuments = new Map(mentionedDocuments);
+    newMentionedDocuments.set(documentInfo.reference, {
+      filename: documentInfo.filename,
+      taskUuid: documentInfo.taskUuid,
+      content: documentInfo.content,
+      reference: documentInfo.reference
+    });
+    setMentionedDocuments(newMentionedDocuments);
+    
+    // 显示成功提示
+    const tempMessage = {
+      role: 'system',
+      content: `📎 已引用文档: ${documentInfo.reference}`,
+      id: `mention-success-${Date.now()}`,
+      isTemporary: true,
+      type: 'success'
+    };
+    
+    setMessages(prev => [...prev, tempMessage]);
+    
+    setTimeout(() => {
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+    }, 3000);
+  };
+
+  // 处理输入框光标位置变化
+  const handleInputChange = (e) => {
+    setInputText(e.target.value);
+    setCursorPosition(e.target.selectionStart);
+  };
+
+  // 处理键盘事件，更新光标位置
+  const handleKeyUp = (e) => {
+    setCursorPosition(e.target.selectionStart);
+  };
+
+  const handleClick = (e) => {
+    setCursorPosition(e.target.selectionStart);
+  };
+
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
@@ -611,6 +659,18 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       // 获取选中文件的内容
       let combinedDocument = markdownContent || "";
       
+      // 处理 "@" 提及的文档
+      const mentionMatches = inputText.match(/@[\w-]+\/[^\s]+/g);
+      const mentionedContent = [];
+      if (mentionMatches) {
+        for (const mention of mentionMatches) {
+          const docInfo = mentionedDocuments.get(mention);
+          if (docInfo) {
+            mentionedContent.push(`\n\n=== 引用文档: ${mention} ===\n${docInfo.content}`);
+          }
+        }
+      }
+      
       // 如果有选中的文件，加载它们的内容
       if (selectedFiles.size > 0) {
         console.log(`开始加载 ${selectedFiles.size} 个选中文件的内容`);
@@ -669,6 +729,12 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         combinedDocument += fileContents.join('\n');
         console.log(`所有文件内容加载完成，总长度: ${combinedDocument.length}`);
         setLoadingFileContents(false); // 重置加载状态
+      }
+      
+      // 添加 "@" 提及的文档内容
+      if (mentionedContent.length > 0) {
+        combinedDocument += mentionedContent.join('\n');
+        console.log(`添加了 ${mentionedContent.length} 个提及的文档`);
       }
       
       const chatApiUrl = `${apiBaseUrl}/api/chat`;
@@ -731,14 +797,26 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       setLoadingFileContents(false); // 确保错误时也重置加载状态
       
       let errorMessage = '抱歉，发生了错误: ';
+      let showModelSwitchSuggestion = false;
       
       if (error.response) {
-        errorMessage += `服务器错误 (${error.response.status}): ${error.response.data?.detail || error.response.data?.message || JSON.stringify(error.response.data) || error.message}`;
+        const errorDetail = error.response.data?.detail || error.response.data?.message || error.message;
+        errorMessage += `服务器错误 (${error.response.status}): ${errorDetail}`;
+        
+        // 检查是否是 Gemini 过载错误
+        if (error.response.status === 503 && 
+            (errorDetail.includes('过载') || errorDetail.includes('overloaded') || 
+             errorDetail.includes('UNAVAILABLE') || errorDetail.includes('Gemini'))) {
+          showModelSwitchSuggestion = true;
+          errorMessage += '\n\n💡 建议解决方案：\n1. 等待 1-2 分钟后重试\n2. 减少文档内容长度\n3. 切换到其他模型（如 DeepSeek 或 Ollama 模型）';
+        }
+        
         setDebugInfo({
           status: 'error',
           httpStatus: error.response.status,
-          error: error.response.data?.detail || error.message,
-          data: JSON.stringify(error.response.data)
+          error: errorDetail,
+          data: JSON.stringify(error.response.data),
+          showModelSwitchSuggestion
         });
       } else if (error.request) {
         errorMessage += `没有收到服务器响应，请检查服务器是否运行。`;
@@ -804,6 +882,72 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
               </React.Fragment>
             ))}
           </div>
+        </div>
+      );
+    }
+    
+    // 检查是否是Gemini过载错误消息
+    const isGeminiOverloadError = content.includes('过载') || content.includes('overloaded') || 
+                                  content.includes('UNAVAILABLE') || content.includes('503');
+    const isCurrentlyUsingGemini = selectedModel.includes('gemini');
+    
+    // 如果是Gemini过载错误且当前使用的是Gemini模型，显示快速切换选项
+    if (isGeminiOverloadError && isCurrentlyUsingGemini) {
+      const alternativeModels = availableModels.filter(m => !m.id.includes('gemini'));
+      
+      return (
+        <div>
+          <div className="text-red-600 whitespace-pre-wrap mb-3">
+            {content.split('\n').map((line, i) => (
+              <React.Fragment key={i}>
+                {line}
+                {i < content.split('\n').length - 1 && <br />}
+              </React.Fragment>
+            ))}
+          </div>
+          
+          {alternativeModels.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-amber-800 mb-2">
+                    快速切换到其他模型
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {alternativeModels.slice(0, 3).map(model => (
+                      <button
+                        key={model.id}
+                        onClick={() => {
+                          setSelectedModel(model.id);
+                          // 显示切换成功消息
+                          const successMessage = {
+                            role: 'system',
+                            content: `✅ 已切换到 ${model.name}，请重新发送您的问题`,
+                            id: `switch-success-${Date.now()}`,
+                            isTemporary: true,
+                            type: 'success'
+                          };
+                          setMessages(prev => [...prev, successMessage]);
+                          setTimeout(() => {
+                            setMessages(prev => prev.filter(msg => msg.id !== successMessage.id));
+                          }, 5000);
+                        }}
+                        className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded-md hover:bg-blue-600 transition-colors"
+                      >
+                        切换到 {model.name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-xs text-amber-700 mt-2">
+                    切换后请重新发送您的问题
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     } else {
@@ -1121,7 +1265,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         
         {/* 状态显示 */}
         <div className="flex items-center justify-between text-xs mt-2">
-          <div className="text-gray-500">
+          <div className="text-gray-500 flex-1">
             {selectedFiles.size > 0 && (
               <span>
                   已选择 {selectedFiles.size} 个文档作为上下文
@@ -1132,6 +1276,11 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
                     </span>
                   )}
                 </span>
+            )}
+            {mentionedDocuments.size > 0 && (
+              <span className={selectedFiles.size > 0 ? "ml-4" : ""}>
+                📎 已引用 {mentionedDocuments.size} 个文档
+              </span>
             )}
           </div>
           <div className="flex items-center">
@@ -1410,23 +1559,84 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         )}
       </div>
       
+      {/* 已引用文档显示区域 */}
+      {mentionedDocuments.size > 0 && (
+        <div className="border-t px-3 py-2 bg-purple-50 border-purple-100">
+          <div className="flex items-center gap-2 mb-2">
+            <svg className="h-4 w-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a2 2 0 00-2.828-2.828z" />
+            </svg>
+            <span className="text-sm font-medium text-purple-700">
+              已引用文档 ({mentionedDocuments.size})
+            </span>
+          </div>
+          
+          <div className="flex flex-wrap gap-2 max-h-16 overflow-y-auto">
+            {Array.from(mentionedDocuments.values()).map(doc => (
+              <div 
+                key={doc.reference} 
+                className="flex items-center gap-1 px-2 py-1 rounded-full text-sm bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors group"
+              >
+                <span className="truncate max-w-32" title={doc.reference}>
+                  {doc.reference}
+                </span>
+                <button
+                  onClick={() => {
+                    const newMentionedDocuments = new Map(mentionedDocuments);
+                    newMentionedDocuments.delete(doc.reference);
+                    setMentionedDocuments(newMentionedDocuments);
+                    
+                    // 从输入框中移除引用
+                    const newInputText = inputText.replace(new RegExp(doc.reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '');
+                    setInputText(newInputText);
+                  }}
+                  className="ml-1 rounded-full p-0.5 opacity-70 group-hover:opacity-100 transition-all text-purple-600 hover:text-purple-800 hover:bg-purple-300"
+                  title={`移除引用 ${doc.reference}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 输入区域 */}
       <div className="border-t p-3 bg-gradient-to-r from-gray-50 to-gray-100">
         <div className="flex gap-2 items-center">
-          <textarea
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-              }
-            }}
-            placeholder="按 Shift+Enter 换行，按 Enter 发送..."
-            className="flex-grow p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none transition-all duration-200 shadow-sm"
-            style={{ minHeight: '60px' }}
-            disabled={isLoading || isStreaming}
-          />
+          <div className="relative flex-grow">
+            <textarea
+              ref={textareaRef}
+              value={inputText}
+              onChange={handleInputChange}
+              onKeyUp={handleKeyUp}
+              onClick={handleClick}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              placeholder="输入消息... (输入 @ 可引用文档)"
+              className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none transition-all duration-200 shadow-sm"
+              style={{ minHeight: '60px' }}
+              disabled={isLoading || isStreaming}
+            />
+            
+            {/* DocumentMention 组件 */}
+            <DocumentMention
+              inputText={inputText}
+              setInputText={setInputText}
+              cursorPosition={cursorPosition}
+              setCursorPosition={setCursorPosition}
+              apiBaseUrl={apiBaseUrl}
+              currentTaskUuid={taskUuid}
+              onDocumentSelect={handleDocumentMention}
+              textareaRef={textareaRef}
+            />
+          </div>
                             <button 
                     onClick={sendMessage} 
                     className="btn btn-primary h-12 w-12 rounded-full shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center"
