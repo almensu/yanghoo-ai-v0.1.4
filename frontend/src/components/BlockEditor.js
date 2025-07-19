@@ -18,6 +18,16 @@ const BlockEditor = ({
   const [editingBlock, setEditingBlock] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [hoveredBlock, setHoveredBlock] = useState(null);
+  const textareaRef = useRef(null);
+
+  // 自动调整textarea高度
+  useEffect(() => {
+    if (textareaRef.current && editingBlock) {
+      const textarea = textareaRef.current;
+      textarea.style.height = 'auto';
+      textarea.style.height = textarea.scrollHeight + 'px';
+    }
+  }, [editContent, editingBlock]);
 
   // 拖拽状态
   const [draggedBlock, setDraggedBlock] = useState(null);
@@ -240,14 +250,23 @@ const BlockEditor = ({
       return (
         <div className="w-full">
           <textarea
+            ref={textareaRef}
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="w-full p-3 border-none outline-none resize-none bg-transparent"
-            rows={Math.max(1, editContent.split('\n').length)}
+            className="w-full px-3 py-2 border-none outline-none resize-none bg-transparent leading-relaxed"
             placeholder="输入内容..."
             autoFocus
-            style={{ minHeight: '1.5rem' }}
+            style={{ 
+              minHeight: '1.5rem',
+              height: 'auto',
+              overflow: 'hidden'
+            }}
+            onInput={(e) => {
+              // 自适应高度
+              e.target.style.height = 'auto';
+              e.target.style.height = e.target.scrollHeight + 'px';
+            }}
           />
         </div>
       );
