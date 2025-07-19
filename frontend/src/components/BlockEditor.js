@@ -461,30 +461,7 @@ const BlockEditor = ({
         )}
       </div>
 
-      {/* 编辑状态提示 */}
-      {editingBlock && (
-        <div className="px-6 py-2 bg-blue-50 border-t text-sm text-blue-700">
-          <div className="max-w-4xl mx-auto flex items-center justify-between">
-            <span>正在编辑块 - 按 Ctrl+Enter 保存，Esc 取消</span>
-            <div className="flex gap-2">
-              <button
-                onClick={saveEdit}
-                className="flex items-center gap-1 px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
-              >
-                <Check size={12} />
-                保存
-              </button>
-              <button
-                onClick={cancelEdit}
-                className="flex items-center gap-1 px-2 py-1 bg-gray-500 text-white rounded text-xs hover:bg-gray-600"
-              >
-                <X size={12} />
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 };
