@@ -52,8 +52,8 @@ const BlockEditor = ({
     }
   };
 
-  // 块选择
-  const handleBlockClick = (blockId, event) => {
+  // 手柄点击选择块
+  const handleHandleClick = (blockId, event) => {
     event.stopPropagation();
     
     if (event.ctrlKey || event.metaKey) {
@@ -68,6 +68,18 @@ const BlockEditor = ({
     } else {
       // 单选
       setSelectedBlocks(new Set([blockId]));
+    }
+  };
+
+  // 文本区域点击 - 直接进入编辑模式
+  const handleTextClick = (blockId, event) => {
+    event.stopPropagation();
+    // 清除块选择
+    setSelectedBlocks(new Set());
+    // 找到对应的块并进入编辑模式
+    const block = blocks.find(b => b.id === blockId);
+    if (block) {
+      startEditing(block);
     }
   };
 
@@ -157,7 +169,7 @@ const BlockEditor = ({
   const startEditing = (block) => {
     setEditingBlock(block.id);
     setEditContent(block.content);
-    setSelectedBlocks(new Set([block.id]));
+    // 不设置选中状态，保持编辑时无色块高亮
   };
 
   const saveEdit = () => {
@@ -365,16 +377,14 @@ const BlockEditor = ({
                    key={block.id}
                    data-block-id={block.id}
                    className={`
-                     group relative transition-all duration-150 rounded-lg
+                     group relative transition-colors duration-150 rounded-lg
                      ${isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : ''}
                      ${isBeingDragged ? 'opacity-50' : ''}
                      ${isDragTarget ? 'bg-gray-100' : ''}
-                     hover:bg-gray-50
-                     mb-1 cursor-text
+                     mb-1
                    `}
                   onMouseEnter={() => setHoveredBlock(block.id)}
                   onMouseLeave={() => setHoveredBlock(null)}
-                  onClick={(e) => handleBlockClick(block.id, e)}
                   onDragOver={(e) => handleDragOver(e, block)}
                   onDrop={(e) => handleDrop(e, block)}
                 >
@@ -386,12 +396,15 @@ const BlockEditor = ({
                   <div className="flex items-start">
                     {/* 左侧手柄区域 */}
                     <div className="flex items-center w-8 pt-3 justify-center">
-                      {(isHovered || isSelected) && (
+                      {isHovered && (
                         <div
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, block)}
-                          onDragEnd={handleDragEnd}
-                          className="cursor-grab active:cursor-grabbing p-1 text-gray-400 hover:text-gray-600 hover:bg-white rounded transition-colors"
+                          draggable={isSelected}
+                          onDragStart={isSelected ? (e) => handleDragStart(e, block) : undefined}
+                          onDragEnd={isSelected ? handleDragEnd : undefined}
+                          onClick={(e) => handleHandleClick(block.id, e)}
+                          className={`p-1 text-gray-400 hover:text-gray-600 hover:bg-white rounded transition-colors ${
+                            isSelected ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+                          }`}
                         >
                           <GripVertical size={14} />
                         </div>
@@ -399,13 +412,16 @@ const BlockEditor = ({
                     </div>
 
                     {/* 主要内容区域 */}
-                    <div className="flex-1 min-w-0">
+                    <div 
+                      className="flex-1 min-w-0 cursor-text"
+                      onClick={(e) => handleTextClick(block.id, e)}
+                    >
                       {renderBlockContent(block)}
                     </div>
 
                     {/* 右侧操作区域 */}
                     <div className="flex items-start w-24 pt-3 justify-end pr-2">
-                      {(isHovered || isSelected) && renderBlockActions(block)}
+                      {isSelected && renderBlockActions(block)}
                     </div>
                   </div>
                 </div>
