@@ -294,7 +294,12 @@ const BlockEditor = ({
 
   // 点击空白区域取消选择
   const handleContainerClick = (e) => {
-    if (e.target === e.currentTarget) {
+    // 检查点击的是否为空白区域（不是块元素）
+    const isBlockElement = e.target.closest('[data-block-id]');
+    const isToolbarElement = e.target.closest('.block-toolbar');
+    const isAddButton = e.target.closest('button');
+    
+    if (!isBlockElement && !isToolbarElement && !isAddButton) {
       setSelectedBlocks(new Set());
       if (editingBlock) {
         saveEdit();
@@ -312,7 +317,7 @@ const BlockEditor = ({
       onClick={handleContainerClick}
     >
       {/* 简化的工具栏 */}
-      <div className="flex items-center justify-between px-6 py-3 border-b bg-white sticky top-0 z-10">
+      <div className="block-toolbar flex items-center justify-between px-6 py-3 border-b bg-white sticky top-0 z-10">
         <div className="flex items-center gap-4">
           <h2 className="font-medium text-gray-900">文档编辑器</h2>
           <div className="text-sm text-gray-500">
@@ -358,6 +363,7 @@ const BlockEditor = ({
               return (
                                  <div
                    key={block.id}
+                   data-block-id={block.id}
                    className={`
                      group relative transition-all duration-150 rounded-lg
                      ${isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : ''}
