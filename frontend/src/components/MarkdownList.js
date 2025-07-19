@@ -195,16 +195,18 @@ function MarkdownList({ files, selectedFile, onSelectFile, onFileDeleted, onFile
 
   return (
     <div className="border-t border-gray-200 pt-4">
-      <h4 className="text-md font-medium mb-2 text-gray-700 flex items-center gap-2">
-        Markdown Documents
-        {loadingTokenCounts && (
-          <span className="loading loading-spinner loading-xs"></span>
-        )}
-        <span className="text-xs text-gray-500 font-normal">
-          (可拖拽到AI对话区)
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-md font-medium text-gray-700 flex items-center gap-2">
+          Markdown Documents
+          {loadingTokenCounts && (
+            <span className="loading loading-spinner loading-xs"></span>
+          )}
+        </h4>
+        <span className="text-xs text-gray-500">
+          可拖拽到AI对话
         </span>
-      </h4>
-      <ul className="list-none pl-0 space-y-1">
+      </div>
+      <div className="grid gap-2">
         {files.map(filename => {
           const tokenCount = fileTokenCounts[filename];
           const hasTokenCount = tokenCount !== undefined;
@@ -218,14 +220,14 @@ function MarkdownList({ files, selectedFile, onSelectFile, onFileDeleted, onFile
           }
           
           return (
-            <li key={filename}>
+            <div key={filename}>
               <div 
-                className={`text-sm w-full px-2 py-2 rounded border transition-colors relative ${
+                className={`group relative p-3 rounded-lg cursor-pointer transition-all duration-200 border ${
                   selectedFile === filename 
-                    ? 'bg-primary text-primary-content font-semibold border-primary' 
-                    : 'hover:bg-base-200 border-transparent hover:border-gray-200'
+                    ? 'bg-blue-50 border-blue-200 shadow-sm' 
+                    : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm'
                 } ${
-                  isDragging ? 'opacity-50 scale-95' : ''
+                  isDragging ? 'opacity-60 scale-95' : ''
                 } ${
                   isCurrentlyDeleting ? 'opacity-50' : ''
                 }`}
@@ -256,76 +258,70 @@ function MarkdownList({ files, selectedFile, onSelectFile, onFileDeleted, onFile
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between gap-2">
-                    {/* 左侧：拖拽区域 */}
-                    <div 
-                      className="flex items-center gap-2 truncate flex-1 cursor-move"
-                      draggable={true}
-                      onDragStart={(e) => handleDragStart(e, filename)}
-                      onDragEnd={handleDragEnd}
-                      onClick={() => onSelectFile(filename)}
-                      title={`点击选择 • 拖拽到AI对话区添加 • ${filename}`}
-                    >
-                      {/* 拖拽图标 */}
-                      <svg 
-                        xmlns="http://www.w3.org/2000/svg" 
-                        className="h-3 w-3 text-gray-400 flex-shrink-0" 
-                        fill="none" 
-                        viewBox="0 0 24 24" 
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
-                      </svg>
-                      <div className="truncate" title={filename}>
-                        {filename}
+                  <div 
+                    className="flex items-start gap-3"
+                    draggable={true}
+                    onDragStart={(e) => handleDragStart(e, filename)}
+                    onDragEnd={handleDragEnd}
+                    onClick={() => onSelectFile(filename)}
+                  >
+                    {/* 文档图标 */}
+                    <div className="flex-shrink-0 mt-0.5">
+                      <div className={`p-2 rounded-lg ${selectedFile === filename ? 'bg-blue-100' : 'bg-gray-100 group-hover:bg-gray-200'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
                       </div>
                     </div>
+
+                    {/* 文档信息 */}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-gray-900 truncate mb-1">
+                        {filename.replace('.md', '')}
+                      </h4>
+                      {hasTokenCount && (
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <span className={getTokenCountColorClass(tokenCount)}>
+                            {formatTokenCount(tokenCount)} tokens
+                          </span>
+                        </div>
+                      )}
+                    </div>
                     
-                    {/* 右侧：操作按钮和token信息 */}
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {/* Edit button */}
+                    {/* 操作按钮 */}
+                    <div className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={(e) => handleEditClick(filename, e)}
-                        className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                        title="编辑标题"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditClick(filename, e);
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                        title="重命名"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                         </svg>
                       </button>
-                      {/* Delete button */}
                       <button
-                        onClick={(e) => handleDeleteClick(filename, e)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteClick(filename, e);
+                        }}
                         disabled={isCurrentlyDeleting}
-                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                        title="删除文件"
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                        title="删除"
                       >
                         {isCurrentlyDeleting ? (
-                          <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
                         ) : (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         )}
                       </button>
-                      {hasTokenCount && (
-                        <>
-                          <span 
-                            className={`text-xs font-medium px-1.5 py-0.5 rounded-full bg-white/20 ${
-                              selectedFile === filename 
-                                ? 'text-primary-content' 
-                                : getTokenCountColorClass(tokenCount)
-                            }`}
-                            title={`约 ${tokenCount} tokens`}
-                          >
-                            {formatTokenCount(tokenCount)}
-                          </span>
-                          <span className="text-xs opacity-70">tokens</span>
-                        </>
-                      )}
                     </div>
                   </div>
                 )}
@@ -339,10 +335,10 @@ function MarkdownList({ files, selectedFile, onSelectFile, onFileDeleted, onFile
                   </div>
                 )}
               </div>
-            </li>
+            </div>
           );
         })}
-      </ul>
+      </div>
       
       {/* Token count summary */}
       {Object.keys(fileTokenCounts).length > 0 && (

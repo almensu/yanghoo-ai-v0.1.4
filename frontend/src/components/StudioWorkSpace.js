@@ -3,6 +3,7 @@ import axios from 'axios'; // Needed for fetching
 import MarkdownViewer from './MarkdownViewer';
 import MarkdownWithTimestamps from './MarkdownWithTimestamps'; // Import timestamp component
 import MarkdownEditor from './MarkdownEditor'; // Import the editor component
+import BlockEditor from './BlockEditor'; // Import block editor component
 import PlaceholderComponent1 from './PlaceholderComponent1';
 import PlaceholderComponent2 from './PlaceholderComponent2';
 import MarkdownList from './MarkdownList'; // Import the new list component
@@ -38,6 +39,8 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
   // New state to track if content has timestamps
   const [hasTimestamps, setHasTimestamps] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+  // Block editor mode state
+  const [editMode, setEditMode] = useState('normal'); // 'normal' or 'block'
 
   const handleExpandToggle = () => {
     const scrollPosition = contentRef.current?.scrollTop || 0;
@@ -605,50 +608,79 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
               </div>
             ) : selectedFile ? (
               <div>
-                <div className="flex justify-end mb-2 gap-2">
-                  <button
-                    onClick={() => handleCopyContent()}
-                    className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
-                    title="Copy content to clipboard"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copy
-                  </button>
-                  <button
-                    onClick={() => handleExportToPDF()}
-                    disabled={isExportingPDF}
-                    className={`px-3 py-1 text-xs rounded flex items-center gap-1 ${
-                      isExportingPDF 
-                        ? 'bg-gray-300 cursor-not-allowed' 
-                        : 'bg-base-200 hover:bg-base-300'
-                    }`}
-                    title="Export to PDF"
-                  >
-                    {isExportingPDF ? (
-                      <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                    ) : (
+                <div className="flex justify-between items-center mb-2">
+                  {/* 模式切换 */}
+                  <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                    <button
+                      onClick={() => setEditMode('normal')}
+                      className={`px-3 py-1 text-xs rounded ${
+                        editMode === 'normal' 
+                          ? 'bg-white text-gray-900 shadow-sm' 
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      普通模式
+                    </button>
+                    <button
+                      onClick={() => setEditMode('block')}
+                      className={`px-3 py-1 text-xs rounded ${
+                        editMode === 'block' 
+                          ? 'bg-white text-gray-900 shadow-sm' 
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      块编辑
+                    </button>
+                  </div>
+
+                  {/* 操作按钮 */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCopyContent()}
+                      className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
+                      title="复制内容"
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
+                      复制
+                    </button>
+                    {editMode === 'normal' && (
+                      <button
+                        onClick={() => setIsEditing(true)}
+                        className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                        编辑
+                      </button>
                     )}
-                    {isExportingPDF ? 'Exporting...' : 'Export'}
-                  </button>
-                  <button
-                    onClick={() => setIsEditing(true)}
-                    className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                    Edit
-                  </button>
+                  </div>
                 </div>
-                {hasTimestamps && videoRef ? (
+                {editMode === 'block' ? (
+                  <BlockEditor
+                    key={`block-editor-${selectedFile}`}
+                    markdownContent={currentMarkdownContent}
+                    onContentChange={async (newContent) => {
+                      setCurrentMarkdownContent(newContent);
+                      // 自动保存
+                      if (selectedFile && taskUuid && apiBaseUrl) {
+                        try {
+                          await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodeURIComponent(selectedFile)}`, 
+                            newContent,
+                            { headers: { 'Content-Type': 'text/plain' } }
+                          );
+                        } catch (err) {
+                          console.error(`Error auto-saving ${selectedFile}:`, err);
+                        }
+                      }
+                    }}
+                    taskUuid={taskUuid}
+                    apiBaseUrl={apiBaseUrl}
+                    className="border-0"
+                  />
+                ) : hasTimestamps && videoRef ? (
                   <MarkdownWithTimestamps
                     key={`viewer-timestamps-${selectedFile}`}
                     markdownContent={currentMarkdownContent}
