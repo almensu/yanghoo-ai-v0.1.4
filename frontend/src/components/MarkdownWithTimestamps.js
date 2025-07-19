@@ -389,7 +389,7 @@ const MarkdownWithTimestamps = ({
   }
 
   return (
-    <div className={`markdown-timestamps-container markdown-body overflow-auto p-4 bg-base-100 rounded-lg shadow ${className}`} ref={containerRef}>
+    <div className={`markdown-timestamps-container markdown-body overflow-auto ${className}`} ref={containerRef}>
       {/* 使用 ReactMarkdown 正确渲染包括表格在内的所有 markdown 内容 */}
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -408,18 +408,6 @@ const MarkdownWithTimestamps = ({
       >
         {processedContent}
       </ReactMarkdown>
-      
-      {!isVideoAvailable && videoRef && (
-        <div className="text-xs text-amber-600 mt-2 p-1 bg-amber-50 rounded">
-          注意：视频播放器未就绪，时间戳点击可能暂时不可用
-        </div>
-      )}
-      
-      {lastClickedTimestamp && (
-        <div className="text-xs text-green-600 mt-1 p-1 bg-green-50 rounded">
-          最近点击的时间戳: {lastClickedTimestamp} ✅
-        </div>
-      )}
     </div>
   );
 };

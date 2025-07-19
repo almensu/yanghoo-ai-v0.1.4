@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List, Youtube, Camera } from 'lucide-react'; // Added Camera icon
+import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List, Youtube, Camera, Blocks } from 'lucide-react'; // Added Blocks icon
 
 function Sidebar() {
   // Use localStorage to persist sidebar state across page navigation
@@ -30,6 +30,7 @@ function Sidebar() {
     { name: 'Markdown List 测试', icon: <List size={20} />, path: '/test/markdownlist' }, // Added MarkdownList Test Page link
     { name: 'YouTube 时间戳 测试', icon: <Youtube size={20} />, path: '/test/youtube-timestamp' }, // Added YouTube timestamp test page
     { name: '关键帧剪辑 测试', icon: <Camera size={20} />, path: '/test/keyframe-clip' }, // Added Keyframe Clip test page
+    { name: '块编辑器 测试', icon: <Blocks size={20} />, path: '/test/block-editor' }, // Added Block Editor test page
   ];
 
   return (
@@ -38,35 +39,44 @@ function Sidebar() {
     >
       {/* Header / Toggle Button */}
       <div className="flex items-center justify-between p-4 h-16 border-b border-base-content/10">
-        {isExpanded && <h2 className="text-xl font-bold whitespace-nowrap overflow-hidden">导航</h2>}
-        <button onClick={toggleSidebar} className="btn btn-ghost btn-square">
-          {isExpanded ? <ChevronLeft size={24} /> : <ChevronRight size={24} />}
+        {/* Logo / Brand - Only show when expanded */}
+        {isExpanded && (
+          <span className="text-lg font-bold truncate">YangHoo AI</span>
+        )}
+        {/* Toggle Button */}
+        <button
+          onClick={toggleSidebar}
+          className="btn btn-ghost btn-sm hover:bg-base-200"
+          aria-label={isExpanded ? "收起侧边栏" : "展开侧边栏"}
+        >
+          {isExpanded ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
         </button>
       </div>
 
-      {/* Navigation Links */}
-      <nav className="flex-grow p-4 space-y-2">
-        {menuItems.map((item) => (
-          <NavLink 
-            key={item.name} 
-            to={item.path} 
-            className={({ isActive }) =>
-              `flex items-center p-2 space-x-3 rounded-md hover:bg-base-100 ${
-                !isExpanded ? 'justify-center' : ''
-              } ${isActive ? 'bg-primary text-primary-content' : ''}` // Active link style
-            }
-            title={item.name} // Tooltip when collapsed
-          >
-            {item.icon}
-            {isExpanded && <span className="whitespace-nowrap overflow-hidden">{item.name}</span>}
-          </NavLink>
-        ))}
+      {/* Navigation Menu */}
+      <nav className="flex-1 overflow-y-auto py-4">
+        <ul className="space-y-2 px-2">
+          {menuItems.map((item, index) => (
+            <li key={index}>
+              <NavLink
+                to={item.path}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 p-3 rounded-lg transition-all duration-200 ${
+                    isActive
+                      ? 'bg-primary text-primary-content shadow-md'
+                      : 'hover:bg-base-200 text-base-content/80 hover:text-base-content'
+                  }`
+                }
+              >
+                <span className="flex-shrink-0">{item.icon}</span>
+                {isExpanded && (
+                  <span className="truncate text-sm font-medium">{item.name}</span>
+                )}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
       </nav>
-
-      {/* Optional Footer */}
-      {/* <div className="p-4 border-t border-base-content/10">
-        {isExpanded ? <span>Footer Content</span> : null}
-      </div> */}
     </div>
   );
 }

@@ -7,6 +7,29 @@
   border-radius: 8px;
   word-break: break-word;
 }
+
+/* 用于BlockEditor中的干净样式 */
+.markdown-viewer-clean {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.markdown-viewer-clean .markdown-body {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  margin: 0;
+}
+
+.markdown-viewer-clean .markdown-timestamps-container {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
 .markdown-body h1, .markdown-body h2 {
   border-bottom: 1px solid #eee;
   padding-bottom: 0.2em;

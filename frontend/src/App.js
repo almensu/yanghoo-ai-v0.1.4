@@ -12,6 +12,7 @@ import TestPage_MarkdownList from './pages/TestPage_MarkdownList'; // Import Mar
 import TestPage_YouTubeTimestamp from './pages/TestPage_YouTubeTimestamp'; // Import YouTube timestamp test page
 import TestPage_AssSubtitle from './pages/TestPage_AssSubtitle'; // Import ASS subtitle test page
 import TestPage_KeyframeClip from './pages/TestPage_KeyframeClip'; // Import Keyframe Clip test page
+import TestPage_BlockEditor from './pages/TestPage_BlockEditor'; // Import Block Editor test page
 
 const API_BASE_URL = 'http://127.0.0.1:8000';
 const WS_BASE_URL = 'ws://127.0.0.1:8000';
@@ -58,6 +59,8 @@ function App() {
                <Route path="/test/ass-subtitle" element={<TestPage_AssSubtitle />} />
                {/* Add route for Keyframe Clip Test Page */}
                <Route path="/test/keyframe-clip" element={<TestPage_KeyframeClip />} />
+               {/* Add route for Block Editor Test Page */}
+               <Route path="/test/block-editor" element={<TestPage_BlockEditor />} />
              </Routes>
            </main>
         </div>

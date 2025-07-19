@@ -1,0 +1,451 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Plus, Edit3, Trash2, ChevronUp, ChevronDown, 
+         Check, X, Hash, Type, Code, List, Quote, Minus, Table, Image, 
+         GripVertical, MoreHorizontal } from 'lucide-react';
+import { BlockManager, MarkdownParser } from '../utils/blocks';
+import MarkdownViewer from './MarkdownViewer';
+
+const BlockEditor = ({ 
+  markdownContent = '', 
+  onContentChange, 
+  taskUuid, 
+  apiBaseUrl,
+  className = '' 
+}) => {
+  const [blockManager, setBlockManager] = useState(null);
+  const [blocks, setBlocks] = useState([]);
+  const [selectedBlocks, setSelectedBlocks] = useState(new Set());
+  const [editingBlock, setEditingBlock] = useState(null);
+  const [editContent, setEditContent] = useState('');
+  const [hoveredBlock, setHoveredBlock] = useState(null);
+
+  // 拖拽状态
+  const [draggedBlock, setDraggedBlock] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // 初始化
+  useEffect(() => {
+    try {
+      const manager = new BlockManager();
+      if (markdownContent) {
+        manager.loadFromMarkdown(markdownContent);
+      }
+      setBlockManager(manager);
+      updateBlocks(manager);
+    } catch (error) {
+      console.error('Failed to initialize BlockManager:', error);
+    }
+  }, [markdownContent]);
+
+  const updateBlocks = (manager = blockManager) => {
+    if (manager) {
+      setBlocks([...manager.getAllBlocks()]);
+    }
+  };
+
+  // 保存更改
+  const saveChanges = () => {
+    if (blockManager && onContentChange) {
+      const markdown = blockManager.toMarkdown();
+      onContentChange(markdown);
+    }
+  };
+
+  // 块选择
+  const handleBlockClick = (blockId, event) => {
+    event.stopPropagation();
+    
+    if (event.ctrlKey || event.metaKey) {
+      // 多选
+      const newSelected = new Set(selectedBlocks);
+      if (newSelected.has(blockId)) {
+        newSelected.delete(blockId);
+      } else {
+        newSelected.add(blockId);
+      }
+      setSelectedBlocks(newSelected);
+    } else {
+      // 单选
+      setSelectedBlocks(new Set([blockId]));
+    }
+  };
+
+  // 拖拽处理
+  const handleDragStart = (e, block) => {
+    setDraggedBlock(block);
+    setIsDragging(true);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', '');
+  };
+
+  const handleDragEnd = () => {
+    setDraggedBlock(null);
+    setDragOver(null);
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e, targetBlock) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    if (draggedBlock && targetBlock && draggedBlock.id !== targetBlock.id) {
+      setDragOver(targetBlock.id);
+    }
+  };
+
+  const handleDrop = (e, targetBlock) => {
+    e.preventDefault();
+    
+    if (!draggedBlock || !targetBlock || draggedBlock.id === targetBlock.id) {
+      return;
+    }
+
+    const draggedIndex = blocks.findIndex(b => b.id === draggedBlock.id);
+    const targetIndex = blocks.findIndex(b => b.id === targetBlock.id);
+
+    if (draggedIndex !== -1 && targetIndex !== -1) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const height = rect.height;
+      const insertAfter = y > height / 2;
+
+      let newPosition = targetIndex;
+      if (insertAfter) {
+        newPosition = targetIndex + 1;
+      }
+
+      if (draggedIndex < targetIndex && insertAfter) {
+        newPosition = targetIndex;
+      } else if (draggedIndex > targetIndex && !insertAfter) {
+        newPosition = targetIndex;
+      } else if (draggedIndex < targetIndex && !insertAfter) {
+        newPosition = targetIndex - 1;
+      }
+
+      try {
+        blockManager.moveBlock(draggedBlock.id, newPosition);
+        updateBlocks();
+        saveChanges();
+      } catch (error) {
+        console.error('Failed to move block:', error);
+      }
+    }
+
+    setDraggedBlock(null);
+    setDragOver(null);
+    setIsDragging(false);
+  };
+
+  // 块操作
+  const deleteBlock = (blockId) => {
+    try {
+      blockManager.deleteBlock(blockId);
+      updateBlocks();
+      setSelectedBlocks(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(blockId);
+        return newSet;
+      });
+      saveChanges();
+    } catch (error) {
+      console.error('Failed to delete block:', error);
+    }
+  };
+
+  // 编辑功能
+  const startEditing = (block) => {
+    setEditingBlock(block.id);
+    setEditContent(block.content);
+    setSelectedBlocks(new Set([block.id]));
+  };
+
+  const saveEdit = () => {
+    if (editingBlock && blockManager) {
+      try {
+        blockManager.updateBlock(editingBlock, { content: editContent });
+        updateBlocks();
+        setEditingBlock(null);
+        setEditContent('');
+        saveChanges();
+      } catch (error) {
+        console.error('Failed to save edit:', error);
+      }
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingBlock(null);
+    setEditContent('');
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      saveEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    }
+  };
+
+  // 添加新块
+  const addBlock = (type = 'paragraph', afterBlockId = null) => {
+    if (!blockManager) return;
+
+    const content = getDefaultContent(type);
+    try {
+      const newBlock = blockManager.createBlock(content, type);
+      updateBlocks();
+      saveChanges();
+      
+      // 自动开始编辑新块
+      setTimeout(() => {
+        startEditing(newBlock);
+      }, 100);
+    } catch (error) {
+      console.error('Failed to add block:', error);
+    }
+  };
+
+  const getDefaultContent = (type) => {
+    const defaults = {
+      paragraph: '输入文本...',
+      heading: '# 标题',
+      code: '```\n// 代码\n```',
+      list: '- 列表项',
+      quote: '> 引用',
+      divider: '---',
+      table: '| 列1 | 列2 |\n|-----|-----|\n| 内容 | 内容 |',
+      image: '![图片描述](图片链接)'
+    };
+    return defaults[type] || '新内容';
+  };
+
+  // 渲染块内容
+  const renderBlockContent = (block) => {
+    if (editingBlock === block.id) {
+      return (
+        <div className="w-full">
+          <textarea
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="w-full p-3 border-none outline-none resize-none bg-transparent"
+            rows={Math.max(1, editContent.split('\n').length)}
+            placeholder="输入内容..."
+            autoFocus
+            style={{ minHeight: '1.5rem' }}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div 
+        className="w-full px-3 py-2 cursor-text min-h-[1.5rem] leading-relaxed"
+        onClick={() => startEditing(block)}
+      >
+        {block.content ? (
+          <MarkdownViewer 
+            markdownContent={block.content} 
+            className="markdown-viewer-clean"
+          />
+        ) : (
+          <div className="text-gray-400 italic">空块 - 点击编辑</div>
+        )}
+      </div>
+    );
+  };
+
+  // 渲染块操作菜单
+  const renderBlockActions = (block) => {
+    return (
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            addBlock('paragraph');
+          }}
+          className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+          title="添加块"
+        >
+          <Plus size={14} />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            deleteBlock(block.id);
+          }}
+          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+          title="删除"
+        >
+          <Trash2 size={14} />
+        </button>
+        <button
+          className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded"
+          title="更多"
+        >
+          <MoreHorizontal size={14} />
+        </button>
+      </div>
+    );
+  };
+
+  // 点击空白区域取消选择
+  const handleContainerClick = (e) => {
+    if (e.target === e.currentTarget) {
+      setSelectedBlocks(new Set());
+      if (editingBlock) {
+        saveEdit();
+      }
+    }
+  };
+
+  if (!blockManager) {
+    return <div className="p-4">初始化中...</div>;
+  }
+
+  return (
+    <div 
+      className={`flex flex-col h-full bg-white ${className}`}
+      onClick={handleContainerClick}
+    >
+      {/* 简化的工具栏 */}
+      <div className="flex items-center justify-between px-6 py-3 border-b bg-white sticky top-0 z-10">
+        <div className="flex items-center gap-4">
+          <h2 className="font-medium text-gray-900">文档编辑器</h2>
+          <div className="text-sm text-gray-500">
+            {blocks.length} 个块
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => addBlock('paragraph')}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+          >
+            <Plus size={16} />
+            添加块
+          </button>
+        </div>
+      </div>
+
+      {/* 块列表 */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {blocks.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="text-gray-400 mb-4">
+              <Type size={48} className="mx-auto mb-3" />
+              <p className="text-lg">开始写作</p>
+              <p className="text-sm">点击下方按钮创建第一个块</p>
+            </div>
+            <button
+              onClick={() => addBlock('paragraph')}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              创建第一个块
+            </button>
+          </div>
+        ) : (
+          <div className="max-w-4xl mx-auto">
+            {blocks.map((block, index) => {
+              const isSelected = selectedBlocks.has(block.id);
+              const isBeingDragged = draggedBlock?.id === block.id;
+              const isDragTarget = dragOver === block.id;
+              const isHovered = hoveredBlock === block.id;
+              
+              return (
+                                 <div
+                   key={block.id}
+                   className={`
+                     group relative transition-all duration-150 rounded-lg
+                     ${isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : ''}
+                     ${isBeingDragged ? 'opacity-50' : ''}
+                     ${isDragTarget ? 'bg-gray-100' : ''}
+                     hover:bg-gray-50
+                     mb-1 cursor-text
+                   `}
+                  onMouseEnter={() => setHoveredBlock(block.id)}
+                  onMouseLeave={() => setHoveredBlock(null)}
+                  onClick={(e) => handleBlockClick(block.id, e)}
+                  onDragOver={(e) => handleDragOver(e, block)}
+                  onDrop={(e) => handleDrop(e, block)}
+                >
+                  {/* 拖拽指示线 */}
+                  {isDragTarget && (
+                    <div className="absolute -top-0.5 left-0 right-0 h-0.5 bg-blue-400 rounded-full z-10"></div>
+                  )}
+                  
+                  <div className="flex items-start">
+                    {/* 左侧手柄区域 */}
+                    <div className="flex items-center w-8 pt-3 justify-center">
+                      {(isHovered || isSelected) && (
+                        <div
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, block)}
+                          onDragEnd={handleDragEnd}
+                          className="cursor-grab active:cursor-grabbing p-1 text-gray-400 hover:text-gray-600 hover:bg-white rounded transition-colors"
+                        >
+                          <GripVertical size={14} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 主要内容区域 */}
+                    <div className="flex-1 min-w-0">
+                      {renderBlockContent(block)}
+                    </div>
+
+                    {/* 右侧操作区域 */}
+                    <div className="flex items-start w-24 pt-3 justify-end pr-2">
+                      {(isHovered || isSelected) && renderBlockActions(block)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            
+            {/* 底部添加区域 */}
+            <div className="mt-8 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => addBlock('paragraph')}
+                className="w-full py-8 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors text-center"
+              >
+                <Plus size={20} className="mx-auto mb-1" />
+                <div className="text-sm">点击添加新块</div>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 编辑状态提示 */}
+      {editingBlock && (
+        <div className="px-6 py-2 bg-blue-50 border-t text-sm text-blue-700">
+          <div className="max-w-4xl mx-auto flex items-center justify-between">
+            <span>正在编辑块 - 按 Ctrl+Enter 保存，Esc 取消</span>
+            <div className="flex gap-2">
+              <button
+                onClick={saveEdit}
+                className="flex items-center gap-1 px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
+              >
+                <Check size={12} />
+                保存
+              </button>
+              <button
+                onClick={cancelEdit}
+                className="flex items-center gap-1 px-2 py-1 bg-gray-500 text-white rounded text-xs hover:bg-gray-600"
+              >
+                <X size={12} />
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default BlockEditor; 
