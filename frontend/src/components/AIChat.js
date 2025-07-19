@@ -1266,20 +1266,15 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         {/* 状态显示 */}
         <div className="flex items-center justify-between text-xs mt-2">
           <div className="text-gray-500 flex-1">
-            {selectedFiles.size > 0 && (
+            {(selectedFiles.size > 0 || mentionedDocuments.size > 0) && (
               <span>
-                  已选择 {selectedFiles.size} 个文档作为上下文
-                  {loadingFileContents && (
-                    <span className="inline-flex ml-2 items-center">
-                      <span className="loading loading-spinner loading-xs text-blue-500"></span>
-                      <span className="ml-1 text-xs text-blue-500">加载中...</span>
-                    </span>
-                  )}
-                </span>
-            )}
-            {mentionedDocuments.size > 0 && (
-              <span className={selectedFiles.size > 0 ? "ml-4" : ""}>
-                📎 已引用 {mentionedDocuments.size} 个文档
+                📎 已选择 {selectedFiles.size + mentionedDocuments.size} 个文档作为上下文
+                {loadingFileContents && (
+                  <span className="inline-flex ml-2 items-center">
+                    <span className="loading loading-spinner loading-xs text-blue-500"></span>
+                    <span className="ml-1 text-xs text-blue-500">加载中...</span>
+                  </span>
+                )}
               </span>
             )}
           </div>
@@ -1302,14 +1297,14 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       </div>
       
       {/* 已选择文档展示区域 */}
-      {selectedFiles.size > 0 && (
+      {(selectedFiles.size > 0 || mentionedDocuments.size > 0) && (
         <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
           <div className="flex items-center gap-2 mb-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             <span className="text-sm font-medium text-gray-700">
-              已选择 {selectedFiles.size} 个文档作为上下文
+              已选择 {selectedFiles.size + mentionedDocuments.size} 个文档作为上下文
             </span>
             <span className="text-xs text-gray-500">
               (总计 ~{formatTokenCount(Array.from(selectedFiles).reduce((sum, filename) => sum + (fileTokenCounts[filename] || 0), 0))} tokens)
@@ -1318,12 +1313,13 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
           
           {/* 文档标签列表 */}
           <div className="flex flex-wrap gap-2 max-h-20 overflow-y-auto">
+            {/* 拖拽选择的文件 */}
             {Array.from(selectedFiles).map(filename => {
               const fileInfo = availableFiles.find(f => f.filename === filename);
               const isPrompt = fileInfo?.type === 'prompt';
               return (
                 <div 
-                  key={filename} 
+                  key={`file-${filename}`} 
                   className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm group transition-colors aichat-file-tag ${
                     isPrompt ? 'bg-blue-100 text-blue-800 hover:bg-blue-200' : 'bg-green-100 text-green-800 hover:bg-green-200'
                   }`}
@@ -1350,6 +1346,38 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
                 </div>
               );
             })}
+            
+            {/* @引用的文档 */}
+            {Array.from(mentionedDocuments.values()).map(doc => (
+              <div 
+                key={`mention-${doc.reference}`} 
+                className="flex items-center gap-1 px-2 py-1 rounded-full text-sm bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors group"
+              >
+                <svg className="h-3 w-3 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a2 2 0 00-2.828-2.828z" />
+                </svg>
+                <span className="truncate max-w-32" title={doc.reference}>
+                  {doc.reference}
+                </span>
+                <button
+                  onClick={() => {
+                    const newMentionedDocuments = new Map(mentionedDocuments);
+                    newMentionedDocuments.delete(doc.reference);
+                    setMentionedDocuments(newMentionedDocuments);
+                    
+                    // 从输入框中移除引用
+                    const newInputText = inputText.replace(new RegExp(doc.reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '');
+                    setInputText(newInputText);
+                  }}
+                  className="ml-1 rounded-full p-0.5 opacity-70 group-hover:opacity-100 transition-all text-purple-600 hover:text-purple-800 hover:bg-purple-300"
+                  title={`移除引用 ${doc.reference}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1559,49 +1587,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         )}
       </div>
       
-      {/* 已引用文档显示区域 */}
-      {mentionedDocuments.size > 0 && (
-        <div className="border-t px-3 py-2 bg-purple-50 border-purple-100">
-          <div className="flex items-center gap-2 mb-2">
-            <svg className="h-4 w-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a2 2 0 00-2.828-2.828z" />
-            </svg>
-            <span className="text-sm font-medium text-purple-700">
-              已引用文档 ({mentionedDocuments.size})
-            </span>
-          </div>
-          
-          <div className="flex flex-wrap gap-2 max-h-16 overflow-y-auto">
-            {Array.from(mentionedDocuments.values()).map(doc => (
-              <div 
-                key={doc.reference} 
-                className="flex items-center gap-1 px-2 py-1 rounded-full text-sm bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors group"
-              >
-                <span className="truncate max-w-32" title={doc.reference}>
-                  {doc.reference}
-                </span>
-                <button
-                  onClick={() => {
-                    const newMentionedDocuments = new Map(mentionedDocuments);
-                    newMentionedDocuments.delete(doc.reference);
-                    setMentionedDocuments(newMentionedDocuments);
-                    
-                    // 从输入框中移除引用
-                    const newInputText = inputText.replace(new RegExp(doc.reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '');
-                    setInputText(newInputText);
-                  }}
-                  className="ml-1 rounded-full p-0.5 opacity-70 group-hover:opacity-100 transition-all text-purple-600 hover:text-purple-800 hover:bg-purple-300"
-                  title={`移除引用 ${doc.reference}`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+
 
       {/* 输入区域 */}
       <div className="border-t p-3 bg-gradient-to-r from-gray-50 to-gray-100">
