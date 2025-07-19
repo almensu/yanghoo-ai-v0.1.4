@@ -16,14 +16,16 @@ const DocumentMention = ({
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionStart, setMentionStart] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [mode, setMode] = useState('documents'); // 'documents' | 'tasks'
+  const [viewMode, setViewMode] = useState('categories'); // 'categories' | 'files' | 'prompt'
   const [selectedTaskUuid, setSelectedTaskUuid] = useState(currentTaskUuid);
   
   // 数据状态
   const [tasks, setTasks] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [promptFiles, setPromptFiles] = useState([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [loadingPrompts, setLoadingPrompts] = useState(false);
 
   const dropdownRef = useRef(null);
 
@@ -45,9 +47,9 @@ const DocumentMention = ({
         setIsVisible(true);
         setSelectedIndex(0);
         
-        // 如果查询为空，默认显示当前任务的文档
+        // 如果查询为空，默认显示分类视图
         if (afterAt === '') {
-          setMode('documents');
+          setViewMode('categories');
           setSelectedTaskUuid(currentTaskUuid);
         }
         return;
@@ -89,23 +91,55 @@ const DocumentMention = ({
     }
   }, [apiBaseUrl]);
 
+  // 获取Prompt文件列表
+  const fetchPromptFiles = useCallback(async () => {
+    if (!apiBaseUrl) return;
+    
+    setLoadingPrompts(true);
+    try {
+      const response = await axios.get(`${apiBaseUrl}/api/prompt-files`);
+      setPromptFiles(response.data || []);
+    } catch (error) {
+      console.error('Failed to fetch prompt files:', error);
+      setPromptFiles([]);
+    } finally {
+      setLoadingPrompts(false);
+    }
+  }, [apiBaseUrl]);
+
   // 当显示时获取数据
   useEffect(() => {
     if (isVisible) {
-      if (mode === 'tasks') {
+      if (viewMode === 'tasks') {
         fetchTasks();
-      } else if (mode === 'documents' && selectedTaskUuid) {
+      } else if (viewMode === 'files' && selectedTaskUuid) {
         fetchDocuments(selectedTaskUuid);
+      } else if (viewMode === 'prompt') {
+        fetchPromptFiles();
       }
     }
-  }, [isVisible, mode, selectedTaskUuid, apiBaseUrl, fetchTasks, fetchDocuments]);
+  }, [isVisible, viewMode, selectedTaskUuid, apiBaseUrl, fetchTasks, fetchDocuments, fetchPromptFiles]);
 
-    // 处理选择
+  // 处理选择
   const handleSelect = useCallback(async (option) => {
+    if (option.type === 'category') {
+      // 进入分类
+      if (option.id === 'files') {
+        setViewMode('files');
+        setSelectedIndex(0);
+        await fetchDocuments(selectedTaskUuid);
+      } else if (option.id === 'prompt') {
+        setViewMode('prompt');
+        setSelectedIndex(0);
+        await fetchPromptFiles();
+      }
+      return;
+    }
+
     if (option.type === 'task') {
       // 选择了任务，切换到该任务的文档列表
       setSelectedTaskUuid(option.uuid);
-      setMode('documents');
+      setViewMode('files');
       setMentionQuery('');
       setSelectedIndex(0);
       await fetchDocuments(option.uuid);
@@ -114,8 +148,13 @@ const DocumentMention = ({
 
     if (option.type === 'separator') return;
 
-    // 选择了文档
-    const documentRef = `@${selectedTaskUuid}/${option.filename}`;
+    // 选择了文档或prompt文件
+    let documentRef;
+    if (viewMode === 'prompt') {
+      documentRef = `@prompt/${option.filename}`;
+    } else {
+      documentRef = `@${selectedTaskUuid}/${option.filename}`;
+    }
     
     // 替换输入框中的 "@query" 为选中的文档引用
     const newText = inputText.slice(0, mentionStart) + documentRef + inputText.slice(cursorPosition);
@@ -136,14 +175,21 @@ const DocumentMention = ({
     // 通知父组件文档被选择
     if (onDocumentSelect) {
       try {
-        // 获取文档内容
-        const response = await axios.get(
-          `${apiBaseUrl}/api/tasks/${selectedTaskUuid}/documents/${option.filename}/content`
-        );
+        let response;
+        if (viewMode === 'prompt') {
+          // 获取prompt文件内容
+          response = await axios.get(`${apiBaseUrl}/api/prompt-files/${encodeURIComponent(option.filename)}`);
+        } else {
+          // 获取文档内容
+          response = await axios.get(
+            `${apiBaseUrl}/api/tasks/${selectedTaskUuid}/documents/${option.filename}/content`
+          );
+        }
+        
         onDocumentSelect({
           filename: option.filename,
-          taskUuid: selectedTaskUuid,
-          content: response.data.content,
+          taskUuid: viewMode === 'prompt' ? 'prompt' : selectedTaskUuid,
+          content: response.data.content || response.data,
           reference: documentRef
         });
       } catch (error) {
@@ -152,37 +198,42 @@ const DocumentMention = ({
     }
 
     setIsVisible(false);
-  }, [inputText, setInputText, setCursorPosition, apiBaseUrl, selectedTaskUuid, onDocumentSelect, textareaRef, mentionStart, cursorPosition, fetchDocuments]);
+  }, [inputText, setInputText, setCursorPosition, apiBaseUrl, selectedTaskUuid, onDocumentSelect, textareaRef, mentionStart, cursorPosition, fetchDocuments, fetchPromptFiles, viewMode]);
 
-  // 过滤选项
+  // 获取当前显示的选项列表
   const filteredOptions = useMemo(() => {
-    if (mode === 'tasks') {
+    if (viewMode === 'categories') {
+      // 显示分类选项
+      const categories = [
+        { type: 'category', id: 'files', label: 'Files', description: '当前任务的文档' },
+        { type: 'category', id: 'prompt', label: 'Prompt', description: 'Prompt模板文件' }
+      ];
+      
+      // 根据查询过滤
+      if (mentionQuery) {
+        return categories.filter(cat => 
+          cat.label.toLowerCase().includes(mentionQuery.toLowerCase())
+        );
+      }
+      
+      return categories;
+    } else if (viewMode === 'tasks') {
       return tasks.filter(task => 
         task.name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
         (task.title && task.title.toLowerCase().includes(mentionQuery.toLowerCase()))
       );
-    } else {
-      const filtered = documents.filter(doc => 
+    } else if (viewMode === 'files') {
+      return documents.filter(doc => 
         doc.filename.toLowerCase().includes(mentionQuery.toLowerCase())
       );
-      
-      // 如果在文档模式但查询匹配任务，添加切换选项
-      const matchingTasks = tasks.filter(task => 
-        task.name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
-        (task.title && task.title.toLowerCase().includes(mentionQuery.toLowerCase()))
-      );
-      
-      if (matchingTasks.length > 0 && mentionQuery.length > 0) {
-        return [
-          ...filtered,
-          { type: 'separator', label: '其他任务' },
-          ...matchingTasks.map(task => ({ ...task, type: 'task' }))
-        ];
-      }
-      
-      return filtered;
+    } else if (viewMode === 'prompt') {
+      return promptFiles.filter(file => 
+        file.toLowerCase().includes(mentionQuery.toLowerCase())
+      ).map(filename => ({ filename, type: 'prompt' }));
     }
-  }, [mode, tasks, documents, mentionQuery]);
+    
+    return [];
+  }, [viewMode, tasks, documents, promptFiles, mentionQuery]);
 
   // 键盘事件处理
   useEffect(() => {
@@ -206,19 +257,25 @@ const DocumentMention = ({
           break;
         case 'Escape':
           e.preventDefault();
-          setIsVisible(false);
+          if (viewMode === 'categories') {
+            setIsVisible(false);
+          } else {
+            // 返回分类视图
+            setViewMode('categories');
+            setSelectedIndex(0);
+          }
           break;
         case 'Tab':
           e.preventDefault();
-          if (mode === 'documents') {
+          if (viewMode === 'files') {
             // Tab 切换到任务模式
-            setMode('tasks');
+            setViewMode('tasks');
             setSelectedIndex(0);
             fetchTasks();
           }
           break;
-         default:
-           break;
+        default:
+          break;
       }
     };
 
@@ -229,7 +286,7 @@ const DocumentMention = ({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-   }, [isVisible, selectedIndex, filteredOptions, mode, fetchTasks, handleSelect]);
+  }, [isVisible, selectedIndex, filteredOptions, viewMode, fetchTasks, handleSelect]);
 
   // 计算下拉框位置
   const getDropdownPosition = () => {
@@ -298,22 +355,30 @@ const DocumentMention = ({
       <div className="px-3 py-2 border-b border-gray-100 bg-gray-50">
         <div className="flex items-center justify-between">
           <div className="text-sm font-medium text-gray-700">
-            {mode === 'tasks' ? '选择任务' : `选择文档`}
+            {viewMode === 'categories' ? '选择类型' : 
+             viewMode === 'tasks' ? '选择任务' : 
+             viewMode === 'files' ? '选择文档' : 'Prompt模板'}
           </div>
-          <div className="text-xs text-gray-500">
-            {mode === 'documents' && selectedTaskUuid && (
-              <span>当前: {selectedTaskUuid.slice(0, 8)}...</span>
-            )}
-          </div>
+          {viewMode !== 'categories' && (
+            <button
+              onClick={() => {
+                setViewMode('categories');
+                setSelectedIndex(0);
+              }}
+              className="text-xs text-gray-500 hover:text-gray-700"
+            >
+              返回
+            </button>
+          )}
         </div>
         <div className="text-xs text-gray-500 mt-1">
-          ↑↓ 选择 • Enter 确认 • Tab 切换 • Esc 取消
+          ↑↓ 选择 • Enter 确认 • {viewMode === 'categories' ? 'Esc 取消' : 'Esc 返回'}
         </div>
       </div>
 
       {/* 选项列表 */}
       <div className="max-h-64 overflow-y-auto">
-        {loadingTasks || loadingDocuments ? (
+        {(loadingTasks || loadingDocuments || loadingPrompts) ? (
           <div className="px-3 py-4 text-center text-gray-500">
             <div className="inline-flex items-center">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
@@ -322,30 +387,84 @@ const DocumentMention = ({
           </div>
         ) : (
           filteredOptions.map((option, index) => {
-            if (option.type === 'separator') {
+            const isSelected = index === selectedIndex;
+            
+            if (option.type === 'category') {
               return (
-                <div key={index} className="px-3 py-1 text-xs font-medium text-gray-500 bg-gray-100 border-t">
-                  {option.label}
+                <div
+                  key={option.id}
+                  className={`px-3 py-3 cursor-pointer flex items-center gap-3 ${
+                    isSelected ? 'bg-blue-50 border-l-2 border-blue-500' : 'hover:bg-gray-50'
+                  }`}
+                  onClick={() => handleSelect(option)}
+                >
+                  <div className="flex-shrink-0">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      option.id === 'files' ? 'bg-blue-100' : 'bg-purple-100'
+                    }`}>
+                      {option.id === 'files' ? (
+                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium text-gray-900">{option.label}</div>
+                    <div className="text-sm text-gray-500">{option.description}</div>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
                 </div>
               );
             }
 
-            const isSelected = index === selectedIndex;
-            const isTask = option.type === 'task';
+            if (option.type === 'task') {
+              return (
+                <div
+                  key={option.uuid}
+                  className={`px-3 py-2 cursor-pointer flex items-start gap-2 ${
+                    isSelected ? 'bg-blue-50 border-l-2 border-blue-500' : 'hover:bg-gray-50'
+                  }`}
+                  onClick={() => handleSelect(option)}
+                >
+                  <div className="flex-shrink-0 mt-1">
+                    <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm text-gray-900 truncate">
+                      {option.title || option.name}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate">
+                      UUID: {option.uuid}
+                    </div>
+                  </div>
+                </div>
+              );
+            }
 
+            // 文档或prompt文件
             return (
               <div
-                key={isTask ? option.uuid : option.filename}
+                key={option.filename}
                 className={`px-3 py-2 cursor-pointer flex items-start gap-2 ${
                   isSelected ? 'bg-blue-50 border-l-2 border-blue-500' : 'hover:bg-gray-50'
                 }`}
                 onClick={() => handleSelect(option)}
               >
-                {/* 图标 */}
                 <div className="flex-shrink-0 mt-1">
-                  {isTask ? (
-                    <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z" />
+                  {viewMode === 'prompt' ? (
+                    <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
                   ) : (
                     <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -353,36 +472,26 @@ const DocumentMention = ({
                     </svg>
                   )}
                 </div>
-
-                {/* 内容 */}
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-sm text-gray-900 truncate">
-                    {isTask ? (option.title || option.name) : option.filename}
+                    {option.filename}
                   </div>
-                  
-                  {isTask ? (
-                    <div className="text-xs text-gray-500 truncate">
-                      UUID: {option.uuid}
-                    </div>
-                  ) : (
+                  {viewMode === 'files' && option.lines && (
                     <div className="text-xs text-gray-500">
                       {option.lines} 行 • {formatTokenCount(estimateTokenCount(option.preview || ''))} tokens
                     </div>
                   )}
-                  
-                  {!isTask && option.preview && (
+                  {viewMode === 'files' && option.preview && (
                     <div className="text-xs text-gray-400 mt-1 truncate">
                       {option.preview.split('\n')[0]}
                     </div>
                   )}
                 </div>
-
-                {/* 类型标识 */}
                 <div className="flex-shrink-0">
                   <span className={`px-2 py-1 text-xs rounded ${
-                    isTask ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                    viewMode === 'prompt' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
                   }`}>
-                    {isTask ? '任务' : 'MD'}
+                    {viewMode === 'prompt' ? 'PROMPT' : 'MD'}
                   </span>
                 </div>
               </div>
@@ -390,14 +499,14 @@ const DocumentMention = ({
           })
         )}
 
-        {!loadingTasks && !loadingDocuments && filteredOptions.length === 0 && (
+        {!loadingTasks && !loadingDocuments && !loadingPrompts && filteredOptions.length === 0 && (
           <div className="px-3 py-4 text-center text-gray-500">
             <svg className="w-8 h-8 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <div className="text-sm">未找到匹配的{mode === 'tasks' ? '任务' : '文档'}</div>
+            <div className="text-sm">未找到匹配的文件</div>
             <div className="text-xs text-gray-400 mt-1">
-              {mode === 'documents' ? '按 Tab 切换到任务搜索' : '尝试输入其他关键词'}
+              尝试输入其他关键词
             </div>
           </div>
         )}
