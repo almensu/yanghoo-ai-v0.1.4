@@ -246,10 +246,34 @@ const DocumentMention = ({
     const currentLine = lines.length - 1;
     const charInLine = lines[lines.length - 1].length;
 
-    // 估算位置（简化版本）
+    // 获取textarea和 @符号的视窗信息
     const rect = textarea.getBoundingClientRect();
-    const top = rect.top + (currentLine * lineHeight) + lineHeight + 5;
-    const left = rect.left + (charInLine * fontSize * 0.6);
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const dropdownHeight = 300; // 最大高度
+    const dropdownWidth = 320; // 下拉框宽度（w-80 = 320px）
+
+    // 计算"@"符号的位置
+    const atSymbolTop = rect.top + (currentLine * lineHeight);
+    let left = rect.left + (charInLine * fontSize * 0.6);
+
+    // 检查下方是否有足够空间
+    const spaceBelow = viewportHeight - (atSymbolTop + lineHeight);
+    const spaceAbove = atSymbolTop;
+
+    // 优先放置在上方，如果上方空间不足且下方空间充足则放下方
+    let top;
+    if (spaceAbove >= dropdownHeight || (spaceAbove > spaceBelow && spaceAbove >= 200)) {
+      // 放置在"@"符号上方
+      top = atSymbolTop - dropdownHeight - 5;
+    } else {
+      // 放置在"@"符号下方
+      top = atSymbolTop + lineHeight + 5;
+    }
+
+    // 确保不超出视窗边界
+    top = Math.max(10, Math.min(top, viewportHeight - dropdownHeight - 10));
+    left = Math.max(10, Math.min(left, viewportWidth - dropdownWidth - 10));
 
     return { top, left };
   };
