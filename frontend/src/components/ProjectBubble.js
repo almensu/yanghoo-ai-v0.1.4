@@ -160,10 +160,14 @@ const ProjectBubble = ({
         const currentActive = projectManager.getActiveProject();
         if (currentActive) {
           projectManager.addBlock(currentActive.id, {
-            id: dragData.block.id,
+            blockId: dragData.block.id, // 原始块ID
             content: dragData.block.content,
             type: dragData.block.type,
             taskUuid: dragData.block.taskUuid,
+            taskTitle: dragData.block.taskTitle || `Task ${dragData.block.taskUuid}`,
+            filename: dragData.block.filename || 'Unknown File',
+            blockIndex: dragData.block.blockIndex || 1,
+            totalBlocks: dragData.block.totalBlocks || 1,
             source: 'block-editor',
             addedAt: new Date().toISOString()
           });

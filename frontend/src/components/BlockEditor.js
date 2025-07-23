@@ -11,6 +11,8 @@ const BlockEditor = ({
   onContentChange, 
   taskUuid, 
   apiBaseUrl,
+  filename = null, // 当前编辑的文档文件名
+  taskTitle = null, // 任务标题
   className = '' 
 }) => {
   const [blockManager, setBlockManager] = useState(null);
@@ -109,6 +111,10 @@ const BlockEditor = ({
         content: block.content,
         type: block.type,
         taskUuid: taskUuid,
+        taskTitle: taskTitle,
+        filename: filename,
+        blockIndex: blocks.findIndex(b => b.id === block.id) + 1, // 块在文档中的序号
+        totalBlocks: blocks.length,
         timestamp: Date.now()
       }
     };

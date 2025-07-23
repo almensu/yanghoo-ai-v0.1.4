@@ -2382,6 +2382,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
             apiBaseUrl={apiBaseUrl} 
             markdownContent={markdownContent}
             videoRef={videoElementRef}
+            taskDetails={taskDetails}
           />
         </div>
 

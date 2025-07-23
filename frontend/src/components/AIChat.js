@@ -706,10 +706,13 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
             .sort((a, b) => a.order - b.order)
             .forEach((block, index) => {
               combinedDocument += `### 块 ${index + 1}: ${block.taskTitle || 'Unknown Task'} / ${block.filename}\n`;
+              combinedDocument += `**文档位置**: 第${block.blockIndex}/${block.totalBlocks}块 | **块ID**: \`${block.blockId}\` | **任务ID**: \`${block.taskUuid}\`\n`;
               if (block.timestamp) {
-                combinedDocument += `时间戳: [${formatTime(block.timestamp.start)}-${formatTime(block.timestamp.end)}]\n`;
+                combinedDocument += `**时间戳**: [${formatTime(block.timestamp.start)}-${formatTime(block.timestamp.end)}]\n`;
               }
+              combinedDocument += `**收集时间**: ${new Date(block.collectTime || block.addedAt).toLocaleString()}\n\n`;
               combinedDocument += `${block.content}\n\n`;
+              combinedDocument += `---\n\n`;
             });
         }
         

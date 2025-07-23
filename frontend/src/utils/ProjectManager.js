@@ -23,14 +23,19 @@ const STORAGE_KEYS = {
 
 // 块数据结构
 export const BLOCK_ITEM_SCHEMA = {
-  id: '', // 块的唯一标识
+  id: '', // 项目中块的唯一标识
   taskUuid: '', // 所属任务UUID
   taskTitle: '', // 任务标题
   filename: '', // 文件名
-  blockId: '', // 原始块ID
+  blockId: '', // 原始块ID（在文档中的ID）
+  blockIndex: 1, // 块在文档中的序号（1-based）
+  totalBlocks: 1, // 文档总块数
   content: '', // 块内容
+  type: '', // 块类型（paragraph, heading, code等）
   timestamp: null, // 视频时间戳 {start, end}
+  source: '', // 来源（block-editor, manual等）
   collectTime: '', // 收集时间
+  addedAt: '', // 添加到项目的时间
   order: 0 // 在项目中的排序
 };
 
@@ -392,14 +397,16 @@ export class ProjectManager {
           content += `### ${index + 1}. ${this.extractTitle(block.content)}\n\n`;
           content += `${block.content}\n\n`;
           
-          // 添加来源信息
+          // 添加完整的溯源信息
           content += `> **来源**：${block.taskTitle || 'Unknown Task'}`;
           if (block.timestamp) {
             const start = this.formatTime(block.timestamp.start);
             const end = this.formatTime(block.timestamp.end);
             content += ` [${start}-${end}]`;
           }
-          content += `  \n> **文件**：\`${block.filename}\`\n\n`;
+          content += `  \n> **文件**：\`${block.filename}\` (第${block.blockIndex}/${block.totalBlocks}块)`;
+          content += `  \n> **块ID**：\`${block.blockId}\``;
+          content += `  \n> **任务ID**：\`${block.taskUuid}\`\n\n`;
         });
     }
 
@@ -420,12 +427,13 @@ export class ProjectManager {
     let citationIndex = 1;
 
     project.selectedBlocks.forEach(block => {
-      content += `${citationIndex}. ${block.taskTitle || 'Unknown Task'} - \`${block.filename}\``;
+      content += `${citationIndex}. ${block.taskTitle || 'Unknown Task'} - \`${block.filename}\` (第${block.blockIndex}块)`;
       if (block.timestamp) {
         const start = this.formatTime(block.timestamp.start);
         const end = this.formatTime(block.timestamp.end);
         content += ` [${start}-${end}]`;
       }
+      content += ` - Block ID: \`${block.blockId}\``;
       content += '\n';
       citationIndex++;
     });
@@ -467,8 +475,9 @@ export class ProjectManager {
         .forEach((block, index) => {
           content += `### ${index + 1}. ${this.extractTitle(block.content)}\n\n`;
           content += `${block.content}\n\n`;
-          content += `> **来源**：${block.taskTitle} - \`${block.filename}\` Block-${block.blockId}  \n`;
-          content += `> **任务ID**：${block.taskUuid}\n\n`;
+          content += `> **来源**：${block.taskTitle} - \`${block.filename}\` (第${block.blockIndex}/${block.totalBlocks}块)  \n`;
+          content += `> **块ID**：\`${block.blockId}\` | **任务ID**：\`${block.taskUuid}\`  \n`;
+          content += `> **收集时间**：${new Date(block.collectTime || block.addedAt).toLocaleString()}\n\n`;
         });
     }
 

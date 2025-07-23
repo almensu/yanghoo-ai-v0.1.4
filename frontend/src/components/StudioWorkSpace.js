@@ -21,7 +21,7 @@ const chineseFontBase64 = 'AAEAAAAKAIAAAwAgT1MvMkB6THoAAACsAAAAYGNtYXAAVADaAAABD
 // - markdownContent: Optional fallback markdown content from parent
 // - videoRef: Reference to the video element for timestamp navigation
 
-function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
+function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, taskDetails }) {
   const [markdownFiles, setMarkdownFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null); // Name of the selected file
   const [currentMarkdownContent, setCurrentMarkdownContent] = useState(markdownContent || '');
@@ -678,6 +678,8 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
                     }}
                     taskUuid={taskUuid}
                     apiBaseUrl={apiBaseUrl}
+                    filename={selectedFile}
+                    taskTitle={taskDetails?.title || `Task ${taskUuid}`}
                     className="border-0"
                   />
                 ) : hasTimestamps && videoRef ? (
