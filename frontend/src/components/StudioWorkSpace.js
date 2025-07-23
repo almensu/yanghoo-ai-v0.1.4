@@ -48,15 +48,30 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
   const [isLoadingDocFiles, setIsLoadingDocFiles] = useState(false);
 
   const handleExpandToggle = () => {
+    // 保存当前状态
     const scrollPosition = contentRef.current?.scrollTop || 0;
+    const currentFile = selectedFile;
+    const currentEditMode = editMode;
+    const currentContent = currentMarkdownContent;
     
-    setIsExpanded(prev => !prev);
+    setIsExpanded(prev => {
+      const newExpanded = !prev;
     
+      // 延迟恢复状态，确保DOM重新渲染完成
     setTimeout(() => {
       if (contentRef.current) {
+          // 恢复滚动位置
         contentRef.current.scrollTop = scrollPosition;
+          
+          // 如果有选中的文件，确保内容正确显示
+          if (currentFile && currentContent) {
+            setCurrentMarkdownContent(currentContent);
+          }
       }
-    }, 10);
+      }, newExpanded ? 350 : 100); // 展开时需要更长时间等待动画完成
+      
+      return newExpanded;
+    });
   };
 
   const handleSelectFile = (filename) => {
@@ -302,6 +317,14 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
       setHasTimestamps(/\[\d{2}:\d{2}:\d{2}\]/.test(markdownContent));
     }
   }, [markdownContent, selectedFile]);
+
+  // 监听展开状态变化，确保内容正确显示
+  useEffect(() => {
+    if (selectedFile && currentMarkdownContent) {
+      // 展开状态变化时，重新检查时间戳
+      setHasTimestamps(/\[\d{2}:\d{2}:\d{2}\]/.test(currentMarkdownContent));
+    }
+  }, [isExpanded, selectedFile, currentMarkdownContent]);
 
   const handleCreateNew = () => {
     setIsCreatingNew(true);
@@ -760,7 +783,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
                 </div>
                 {editMode === 'block' ? (
                   <BlockEditor
-                    key={`block-editor-${selectedFile}`}
+                    key={`block-editor-${selectedFile}-${isExpanded ? 'expanded' : 'normal'}`}
                     markdownContent={currentMarkdownContent}
                     onContentChange={async (newContent) => {
                       setCurrentMarkdownContent(newContent);
@@ -793,13 +816,13 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
                   />
                 ) : hasTimestamps && videoRef ? (
                   <MarkdownWithTimestamps
-                    key={`viewer-timestamps-${selectedFile}`}
+                    key={`viewer-timestamps-${selectedFile}-${isExpanded ? 'expanded' : 'normal'}`}
                     markdownContent={currentMarkdownContent}
                     videoRef={videoRef}
                   />
                 ) : (
                   <MarkdownViewer 
-                    key={`viewer-${selectedFile}`}
+                    key={`viewer-${selectedFile}-${isExpanded ? 'expanded' : 'normal'}`}
                     markdownContent={currentMarkdownContent}
                     videoRef={videoRef}
                   />
@@ -848,13 +871,13 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
                 </div>
                 {hasTimestamps && videoRef ? (
                   <MarkdownWithTimestamps
-                    key="default-content-timestamps"
+                    key={`default-content-timestamps-${isExpanded ? 'expanded' : 'normal'}`}
                     markdownContent={markdownContent}
                     videoRef={videoRef}
                   />
                 ) : (
                   <MarkdownViewer 
-                    key="default-content"
+                    key={`default-content-${isExpanded ? 'expanded' : 'normal'}`}
                     markdownContent={markdownContent}
                     videoRef={videoRef}
                   />

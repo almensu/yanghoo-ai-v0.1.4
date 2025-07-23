@@ -825,7 +825,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
   
   // Refs
   const videoElementRef = useRef(null);
-  
+
 
 
   // State for fetched data

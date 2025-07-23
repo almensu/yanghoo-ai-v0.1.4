@@ -1142,15 +1142,15 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   }, []);
 
   return (
-    <div className="flex h-full relative">
+    <div className="flex h-full w-full relative">
       {/* 主聊天区域 */}
-      <div 
-        className="flex flex-col h-full bg-white rounded-lg shadow overflow-hidden relative aichat-container"
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-      >
+    <div 
+        className="flex flex-col h-full w-full bg-white rounded-lg shadow overflow-hidden relative aichat-container"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       {/* 顶部模型选择栏 - 增强版 */}
       <div className="p-3 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
         <div className="flex items-center justify-between">
@@ -1589,8 +1589,8 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
                   <span className="text-xs font-medium text-gray-600">AI</span>
                 </div>
                 <div 
-                  className="relative max-w-3xl"
-                  style={{ minWidth: '280px' }}
+                  className="relative flex-1"
+                  style={{ minWidth: '280px', maxWidth: 'calc(100% - 2rem)' }}
                 >
                   {/* 角色标识 */}
                   <div className="text-xs font-medium mb-1 text-gray-600 flex items-center">
@@ -1639,8 +1639,8 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
             
             {/* 用户消息 */}
             {msg.role === 'user' && (
-              <div className="relative max-w-3xl text-right">
-                <div className="inline-block bg-blue-500 text-white px-4 py-2 rounded-lg">
+              <div className="relative flex-1 text-right" style={{ maxWidth: 'calc(100% - 2rem)' }}>
+                <div className="inline-block bg-blue-500 text-white px-4 py-2 rounded-lg max-w-full">
                   <div className="markdown-content break-words">
                     {renderMessageContent(msg, true)}
                   </div>
