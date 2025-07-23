@@ -99,7 +99,22 @@ const BlockEditor = ({
     setDraggedBlock(block);
     setIsDragging(true);
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/html', '');
+    
+    // 设置拖拽数据，支持拖拽到项目篮
+    const dragData = {
+      type: 'block',
+      source: 'block-editor',
+      block: {
+        id: block.id,
+        content: block.content,
+        type: block.type,
+        taskUuid: taskUuid,
+        timestamp: Date.now()
+      }
+    };
+    
+    e.dataTransfer.setData('text/plain', JSON.stringify(dragData));
+    e.dataTransfer.setData('text/html', block.content);
   };
 
   const handleDragEnd = () => {

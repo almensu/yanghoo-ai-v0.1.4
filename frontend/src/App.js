@@ -13,6 +13,7 @@ import TestPage_YouTubeTimestamp from './pages/TestPage_YouTubeTimestamp'; // Im
 import TestPage_AssSubtitle from './pages/TestPage_AssSubtitle'; // Import ASS subtitle test page
 import TestPage_KeyframeClip from './pages/TestPage_KeyframeClip'; // Import Keyframe Clip test page
 import TestPage_BlockEditor from './pages/TestPage_BlockEditor'; // Import Block Editor test page
+import TestPage_BlockDragToProject from './pages/TestPage_BlockDragToProject'; // Import Block Drag to Project test page
 
 const API_BASE_URL = 'http://127.0.0.1:8000';
 const WS_BASE_URL = 'ws://127.0.0.1:8000';
@@ -61,6 +62,7 @@ function App() {
                <Route path="/test/keyframe-clip" element={<TestPage_KeyframeClip />} />
                {/* Add route for Block Editor Test Page */}
                <Route path="/test/block-editor" element={<TestPage_BlockEditor />} />
+            <Route path="/test/block-drag-to-project" element={<TestPage_BlockDragToProject />} />
              </Routes>
            </main>
         </div>

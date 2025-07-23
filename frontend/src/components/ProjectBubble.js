@@ -31,6 +31,7 @@ const ProjectBubble = ({
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [draggedItem, setDraggedItem] = useState(null);
   const [stats, setStats] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // 加载项目数据
   useEffect(() => {
@@ -115,16 +116,67 @@ const ProjectBubble = ({
   const handleDragOver = (e) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    // 只有当拖拽真正离开气泡区域时才取消高亮
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setIsDragOver(false);
+    }
   };
 
   const handleDrop = (e, targetItem, targetType) => {
     e.preventDefault();
+    setIsDragOver(false);
     
-    if (!draggedItem || !activeProject) return;
+    // 处理内部拖拽重排序
+    if (draggedItem && activeProject) {
+      console.log('拖拽重排序功能待实现');
+      setDraggedItem(null);
+      return;
+    }
 
-    console.log('拖拽重排序功能待实现');
-    
-    setDraggedItem(null);
+    // 处理外部拖拽（从BlockEditor等）
+    try {
+      const dragDataText = e.dataTransfer.getData('text/plain');
+      if (!dragDataText) return;
+
+      const dragData = JSON.parse(dragDataText);
+      
+      if (dragData.type === 'block' && dragData.source === 'block-editor') {
+        // 确保有活跃项目
+        if (!activeProject) {
+          // 如果没有活跃项目，创建一个默认项目
+          const newProject = projectManager.createProject(
+            `项目 ${new Date().toLocaleDateString()}`,
+            '从块编辑器拖拽创建'
+          );
+          projectManager.setActiveProject(newProject.id);
+          loadActiveProject();
+        }
+
+        // 添加块到活跃项目
+        const currentActive = projectManager.getActiveProject();
+        if (currentActive) {
+          projectManager.addBlock(currentActive.id, {
+            id: dragData.block.id,
+            content: dragData.block.content,
+            type: dragData.block.type,
+            taskUuid: dragData.block.taskUuid,
+            source: 'block-editor',
+            addedAt: new Date().toISOString()
+          });
+          
+          loadActiveProject();
+          
+          // 显示成功提示
+          console.log('块已添加到项目篮');
+        }
+      }
+    } catch (error) {
+      console.error('处理拖拽数据时出错:', error);
+    }
   };
 
   // 发送到AI Chat
@@ -158,22 +210,39 @@ const ProjectBubble = ({
   return (
     <>
       {/* 气泡主体 */}
-      <div className={`project-bubble bg-white border border-gray-200 ${
-        isExpanded ? 'project-bubble-expanded' : 'project-bubble-collapsed'
-      } ${className}`}>
+      <div 
+        className={`project-bubble bg-white border ${
+          isDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+        } ${isExpanded ? 'project-bubble-expanded' : 'project-bubble-collapsed'} ${className}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDrop(e)}
+      >
         
         {/* 收起状态 - 圆形气泡 */}
         {!isExpanded && (
           <button
             onClick={() => setIsExpanded(true)}
-            className="w-full h-full flex items-center justify-center hover:bg-gray-50 rounded-2xl transition-colors group"
+            className={`w-full h-full flex items-center justify-center rounded-2xl transition-colors group ${
+              isDragOver ? 'bg-blue-100' : 'hover:bg-gray-50'
+            }`}
           >
             <div className="relative">
-              <Package size={24} className="text-blue-600 group-hover:text-blue-700" />
+              <Package 
+                size={24} 
+                className={`${
+                  isDragOver ? 'text-blue-700' : 'text-blue-600 group-hover:text-blue-700'
+                }`} 
+              />
               {activeProject && itemCount > 0 && (
                 <span className="project-bubble-badge">
                   {itemCount > 99 ? '99+' : itemCount}
                 </span>
+              )}
+              {isDragOver && (
+                <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                  拖拽到此添加块
+                </div>
               )}
             </div>
           </button>
