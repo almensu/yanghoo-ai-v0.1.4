@@ -321,6 +321,19 @@ export class ProjectManager {
     return Math.ceil(chineseChars * 1.5 + englishWords);
   }
 
+  /**
+   * 获取文档类别的友好描述
+   */
+  getCategoryDescription(category) {
+    const categoryMap = {
+      'transcripts': '转录文档',
+      'analysis': '分析文档', 
+      'user_documents': '用户文档',
+      'system_generated': '系统生成文档'
+    };
+    return categoryMap[category] || null;
+  }
+
   // ===== localStorage操作 =====
 
   /**
@@ -400,15 +413,21 @@ export class ProjectManager {
           content += `${block.content}\n\n`;
           
           // 添加完整的溯源信息
-          content += `> **来源**：${block.taskTitle || 'Unknown Task'}`;
+          content += `> **来源任务**：${block.taskTitle || 'Unknown Task'}`;
           if (block.timestamp) {
             const start = this.formatTime(block.timestamp.start);
             const end = this.formatTime(block.timestamp.end);
             content += ` [${start}-${end}]`;
           }
-          content += `  \n> **文件**：\`${block.filename}\` (第${block.blockIndex}/${block.totalBlocks}块)`;
-          content += `  \n> **块ID**：\`${block.blockId}\``;
-          content += `  \n> **任务ID**：\`${block.taskUuid}\`\n\n`;
+          content += `  \n> **Markdown文档**：\`${block.filename}\` (第${block.blockIndex}/${block.totalBlocks}块)`;
+          
+          // 添加文档类别的友好描述
+          const categoryDesc = this.getCategoryDescription(block.category);
+          if (categoryDesc) {
+            content += `  \n> **文档类型**：${categoryDesc}`;
+          }
+          
+          content += `  \n> **块标识**：\`${block.blockId}\` | **任务ID**：\`${block.taskUuid?.substring(0, 8)}...\`\n\n`;
         });
     }
 
@@ -418,8 +437,8 @@ export class ProjectManager {
       project.selectedDocuments
         .sort((a, b) => a.order - b.order)
         .forEach((doc, index) => {
-          content += `${index + 1}. **${doc.filename}**`;
-          content += ` - 来自 ${doc.taskTitle || 'Unknown Task'}\n`;
+          content += `${index + 1}. **Markdown文档**: \`${doc.filename}\``;
+          content += ` - 来自任务: ${doc.taskTitle || 'Unknown Task'}\n`;
         });
       content += '\n';
     }
@@ -429,19 +448,25 @@ export class ProjectManager {
     let citationIndex = 1;
 
     project.selectedBlocks.forEach(block => {
-      content += `${citationIndex}. ${block.taskTitle || 'Unknown Task'} - \`${block.filename}\` (第${block.blockIndex}块)`;
+      content += `${citationIndex}. **${block.taskTitle || 'Unknown Task'}** - Markdown文档 \`${block.filename}\` (第${block.blockIndex}块)`;
       if (block.timestamp) {
         const start = this.formatTime(block.timestamp.start);
         const end = this.formatTime(block.timestamp.end);
         content += ` [${start}-${end}]`;
       }
-      content += ` - Block ID: \`${block.blockId}\``;
+      
+      // 添加文档类别描述
+      const categoryDesc = this.getCategoryDescription(block.category);
+      if (categoryDesc) {
+        content += ` - ${categoryDesc}`;
+      }
+      
       content += '\n';
       citationIndex++;
     });
 
     project.selectedDocuments.forEach(doc => {
-      content += `${citationIndex}. ${doc.taskTitle || 'Unknown Task'} - \`${doc.filename}\` (完整文档)\n`;
+      content += `${citationIndex}. **${doc.taskTitle || 'Unknown Task'}** - 完整Markdown文档 \`${doc.filename}\`\n`;
       citationIndex++;
     });
 
@@ -477,9 +502,16 @@ export class ProjectManager {
         .forEach((block, index) => {
           content += `### ${index + 1}. ${this.extractTitle(block.content)}\n\n`;
           content += `${block.content}\n\n`;
-          content += `> **来源**：${block.taskTitle} - \`${block.filename}\` (第${block.blockIndex}/${block.totalBlocks}块)  \n`;
-          content += `> **类别**：${block.category || 'user_documents'} | **文档ID**：\`${block.docId || 'N/A'}\`  \n`;
-          content += `> **块ID**：\`${block.blockId}\` | **任务ID**：\`${block.taskUuid}\`  \n`;
+          content += `> **来源任务**：${block.taskTitle}  \n`;
+          content += `> **Markdown文档**：\`${block.filename}\` (第${block.blockIndex}/${block.totalBlocks}块)  \n`;
+          
+          // 添加文档类别的友好描述
+          const categoryDesc = this.getCategoryDescription(block.category);
+          if (categoryDesc) {
+            content += `> **文档类型**：${categoryDesc}  \n`;
+          }
+          
+          content += `> **块标识**：\`${block.blockId}\` | **任务ID**：\`${block.taskUuid?.substring(0, 8)}...\`  \n`;
           content += `> **收集时间**：${new Date(block.collectTime || block.addedAt).toLocaleString()}\n\n`;
         });
     }
@@ -490,7 +522,7 @@ export class ProjectManager {
       project.selectedDocuments
         .sort((a, b) => a.order - b.order)
         .forEach((doc, index) => {
-          content += `${index + 1}. [${doc.filename}] - 来自任务${doc.taskUuid}\n`;
+          content += `${index + 1}. **Markdown文档**: \`${doc.filename}\` - 来自任务: ${doc.taskTitle || doc.taskUuid?.substring(0, 8) + '...'}\n`;
         });
       content += '\n';
     }
