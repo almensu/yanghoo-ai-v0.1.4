@@ -21,6 +21,8 @@ import {
 
 const ProjectBubble = ({ 
   onSendToAI,
+  taskUuid,
+  apiBaseUrl,
   className = '' 
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -32,6 +34,8 @@ const ProjectBubble = ({
   const [draggedItem, setDraggedItem] = useState(null);
   const [stats, setStats] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
 
   // 加载项目数据
   useEffect(() => {
@@ -115,7 +119,7 @@ const ProjectBubble = ({
 
   const handleDragOver = (e) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = 'copy';
     setIsDragOver(true);
   };
 
@@ -137,12 +141,24 @@ const ProjectBubble = ({
       return;
     }
 
-    // 处理外部拖拽（从BlockEditor等）
+    // 处理外部拖拽
     try {
       const dragDataText = e.dataTransfer.getData('text/plain');
       if (!dragDataText) return;
 
-      const dragData = JSON.parse(dragDataText);
+      // 尝试解析为JSON（来自BlockEditor的块数据）
+      let dragData;
+      try {
+        dragData = JSON.parse(dragDataText);
+      } catch (parseError) {
+        // 如果不是JSON，可能是markdown文件名
+        if (dragDataText.endsWith('.md')) {
+          handleMarkdownFileDrop(dragDataText);
+          return;
+        }
+        console.warn('无法解析拖拽数据:', dragDataText);
+        return;
+      }
       
       if (dragData.type === 'block' && dragData.source === 'block-editor') {
         // 确保有活跃项目
@@ -178,10 +194,59 @@ const ProjectBubble = ({
           
           // 显示成功提示
           console.log('块已添加到项目篮');
+          showSuccessMessage(`块已添加到项目篮`);
         }
       }
     } catch (error) {
       console.error('处理拖拽数据时出错:', error);
+    }
+  };
+
+  // 显示成功提示
+  const showSuccessMessage = (message) => {
+    setSuccessMessage(message);
+    setShowSuccess(true);
+    setTimeout(() => {
+      setShowSuccess(false);
+    }, 3000);
+  };
+
+  // 处理markdown文件拖拽
+  const handleMarkdownFileDrop = (filename) => {
+    // 确保有活跃项目
+    if (!activeProject) {
+      const newProject = projectManager.createProject(
+        `项目 ${new Date().toLocaleDateString()}`,
+        '从文档拖拽创建'
+      );
+      projectManager.setActiveProject(newProject.id);
+      loadActiveProject();
+    }
+
+    // 添加文档到活跃项目
+    const currentActive = projectManager.getActiveProject();
+    if (currentActive) {
+      // 检查文档是否已经存在
+      const existingDoc = currentActive.selectedDocuments?.find(doc => doc.filename === filename);
+      if (existingDoc) {
+        console.log('文档已存在于项目中:', filename);
+        return;
+      }
+
+      projectManager.addDocument(currentActive.id, {
+        taskUuid: taskUuid || 'unknown',
+        taskTitle: `Task ${taskUuid || 'unknown'}`,
+        filename: filename,
+        content: '', // 将在需要时异步加载
+        collectTime: new Date().toISOString(),
+        order: (currentActive.selectedDocuments?.length || 0) + 1
+      });
+      
+      loadActiveProject();
+      
+      // 显示成功提示
+      console.log('文档已添加到项目篮:', filename);
+      showSuccessMessage(`文档 "${filename}" 已添加到项目篮`);
     }
   };
 
@@ -247,7 +312,7 @@ const ProjectBubble = ({
               )}
               {isDragOver && (
                 <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                  拖拽到此添加块
+                  拖拽到此添加块或文档
                 </div>
               )}
             </div>
@@ -456,6 +521,18 @@ const ProjectBubble = ({
           </div>
         )}
       </div>
+
+      {/* 成功提示 */}
+      {showSuccess && (
+        <div className="fixed bottom-24 right-6 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-pulse">
+          <div className="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            {successMessage}
+          </div>
+        </div>
+      )}
 
       {/* 新建项目模态框 */}
       {showNewProjectModal && (

@@ -203,7 +203,7 @@ function MarkdownList({ files, selectedFile, onSelectFile, onFileDeleted, onFile
           )}
         </h4>
         <span className="text-xs text-gray-500">
-          可拖拽到AI对话
+          可拖拽到AI对话或项目篮
         </span>
       </div>
       <div className="grid gap-2">
@@ -329,8 +329,9 @@ function MarkdownList({ files, selectedFile, onSelectFile, onFileDeleted, onFile
                 {/* 拖拽状态指示 */}
                 {isDragging && (
                   <div className="absolute inset-0 bg-blue-500 bg-opacity-20 rounded border-2 border-blue-500 border-dashed z-10 pointer-events-none">
-                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-blue-700 font-semibold text-xs">
-                      拖拽中...
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-blue-700 font-semibold text-xs text-center">
+                      <div>拖拽中...</div>
+                      <div className="text-xs opacity-75 mt-1">可拖拽到AI对话或项目篮</div>
                     </div>
                   </div>
                 )}

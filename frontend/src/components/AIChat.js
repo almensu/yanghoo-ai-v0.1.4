@@ -1740,7 +1740,11 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       </div>
 
       {/* 项目气泡 */}
-      <ProjectBubble onSendToAI={handleProjectSendToAI} />
+      <ProjectBubble 
+        onSendToAI={handleProjectSendToAI} 
+        taskUuid={taskUuid}
+        apiBaseUrl={apiBaseUrl}
+      />
     </div>
   );
 }
