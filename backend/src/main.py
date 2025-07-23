@@ -2578,9 +2578,10 @@ async def open_task_folder_endpoint(task_uuid: UUID):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred on the server while trying to open the folder.")
 # --- END Endpoint to Open Task Folder --- 
 
-from .routes import chat, tasks
+from .routes import chat, tasks, doc_files
 app.include_router(chat.router)
 app.include_router(tasks.router)
+app.include_router(doc_files.doc_files_router)
 
 # --- START: Add POST endpoint for file creation/update ---
 @app.post("/api/tasks/{task_uuid}/files/{filename}", status_code=200)

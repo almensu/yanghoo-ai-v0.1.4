@@ -168,6 +168,8 @@ const ProjectBubble = ({
             filename: dragData.block.filename || 'Unknown File',
             blockIndex: dragData.block.blockIndex || 1,
             totalBlocks: dragData.block.totalBlocks || 1,
+            docId: dragData.block.docId || null, // doc_files中的文档ID
+            category: dragData.block.category || 'user_documents', // 文档类别
             source: 'block-editor',
             addedAt: new Date().toISOString()
           });

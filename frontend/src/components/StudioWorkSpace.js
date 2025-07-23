@@ -41,6 +41,11 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   // Block editor mode state
   const [editMode, setEditMode] = useState('normal'); // 'normal' or 'block'
+  
+  // Doc files management state
+  const [docFiles, setDocFiles] = useState([]);
+  const [selectedDocFile, setSelectedDocFile] = useState(null);
+  const [isLoadingDocFiles, setIsLoadingDocFiles] = useState(false);
 
   const handleExpandToggle = () => {
     const scrollPosition = contentRef.current?.scrollTop || 0;
@@ -94,6 +99,93 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
     // Update selection if the renamed file was selected
     if (selectedFile === oldFilename) {
       setSelectedFile(newFilename);
+    }
+  };
+
+  // Doc files API functions
+  const fetchDocFiles = async () => {
+    if (!taskUuid || !apiBaseUrl) return;
+    
+    setIsLoadingDocFiles(true);
+    setError(null);
+    try {
+      const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files`);
+      setDocFiles(response.data.doc_files || []);
+    } catch (err) {
+      console.error("Error fetching doc files:", err);
+      setError('Failed to load document files.');
+      setDocFiles([]);
+    } finally {
+      setIsLoadingDocFiles(false);
+    }
+  };
+
+  const addDocFile = async (docData) => {
+    try {
+      await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files`, docData);
+      await fetchDocFiles(); // Refresh the list
+    } catch (err) {
+      console.error("Error adding doc file:", err);
+      setError('Failed to add document file.');
+    }
+  };
+
+  const updateDocFile = async (docId, updateData) => {
+    try {
+      await axios.put(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files/${docId}`, updateData);
+      await fetchDocFiles(); // Refresh the list
+    } catch (err) {
+      console.error("Error updating doc file:", err);
+      setError('Failed to update document file.');
+    }
+  };
+
+  const deleteDocFile = async (docId) => {
+    try {
+      await axios.delete(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files/${docId}`);
+      await fetchDocFiles(); // Refresh the list
+    } catch (err) {
+      console.error("Error deleting doc file:", err);
+      setError('Failed to delete document file.');
+    }
+  };
+
+  const getDocFileContent = async (docId) => {
+    try {
+      const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files/${docId}/content`);
+      return response.data;
+    } catch (err) {
+      console.error("Error getting doc file content:", err);
+      throw err;
+    }
+  };
+
+  const getDocFileBlocks = async (docId) => {
+    try {
+      const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files/${docId}/blocks`);
+      return response.data;
+    } catch (err) {
+      console.error("Error getting doc file blocks:", err);
+      throw err;
+    }
+  };
+  
+  // Auto-register new markdown files to doc_files when created
+  const registerMarkdownToDocFiles = async (filename, content) => {
+    try {
+      const docData = {
+        filename: filename,
+        category: 'user_documents',
+        path: `${taskUuid}/${filename}`,
+        type: 'markdown',
+        language: 'mixed',
+        format: 'user_created',
+        description: `User-created markdown document: ${filename}`
+      };
+      await addDocFile(docData);
+    } catch (err) {
+      console.error("Error registering markdown to doc_files:", err);
+      // Don't show error to user as this is background registration
     }
   };
 
@@ -158,6 +250,11 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
   // markdownContent dependency was causing re-runs that might not be desired for just file list.
   // }, [taskUuid, apiBaseUrl, markdownContent, selectedFile]); 
   }, [taskUuid, apiBaseUrl]); // Simpler dependencies
+
+  // Effect to fetch doc_files
+  useEffect(() => {
+    fetchDocFiles();
+  }, [taskUuid, apiBaseUrl]);
 
   // Effect to fetch the content of the selected markdown file
   useEffect(() => {
@@ -240,6 +337,9 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
       setSelectedFile(fileName);
       setIsCreatingNew(false);
       setIsEditing(false);
+      
+      // Auto-register to doc_files
+      await registerMarkdownToDocFiles(fileName, currentMarkdownContent);
       
     } catch (err) {
       console.error("Error saving new markdown file:", err);
@@ -680,6 +780,15 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
                     apiBaseUrl={apiBaseUrl}
                     filename={selectedFile}
                     taskTitle={taskDetails?.title || `Task ${taskUuid}`}
+                    docId={(() => {
+                      // 查找当前文件对应的doc_file信息
+                      const docFile = docFiles.find(doc => doc.filename === selectedFile);
+                      return docFile ? docFile.id : null;
+                    })()}
+                    docCategory={(() => {
+                      const docFile = docFiles.find(doc => doc.filename === selectedFile);
+                      return docFile ? docFile.category : 'user_documents';
+                    })()}
                     className="border-0"
                   />
                 ) : hasTimestamps && videoRef ? (

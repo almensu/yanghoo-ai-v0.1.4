@@ -30,6 +30,8 @@ export const BLOCK_ITEM_SCHEMA = {
   blockId: '', // 原始块ID（在文档中的ID）
   blockIndex: 1, // 块在文档中的序号（1-based）
   totalBlocks: 1, // 文档总块数
+  docId: '', // doc_files中的文档ID
+  category: '', // 文档类别（transcripts, analysis, user_documents, system_generated）
   content: '', // 块内容
   type: '', // 块类型（paragraph, heading, code等）
   timestamp: null, // 视频时间戳 {start, end}
@@ -476,6 +478,7 @@ export class ProjectManager {
           content += `### ${index + 1}. ${this.extractTitle(block.content)}\n\n`;
           content += `${block.content}\n\n`;
           content += `> **来源**：${block.taskTitle} - \`${block.filename}\` (第${block.blockIndex}/${block.totalBlocks}块)  \n`;
+          content += `> **类别**：${block.category || 'user_documents'} | **文档ID**：\`${block.docId || 'N/A'}\`  \n`;
           content += `> **块ID**：\`${block.blockId}\` | **任务ID**：\`${block.taskUuid}\`  \n`;
           content += `> **收集时间**：${new Date(block.collectTime || block.addedAt).toLocaleString()}\n\n`;
         });
