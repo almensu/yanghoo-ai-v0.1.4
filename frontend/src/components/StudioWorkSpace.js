@@ -509,11 +509,11 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef }) {
         <h3 className="text-lg font-semibold">Studio WorkSpace</h3>
         <button 
           onClick={handleExpandToggle}
-          className={`${isExpanded ? 'p-2 bg-primary text-white' : 'mr-4 text-gray-600 hover:text-primary p-1'} rounded-full hover:bg-opacity-90 focus:outline-none`}
+          className={`${isExpanded ? 'p-2 bg-primary text-white' : 'text-gray-600 hover:text-primary p-1'} rounded-full hover:bg-opacity-90 focus:outline-none transition-colors`}
           title={isExpanded ? "收缩面板" : "扩展面板"}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isExpanded ? "M15 19l-7-7 7-7" : "M9 5l7 7-7 7"} />
           </svg>
         </button>
       </div>

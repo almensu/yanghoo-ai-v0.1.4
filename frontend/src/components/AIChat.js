@@ -3,6 +3,16 @@ import axios from 'axios';
 import { estimateTokenCount, formatTokenCount } from '../utils/tokenUtils';
 import { Copy, Save } from 'lucide-react';
 import DocumentMention from './DocumentMention';
+import ProjectBubble from './ProjectBubble';
+
+// 格式化时间戳的工具函数
+const formatTime = (seconds) => {
+  if (!seconds) return '00:00';
+  
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+  return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+};
 
 // 复制到剪贴板功能
 const copyToClipboard = async (text) => {
@@ -108,6 +118,9 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   const [cursorPosition, setCursorPosition] = useState(0);
   const textareaRef = useRef(null);
   const [mentionedDocuments, setMentionedDocuments] = useState(new Map());
+
+  // 项目相关状态
+  const [projectContext, setProjectContext] = useState(null);
 
   useEffect(() => {
     setMessages([
@@ -438,6 +451,26 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     setCursorPosition(e.target.selectionStart);
   };
 
+  // 处理项目发送到AI
+  const handleProjectSendToAI = (project) => {
+    setProjectContext(project);
+    
+    // 显示项目上下文提示
+    const tempMessage = {
+      role: 'system',
+      content: `📦 已加载项目: ${project.name} (${project.selectedBlocks.length}个块 + ${project.selectedDocuments.length}个文档)`,
+      id: `project-loaded-${Date.now()}`,
+      isTemporary: true,
+      type: 'success'
+    };
+    
+    setMessages(prev => [...prev, tempMessage]);
+    
+    setTimeout(() => {
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+    }, 3000);
+  };
+
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
@@ -658,6 +691,39 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     try {
       // 获取选中文件的内容
       let combinedDocument = markdownContent || "";
+      
+      // 处理项目上下文
+      if (projectContext) {
+        combinedDocument += `\n\n=== 项目上下文: ${projectContext.name} ===\n`;
+        if (projectContext.description) {
+          combinedDocument += `项目描述: ${projectContext.description}\n\n`;
+        }
+        
+        // 添加收集的块
+        if (projectContext.selectedBlocks.length > 0) {
+          combinedDocument += `## 收集的内容块 (${projectContext.selectedBlocks.length}个)\n\n`;
+          projectContext.selectedBlocks
+            .sort((a, b) => a.order - b.order)
+            .forEach((block, index) => {
+              combinedDocument += `### 块 ${index + 1}: ${block.taskTitle || 'Unknown Task'} / ${block.filename}\n`;
+              if (block.timestamp) {
+                combinedDocument += `时间戳: [${formatTime(block.timestamp.start)}-${formatTime(block.timestamp.end)}]\n`;
+              }
+              combinedDocument += `${block.content}\n\n`;
+            });
+        }
+        
+        // 添加完整文档
+        if (projectContext.selectedDocuments.length > 0) {
+          combinedDocument += `## 完整文档 (${projectContext.selectedDocuments.length}个)\n\n`;
+          projectContext.selectedDocuments
+            .sort((a, b) => a.order - b.order)
+            .forEach((doc, index) => {
+              combinedDocument += `### 文档 ${index + 1}: ${doc.taskTitle || 'Unknown Task'} / ${doc.filename}\n`;
+              combinedDocument += `${doc.content}\n\n`;
+            });
+        }
+      }
       
       // 处理 "@" 提及的文档
       const mentionMatches = inputText.match(/@[\w-]+\/[^\s]+/g);
@@ -1073,13 +1139,15 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
   }, []);
 
   return (
-    <div 
-      className="flex flex-col h-full bg-white rounded-lg shadow overflow-hidden relative aichat-container"
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-    >
+    <div className="flex h-full relative">
+      {/* 主聊天区域 */}
+      <div 
+        className="flex flex-col h-full bg-white rounded-lg shadow overflow-hidden relative aichat-container"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
       {/* 顶部模型选择栏 - 增强版 */}
       <div className="p-3 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
         <div className="flex items-center justify-between">
@@ -1297,14 +1365,15 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       </div>
       
       {/* 已选择文档展示区域 */}
-      {(selectedFiles.size > 0 || mentionedDocuments.size > 0) && (
+      {(selectedFiles.size > 0 || mentionedDocuments.size > 0 || projectContext) && (
         <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
           <div className="flex items-center gap-2 mb-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             <span className="text-sm font-medium text-gray-700">
-              已选择 {selectedFiles.size + mentionedDocuments.size} 个文档作为上下文
+              上下文: {selectedFiles.size + mentionedDocuments.size}个文档
+              {projectContext && ` + 项目"${projectContext.name}"`}
             </span>
             <span className="text-xs text-gray-500">
               (总计 ~{formatTokenCount(Array.from(selectedFiles).reduce((sum, filename) => sum + (fileTokenCounts[filename] || 0), 0))} tokens)
@@ -1313,6 +1382,30 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
           
           {/* 文档标签列表 */}
           <div className="flex flex-wrap gap-2 max-h-20 overflow-y-auto">
+            
+            {/* 项目上下文标签 */}
+            {projectContext && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded-full text-sm bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors group">
+                <svg className="h-3 w-3 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+                <span className="truncate max-w-32" title={`项目: ${projectContext.name}`}>
+                  {projectContext.name}
+                </span>
+                <span className="text-xs opacity-75">
+                  {projectContext.selectedBlocks.length}块+{projectContext.selectedDocuments.length}文档
+                </span>
+                <button
+                  onClick={() => setProjectContext(null)}
+                  className="ml-1 rounded-full p-0.5 opacity-70 group-hover:opacity-100 transition-all text-purple-600 hover:text-purple-800 hover:bg-purple-300"
+                  title="移除项目上下文"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
             {/* 拖拽选择的文件 */}
             {Array.from(selectedFiles).map(filename => {
               const fileInfo = availableFiles.find(f => f.filename === filename);
@@ -1641,6 +1734,10 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
           使用{availableModels.find(m => m.id === selectedModel)?.name}进行回答
         </div>
       </div>
+      </div>
+
+      {/* 项目气泡 */}
+      <ProjectBubble onSendToAI={handleProjectSendToAI} />
     </div>
   );
 }

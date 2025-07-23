@@ -4,6 +4,7 @@ import { Search, Plus, Edit3, Trash2, ChevronUp, ChevronDown,
          GripVertical, MoreHorizontal } from 'lucide-react';
 import { BlockManager, MarkdownParser } from '../utils/blocks';
 import MarkdownViewer from './MarkdownViewer';
+import QuickCollector from './QuickCollector';
 
 const BlockEditor = ({ 
   markdownContent = '', 
@@ -293,6 +294,15 @@ const BlockEditor = ({
   const renderBlockActions = (block) => {
     return (
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <QuickCollector
+          block={block}
+          taskUuid={taskUuid}
+          taskTitle="当前文档" // 可以从props传入更准确的标题
+          filename="document.md" // 可以从props传入实际文件名
+          onCollected={(projectId, result) => {
+            console.log(`Block ${block.id} collected to project ${projectId}`);
+          }}
+        />
         <button
           onClick={(e) => {
             e.stopPropagation();

@@ -30,12 +30,8 @@ function VideoTaskSelector({ apiBaseUrl, currentTaskUuid }) {
     try {
       const response = await axios.get(`${apiBaseUrl}/api/tasks`);
       if (response.status === 200) {
-        // 筛选有视频的任务
-        const tasksWithVideo = response.data.filter(task => 
-          task.media_files && typeof task.media_files === 'object' && 
-          Object.values(task.media_files).some(path => path !== null)
-        );
-        setTasks(tasksWithVideo);
+        // 显示所有任务，不再筛选是否有视频文件
+        setTasks(response.data);
       }
     } catch (error) {
       console.error("获取任务列表失败:", error);
@@ -829,6 +825,8 @@ function Studio({ taskUuid, apiBaseUrl }) {
   
   // Refs
   const videoElementRef = useRef(null);
+  
+
 
   // State for fetched data
   const [taskDetails, setTaskDetails] = useState(null);
@@ -2371,19 +2369,19 @@ function Studio({ taskUuid, apiBaseUrl }) {
               <AIChat 
                 markdownContent={markdownContent}
                 apiBaseUrl={apiBaseUrl}
-                taskUuid={taskUuid}  // 确保传递这个prop
+                taskUuid={taskUuid}
               />
             </div>
           )}
         </div>
 
         {/* --- Right Column (StudioWorkSpace) --- */}
-        <div className="flex flex-col w-1/4 flex-shrink-0 gap-4 overflow-auto custom-scrollbar">
+        <div className="flex flex-col w-1/4 flex-shrink-0 gap-4 overflow-auto custom-scrollbar relative">
           <StudioWorkSpace 
             taskUuid={taskUuid} 
             apiBaseUrl={apiBaseUrl} 
-            markdownContent={markdownContent} // 传递 markdown 内容作为备用
-            videoRef={videoElementRef} // 传递视频引用以支持时间戳点击
+            markdownContent={markdownContent}
+            videoRef={videoElementRef}
           />
         </div>
 
