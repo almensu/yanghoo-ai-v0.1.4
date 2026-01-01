@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WeChat Share Card JSON Generator</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "html2canvas": "https://esm.sh/html2canvas@1.4.1",
+            "@radix-ui/react-avatar": "https://esm.sh/@radix-ui/react-avatar@1.0.4",
+            "clsx": "https://esm.sh/clsx@2.0.0"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 添加 html2canvas 的备用 CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+    <style>
+        /* 全局样式 */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            color: #fff;
+            font-family: -apple-system, system-ui, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+        * { box-sizing: border-box; }
+
+        .app-container { display: flex; height: 100%; }
+
+        /* 左侧：JSON 编辑区 */
+        .editor-pane {
+            width: 450px;
+            background: #1e1e1e;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #333;
+            padding: 20px;
+        }
+
+        .editor-header {
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .editor-header h2 { margin: 0; font-size: 16px; color: #ddd; }
+        .status-badge { font-size: 12px; padding: 2px 8px; border-radius: 4px; }
+        .status-valid { color: #4CAF50; background: rgba(76, 175, 80, 0.1); }
+        .status-error { color: #f44336; background: rgba(244, 67, 54, 0.1); }
+
+        textarea.json-input {
+            flex: 1;
+            background: #252526;
+            color: #d4d4d4;
+            border: 1px solid #3e3e42;
+            padding: 15px;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            resize: none;
+            border-radius: 6px;
+            outline: none;
+        }
+        textarea.json-input:focus { border-color: #0e639c; }
+
+        .action-bar { margin-top: 15px; }
+        button.download-btn {
+            width: 100%;
+            padding: 12px;
+            background-color: #576b95;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        button.download-btn:hover { background-color: #4a5d7d; }
+        button.download-btn:disabled { background-color: #444; cursor: not-allowed; }
+
+        /* 右侧：预览区 */
+        .preview-pane {
+            flex: 1;
+            background-color: #e5e5e5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+            overflow: auto;
+        }
+
+        /* 极简卡片样式 - 完全复刻版 */
+        .minimal-card {
+            width: 100%;
+            max-width: 420px; /* 限制最大宽度，模拟手机/卡片视觉 */
+            background-color: #ffffff;
+            padding: 32px 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* 极轻微的阴影 */
+            color: #222; /* 深灰色文字，非纯黑 */
+        }
+
+        /* 正文区域：衬线体，大行高 */
+        .content-body {
+            font-family: "Noto Serif SC", "Songti SC", serif; /* 关键：使用衬线体 */
+            font-size: 18px;
+            line-height: 1.9; /* 关键：复刻原图的疏朗行间距 */
+            color: #333;
+            margin-bottom: 40px; /* 与底部的间距 */
+        }
+
+        .paragraph {
+            margin-bottom: 24px;
+            text-align: justify; /* 两端对齐更像印刷品 */
+        }
+
+        /* 底部容器：Flex 两端对齐 */
+        .footer {
+            display: flex;
+            justify-content: space-between; /* 关键：作者在左，二维码在右 */
+            align-items: center; /* 垂直居中 */
+            padding-top: 20px;
+            border-top: 1px solid #f0f0f0; /* 极淡的分割线 */
+            font-family: sans-serif; /* 底部切换回无衬线体 */
+        }
+
+        /* 左侧作者信息块：Flex 左对齐 */
+        .author-block {
+            display: flex;
+            align-items: flex-start; /* Avatar 与文字顶部对齐 */
+            gap: 12px; /* Avatar 与文字的间距 */
+        }
+
+        /* Avatar 样式 */
+        .avatar-root {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            vertical-align: middle;
+            overflow: hidden;
+            user-select: none;
+            width: 48px;  /* 设定尺寸 */
+            height: 48px;
+            border-radius: 100%; /* 圆形 */
+            background-color: #e0e0e0;
+            flex-shrink: 0; /* 防止被挤压 */
+        }
+
+        .avatar-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* 作者文本信息 */
+        .author-info-text {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .author-name-row {
+            display: flex;
+            align-items: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: #222;
+            margin-bottom: 4px;
+        }
+
+        /* 模拟黄色认证徽章 */
+        .badge {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            background-color: #F4B400; /* 黄色 */
+            border-radius: 50%;
+            margin-left: 6px;
+            position: relative;
+        }
+
+        /* 底部描述文字：更小、更浅 */
+        .author-desc {
+            font-size: 12px;
+            color: #888; /* 浅灰色 */
+            line-height: 1.5;
+            max-width: 220px; /* 限制宽度以换行，匹配原图 */
+        }
+
+        /* 右侧二维码 */
+        .qr-code {
+            width: 64px;
+            height: 64px;
+            padding: 2px;
+            border: 1px solid #eee;
+            background-color: #fff;
+            border-radius: 4px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        // 使用全局的 html2canvas 来避免模块导入问题
+
+        // ==========================================
+        // 动态配置系统 (Dynamic Configuration)
+        // ==========================================
+
+        // 从 URL 参数获取内容
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                context: params.get('context') || null,
+                author: params.get('author') || null,
+                description: params.get('description') || null
+            };
+        }
+
+        // 从 localStorage 获取内容 (用于自动化脚本设置)
+        function getLocalStorageConfig() {
+            try {
+                const config = localStorage.getItem('wechatCardConfig');
+                return config ? JSON.parse(config) : null;
+            } catch (e) {
+                console.warn('localStorage 解析失败:', e);
+                return null;
+            }
+        }
+
+        // 默认配置
+        const DEFAULT_CONFIG = {
+            context: "传统工程里，每加一个功能，下一个功能就更难加。但复合工程的目标相反：让每个功能使下一个功能更容易构建。\n\n怎么做到呢？每次实现完一个功能，他们会把学到的东西，比如计划哪里需要修改、测试发现了什么问题、遗漏了什么，都编码回系统里。",
+            author: "Yanghoo205",
+            description: "没什么改变世界的宏愿，只是想在 AI 的协助下，顺便用代码给世界修修补补——主要是修补我自己",
+            avatarUrl: "./references/avatar-yanghoo205-img.png",
+            qrCodeUrl: "./references/QR-code-blog-yanghoo205-com.png"
+        };
+
+        // 动态获取初始配置
+        function getInitialConfig() {
+            // 优先级: localStorage > URL参数 > 默认配置
+            const localConfig = getLocalStorageConfig();
+            if (localConfig) {
+                console.log('📦 使用 localStorage 配置');
+                return { ...DEFAULT_CONFIG, ...localConfig };
+            }
+
+            const urlParams = getUrlParams();
+            if (urlParams.context) {
+                console.log('🌐 使用 URL 参数配置');
+                return { ...DEFAULT_CONFIG, ...urlParams };
+            }
+
+            console.log('📝 使用默认配置');
+            return DEFAULT_CONFIG;
+        }
+
+        // 动态初始配置
+        const INITIAL_CONFIG = getInitialConfig();
+
+        // ==========================================
+        // 主逻辑
+        // ==========================================
+        const App = () => {
+            const cardRef = useRef(null);
+
+            // 状态：输入字符串 vs 解析后的对象
+            const [jsonString, setJsonString] = useState(JSON.stringify(INITIAL_CONFIG, null, 2));
+            const [data, setData] = useState(INITIAL_CONFIG);
+            const [error, setError] = useState(null);
+            const [loading, setLoading] = useState(false);
+
+            // 监听输入，实时解析 JSON
+            useEffect(() => {
+                try {
+                    const parsed = JSON.parse(jsonString);
+                    setData(parsed);
+                    setError(null);
+                } catch (e) {
+                    setError("JSON 格式错误: " + e.message);
+                }
+            }, [jsonString]);
+
+            // 导出图片
+            const handleExport = async () => {
+                if (!cardRef.current) return;
+                setLoading(true);
+                try {
+                    // 使用全局 html2canvas
+                    const html2canvas = window.html2canvas;
+                    if (!html2canvas) {
+                        throw new Error("html2canvas 库未加载");
+                    }
+
+                    const canvas = await html2canvas(cardRef.current, {
+                        scale: 2, // 降低分辨率避免内存问题
+                        useCORS: true,
+                        allowTaint: true,
+                        backgroundColor: '#ffffff',
+                        logging: false,
+                        width: cardRef.current.offsetWidth,
+                        height: cardRef.current.offsetHeight
+                    });
+
+                    // 检查 canvas 是否成功生成
+                    if (!canvas || !canvas.toDataURL) {
+                        throw new Error("Canvas 生成失败");
+                    }
+
+                    const dataURL = canvas.toDataURL("image/png");
+                    const link = document.createElement("a");
+                    link.href = dataURL;
+                    link.download = `card-${Date.now()}.png`;
+                    link.style.display = 'none';
+
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+
+                    console.log("图片下载成功");
+                } catch (err) {
+                    console.error("导出失败:", err);
+                    alert("生成失败: " + err.message + "\n\n建议: \n1. 确保图片路径正确\n2. 使用本地服务器运行 (python -m http.server)\n3. 检查浏览器控制台错误信息");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="app-container">
+
+                    {/* 左侧：代码编辑器 */}
+                    <div className="editor-pane">
+                        <div className="editor-header">
+                            <h2>📝 JSON 配置编辑器</h2>
+                            <span className={`status-badge ${error ? 'status-error' : 'status-valid'}`}>
+                                {error ? '❌ Invalid' : '✅ Valid'}
+                            </span>
+                        </div>
+
+                        <textarea
+                            className="json-input"
+                            value={jsonString}
+                            onChange={(e) => setJsonString(e.target.value)}
+                            spellCheck={false}
+                            placeholder="输入 JSON 配置..."
+                        />
+
+                        {error && <div style={{color: '#f44336', fontSize: '12px', marginTop: '10px'}}>{error}</div>}
+
+                        <div className="action-bar">
+                            <button className="download-btn" onClick={handleExport} disabled={!!error || loading}>
+                                {loading ? '🔄 生成中...' : '📥 下载微信卡片'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* 右侧：实时渲染区 */}
+                    <div className="preview-pane">
+                        <div ref={cardRef} className="minimal-card">
+
+                            {/* 上半部分：正文内容 */}
+                            <div className="content-body">
+                                {(data.context || '').split('\n\n').map((paragraph, index) => (
+                                    <p key={index} className="paragraph">
+                                        {paragraph}
+                                    </p>
+                                ))}
+                            </div>
+
+                            {/* 下半部分：Footer (Avatar, 作者, 二维码) */}
+                            <div className="footer">
+
+                                {/* 左侧：作者信息块 */}
+                                <div className="author-block">
+                                    {/* Avatar 组件 */}
+                                    <div className="avatar-root">
+                                        <img
+                                            className="avatar-image"
+                                            src={data.avatarUrl || ''}
+                                            alt={data.author || 'Author'}
+                                            onError={(e) => {
+                                                e.target.style.display = 'none';
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* 文字信息 */}
+                                    <div className="author-info-text">
+                                        <div className="author-name-row">
+                                            {data.author || ''}
+                                            {/* 黄色认证徽章 */}
+                                            <span className="badge"></span>
+                                        </div>
+                                        <div className="author-desc">
+                                            {data.description || ''}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 右侧：二维码 */}
+                                <img
+                                    className="qr-code"
+                                    src={data.qrCodeUrl || ''}
+                                    alt="QR Code"
+                                    onError={(e) => {
+                                        e.target.style.display = 'none';
+                                    }}
+                                />
+
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

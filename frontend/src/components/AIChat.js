@@ -4,6 +4,7 @@ import { estimateTokenCount, formatTokenCount } from '../utils/tokenUtils';
 import { Copy, Save } from 'lucide-react';
 import DocumentMention from './DocumentMention';
 import ProjectBubble from './ProjectBubble';
+import parseThinking from '../features/chat/utils/parseThinking';
 
 // 格式化时间戳的工具函数
 const formatTime = (seconds) => {
@@ -631,21 +632,15 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         currentPosition, 
         Math.min(currentPosition + chunkSize, content.length)
       );
-      
       currentPosition += chunkSize;
       accumulatedContent += nextChunk;
-      
       setCurrentStreamedContent(accumulatedContent);
-      
-      // 实时处理思考标签
-      processThinking(accumulatedContent, responseId);
-      
       await new Promise(resolve => setTimeout(resolve, delay));
     }
     
     // 流式显示结束，最终更新消息
     console.log('Stream finished, updating final message with content:', content);
-    const { thinkingIds, reply } = processThinking(content, responseId);
+    const { reply } = parseThinking(content);
     
     setMessages(prev => {
       // 找到最后一条消息并更新内容
@@ -656,7 +651,6 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         if (lastMsg.role === 'assistant') {
           lastMsg.content = content;
           lastMsg.id = responseId;
-          lastMsg.thinkingIds = thinkingIds;
           lastMsg.reply = reply;
           delete lastMsg.isPlaceholder; // 移除占位符标记
           console.log('Final message update - after:', { role: lastMsg.role, isPlaceholder: lastMsg.isPlaceholder, content: lastMsg.content });
@@ -1020,39 +1014,31 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
         </div>
       );
     } else {
-      // AI助手消息 - 检查是否有思考内容
       const hasThinking = content.includes('<think>');
-      
-      // 如果是流式显示中，使用当前流式内容
       const displayContent = isStreaming && msg.isPlaceholder ? currentStreamedContent : content;
-      const containerId = `thinking-container-${msg.id}`;
-      
-      // 对于正在流式显示的消息，需要实时处理思考标签
-      if (isStreaming && msg.isPlaceholder) {
-        processThinking(displayContent, msg.id);
-      }
-      
-      // 提取回复内容
-      let replyContent = '';
-      if (msg.reply) {
-        replyContent = msg.reply;
-      } else if (hasThinking) {
-        // 如果没有预处理的回复，但有思考标签，实时提取
-        const processed = processThinking(displayContent, msg.id);
-        replyContent = processed.reply;
-      } else {
-        replyContent = displayContent;
-      }
-      
+      const parsed = msg.reply ? { thinkingSegments: [], reply: msg.reply } : hasThinking ? parseThinking(displayContent) : { thinkingSegments: [], reply: displayContent };
+      const thinking = parsed.thinkingSegments;
+      const replyContent = parsed.reply;
       return (
         <>
-          {/* 思考容器 - 将由 DOM 操作填充 */}
-          <div 
-            id={containerId}
-            className="thinking-blocks-container"
-          ></div>
-          
-          {/* 正式回复部分 */}
+          {thinking.map((seg, idx) => (
+            <div key={`${msg.id}-think-${idx}`} className="thinking-block mb-3 p-3 rounded-lg border text-gray-600 text-sm" style={{ opacity: 0.8 }}>
+              <div className="flex items-center mb-1">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-4 h-4 text-gray-400 mr-1">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+                </svg>
+                <span className="font-medium text-gray-500 opacity-75">思考过程</span>
+              </div>
+              <div className="whitespace-pre-wrap text-gray-500">
+                {seg.split('\n').map((line, i) => (
+                  <React.Fragment key={i}>
+                    {line}
+                    {i < seg.split('\n').length - 1 && <br />}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          ))}
           {replyContent && (
             <div className="whitespace-pre-wrap text-gray-800">
               {replyContent.split('\n').map((line, i) => (

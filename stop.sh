@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # 停止脚本：同时停止后端（FastAPI）和前端（React）
+# 兼容 uv 和传统启动方式
 
 set -e
 

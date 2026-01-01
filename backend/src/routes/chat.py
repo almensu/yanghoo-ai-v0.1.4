@@ -9,6 +9,9 @@ from typing import List, Optional, Dict, Literal, Union
 from google import genai
 from google.genai import types
 from pathlib import Path
+from ..utils.doc_registry import doc_registry
+import re
+from datetime import datetime
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -644,3 +647,141 @@ async def get_document_content(task_uuid: str, filename: str):
     except Exception as e:
         logger.error(f"Error getting document content: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def should_save_ai_response_as_document(response_content: str, user_message: str) -> bool:
+    """判断AI响应是否应该保存为文档"""
+    
+    # 内容长度阈值
+    if len(response_content) < 500:
+        return False
+    
+    # 检查用户请求中的关键词
+    save_keywords = [
+        '分析', '总结', '报告', '框架', '方案', '计划',
+        'analysis', 'summary', 'report', 'framework', 'plan',
+        '保存', '记录', '文档', 'save', 'document', 'record'
+    ]
+    
+    user_message_lower = user_message.lower()
+    if any(keyword in user_message_lower for keyword in save_keywords):
+        return True
+    
+    # 检查AI响应的内容特征
+    response_lower = response_content.lower()
+    
+    # 包含结构化内容
+    if response_content.count('#') >= 3:  # 多个标题
+        return True
+    
+    if response_content.count('\n\n') >= 5:  # 多个段落
+        return True
+    
+    # 包含列表或步骤
+    if (response_content.count('- ') >= 5 or 
+        response_content.count('1. ') >= 3):
+        return True
+    
+    # 包含分析关键词
+    analysis_keywords = ['总结', '分析', '建议', '结论', 'summary', 'analysis', 'conclusion']
+    if any(keyword in response_lower for keyword in analysis_keywords):
+        return True
+    
+    return False
+
+
+def generate_ai_doc_filename(response_content: str, user_message: str) -> str:
+    """为AI响应生成合适的文档文件名"""
+    
+    # 尝试从用户消息中提取主题
+    topic = extract_topic_from_message(user_message)
+    
+    if not topic:
+        # 从AI响应的第一个标题提取
+        topic = extract_topic_from_response(response_content)
+    
+    if not topic:
+        # 使用默认名称
+        topic = "AI分析报告"
+    
+    # 清理文件名
+    filename = clean_filename(topic)
+    
+    # 添加时间戳避免重复
+    timestamp = datetime.now().strftime("%m%d_%H%M")
+    
+    return f"{filename}_{timestamp}.md"
+
+
+def extract_topic_from_message(message: str) -> str:
+    """从用户消息中提取主题"""
+    
+    # 移除常见的请求词汇
+    cleaned_message = re.sub(r'(请|帮我|能否|可以|分析|总结|写|生成)', '', message)
+    
+    # 提取关键短语
+    if '关于' in cleaned_message:
+        match = re.search(r'关于(.{1,20})', cleaned_message)
+        if match:
+            return match.group(1).strip()
+    
+    # 提取引号中的内容
+    quoted_match = re.search(r'["""](.{1,30})["""]', cleaned_message)
+    if quoted_match:
+        return quoted_match.group(1).strip()
+    
+    # 取前20个字符作为主题
+    if len(cleaned_message) > 5:
+        return cleaned_message[:20].strip()
+    
+    return ""
+
+
+def extract_topic_from_response(response: str) -> str:
+    """从AI响应中提取主题"""
+    
+    # 查找第一个标题
+    lines = response.split('\n')
+    for line in lines:
+        line = line.strip()
+        if line.startswith('#'):
+            # 移除#号和空格
+            title = re.sub(r'^#+\s*', '', line)
+            if len(title) > 0:
+                return title[:30]  # 限制长度
+    
+    return ""
+
+
+def clean_filename(filename: str) -> str:
+    """清理文件名，移除不合法字符"""
+    
+    # 移除或替换不合法字符
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    filename = re.sub(r'\s+', '_', filename)  # 空格替换为下划线
+    filename = filename.strip('._')  # 移除开头结尾的点和下划线
+    
+    # 限制长度
+    if len(filename) > 50:
+        filename = filename[:50]
+    
+    return filename or "AI_Document"
+
+
+def detect_ai_content_type(content: str) -> str:
+    """检测AI内容的类型"""
+    
+    content_lower = content.lower()
+    
+    if any(keyword in content_lower for keyword in ['分析', 'analysis', '评估']):
+        return 'analysis'
+    elif any(keyword in content_lower for keyword in ['总结', 'summary', '摘要']):
+        return 'summary'
+    elif any(keyword in content_lower for keyword in ['框架', 'framework', '模板']):
+        return 'framework'
+    elif any(keyword in content_lower for keyword in ['计划', 'plan', '方案']):
+        return 'plan'
+    elif any(keyword in content_lower for keyword in ['报告', 'report']):
+        return 'report'
+    else:
+        return 'general'

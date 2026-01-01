@@ -790,7 +790,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
                       // 自动保存
                       if (selectedFile && taskUuid && apiBaseUrl) {
                         try {
-                          await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodeURIComponent(selectedFile)}`, 
+                          await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodeURIComponent(selectedFile)}`,
                             newContent,
                             { headers: { 'Content-Type': 'text/plain' } }
                           );
@@ -813,6 +813,11 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
                       return docFile ? docFile.category : 'user_documents';
                     })()}
                     className="border-0"
+                    // 智能解析选项
+                    intelligentParsing={true}
+                    semanticAnalysis={true}
+                    autoMerge={true}
+                    showQualityMetrics={false}
                   />
                 ) : hasTimestamps && videoRef ? (
                   <MarkdownWithTimestamps

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>调试测试 - YangHoo AI</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 30px;
+            color: #fff;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid rgba(255,255,255,0.2);
+            backdrop-filter: blur(10px);
+        }
+        .card h3 {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.3em;
+        }
+        .test-btn {
+            width: 100%;
+            padding: 12px 20px;
+            margin: 8px 0;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        .test-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .test-btn:active { transform: translateY(0); }
+        .btn-blue { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .btn-green { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; }
+        .btn-orange { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; }
+        .btn-purple { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; }
+        .console-output {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.9em;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .console-output h3 { margin-bottom: 15px; color: #00d4ff; }
+        .log-entry {
+            padding: 8px 12px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border-left: 3px solid #555;
+        }
+        .log-info { background: rgba(0,212,255,0.1); border-left-color: #00d4ff; }
+        .log-success { background: rgba(0,255,136,0.1); border-left-color: #00ff88; }
+        .log-error { background: rgba(255,68,68,0.1); border-left-color: #ff4444; }
+        .log-warn { background: rgba(255,170,0,0.1); border-left-color: #ffaa00; }
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        .status-item {
+            background: rgba(255,255,255,0.1);
+            padding: 15px 25px;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.online { background: #00ff88; }
+        .status-dot.offline { background: #ff4444; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .clear-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 15px 25px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 5px 20px rgba(255,68,68,0.4);
+        }
+        .clear-btn:hover { transform: scale(1.05); }
+        .emoji { font-size: 1.5em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 调试测试实验室</h1>
+
+        <!-- 状态栏 -->
+        <div class="status-bar" id="statusBar"></div>
+
+        <!-- 测试区域 -->
+        <div class="grid">
+            <!-- Console 测试 -->
+            <div class="card">
+                <h3><span class="emoji">📋</span> Console 测试</h3>
+                <button class="test-btn btn-blue" onclick="testConsoleLog()">测试 console.log</button>
+                <button class="test-btn btn-blue" onclick="testConsoleTable()">测试 console.table</button>
+                <button class="test-btn btn-blue" onclick="testConsoleGroup()">测试 console.group</button>
+                <button class="test-btn btn-orange" onclick="testConsoleError()">测试 console.error</button>
+                <button class="test-btn btn-orange" onclick="testConsoleWarn()">测试 console.warn</button>
+            </div>
+
+            <!-- API 测试 -->
+            <div class="card">
+                <h3><span class="emoji">🌐</span> API 请求测试</h3>
+                <button class="test-btn btn-green" onclick="testGetTasks()">GET /api/tasks</button>
+                <button class="test-btn btn-green" onclick="testGetProjects()">GET /api/projects</button>
+                <button class="test-btn btn-green" onclick="testHealthCheck()">GET /api/health</button>
+                <button class="test-btn btn-orange" onclick="testInvalidEndpoint()">404 错误测试</button>
+                <button class="test-btn btn-orange" onclick="testNetworkError()">网络错误测试</button>
+            </div>
+
+            <!-- 性能测试 -->
+            <div class="card">
+                <h3><span class="emoji">⚡</span> 性能测试</h3>
+                <button class="test-btn btn-purple" onclick="testPerformance()">测试 performance.mark()</button>
+                <button class="test-btn btn-purple" onclick="testMemory()">测试内存使用</button>
+                <button class="test-btn btn-purple" onclick="testTiming()">测试 execution time</button>
+            </div>
+
+            <!-- React DevTools 测试 -->
+            <div class="card">
+                <h3><span class="emoji">⚛️</span> React DevTools</h3>
+                <button class="test-btn btn-green" onclick="checkReactDevTools()">检查安装状态</button>
+                <button class="test-btn btn-blue" onclick="openReactDevTools()">打开 DevTools</button>
+            </div>
+
+            <!-- 错误追踪 -->
+            <div class="card">
+                <h3><span class="emoji">🔍</span> 错误追踪</h3>
+                <button class="test-btn btn-orange" onclick="testTryCatch()">try-catch 测试</button>
+                <button class="test-btn btn-orange" onclick="testPromiseRejection()">Promise 拒绝测试</button>
+                <button class="test-btn btn-orange" onclick="testStackTrace()">堆栈追踪测试</button>
+            </div>
+
+            <!-- 完整流程测试 -->
+            <div class="card">
+                <h3><span class="emoji">🎯</span> 完整流程测试</h3>
+                <button class="test-btn btn-green" onclick="runFullTest()">运行所有测试</button>
+                <button class="test-btn btn-blue" onclick="simulateUserFlow()">模拟用户操作</button>
+            </div>
+        </div>
+
+        <!-- Console 输出 -->
+        <div class="console-output">
+            <h3>📊 测试输出</h3>
+            <div id="output"></div>
+        </div>
+    </div>
+
+    <button class="clear-btn" onclick="clearOutput()">🗑️ 清空</button>
+
+    <script>
+        const output = document.getElementById('output');
+
+        // 添加日志到页面
+        function addLog(type, message) {
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `[${timestamp}] ${message}`;
+            output.appendChild(entry);
+            output.scrollTop = output.scrollHeight;
+
+            // 同时输出到浏览器 Console
+            console.log(`[调试测试] ${message}`);
+        }
+
+        // 清空输出
+        function clearOutput() {
+            output.innerHTML = '';
+            addLog('info', '输出已清空');
+        }
+
+        // ==================== Console 测试 ====================
+        function testConsoleLog() {
+            addLog('info', '📋 测试 console.log');
+            console.log('🔍 这是一个普通日志');
+            console.log('📊 对象日志:', { name: 'YangHoo AI', version: '0.1.6' });
+            console.log('🔢 数组日志:', [1, 2, 3, 4, 5]);
+        }
+
+        function testConsoleTable() {
+            addLog('info', '📋 测试 console.table');
+            const data = [
+                { name: '任务1', status: '完成', time: '2s' },
+                { name: '任务2', status: '进行中', time: '5s' },
+                { name: '任务3', status: '等待', time: '0s' }
+            ];
+            console.table(data);
+        }
+
+        function testConsoleGroup() {
+            addLog('info', '📋 测试 console.group');
+            console.group('📦 第一层');
+            console.log('内容 A');
+            console.group('📦 第二层');
+            console.log('内容 B');
+            console.log('内容 C');
+            console.groupEnd();
+            console.groupEnd();
+        }
+
+        function testConsoleError() {
+            addLog('error', '❌ 测试 console.error');
+            console.error('这是一个错误消息！');
+            console.error('错误对象:', new Error('测试错误'));
+        }
+
+        function testConsoleWarn() {
+            addLog('warn', '⚠️ 测试 console.warn');
+            console.warn('这是一个警告消息！');
+            console.warn('警告: 即将弃用的功能');
+        }
+
+        // ==================== API 测试 ====================
+        async function testGetTasks() {
+            addLog('info', '🌐 测试 GET /api/tasks');
+            try {
+                const response = await fetch('http://localhost:8000/api/tasks');
+                const data = await response.json();
+                addLog('success', `✅ 成功获取任务列表: ${data.length || 0} 个任务`);
+                console.log('任务数据:', data);
+            } catch (error) {
+                addLog('error', `❌ 请求失败: ${error.message}`);
+            }
+        }
+
+        async function testGetProjects() {
+            addLog('info', '🌐 测试 GET /api/projects');
+            try {
+                const response = await fetch('http://localhost:8000/api/projects');
+                const data = await response.json();
+                addLog('success', `✅ 成功获取项目列表`);
+                console.log('项目数据:', data);
+            } catch (error) {
+                addLog('error', `❌ 请求失败: ${error.message}`);
+            }
+        }
+
+        async function testHealthCheck() {
+            addLog('info', '🌐 测试健康检查');
+            try {
+                const response = await fetch('http://localhost:8000/api/health');
+                addLog('success', '✅ 后端服务正常');
+            } catch (error) {
+                addLog('error', `❌ 后端服务异常: ${error.message}`);
+            }
+        }
+
+        async function testInvalidEndpoint() {
+            addLog('info', '🌐 测试 404 错误');
+            try {
+                const response = await fetch('http://localhost:8000/api/invalid-endpoint');
+                addLog('warn', `⚠️ 状态码: ${response.status}`);
+            } catch (error) {
+                addLog('error', `❌ 请求失败: ${error.message}`);
+            }
+        }
+
+        async function testNetworkError() {
+            addLog('info', '🌐 测试网络错误');
+            try {
+                const response = await fetch('http://localhost:9999/api/test');
+                addLog('error', `❌ 连接失败（预期行为）`);
+            } catch (error) {
+                addLog('warn', `⚠️ 网络错误: ${error.message}`);
+            }
+        }
+
+        // ==================== 性能测试 ====================
+        function testPerformance() {
+            addLog('info', '⚡ 测试 performance API');
+            performance.mark('test-start');
+            // 模拟一些工作
+            for (let i = 0; i < 1000000; i++) { Math.random(); }
+            performance.mark('test-end');
+            performance.measure('test', 'test-start', 'test-end');
+            const measure = performance.getEntriesByName('test')[0];
+            addLog('success', `✅ 执行时间: ${measure.duration.toFixed(2)}ms`);
+            console.log('性能数据:', measure);
+        }
+
+        function testMemory() {
+            addLog('info', '⚡ 测试内存使用');
+            if (performance.memory) {
+                const memory = performance.memory;
+                addLog('success', `✅ 内存使用: ${(memory.usedJSHeapSize / 1048576).toFixed(2)} MB`);
+                console.table({
+                    '已使用': `${(memory.usedJSHeapSize / 1048576).toFixed(2)} MB`,
+                    '总分配': `${(memory.totalJSHeapSize / 1048576).toFixed(2)} MB`,
+                    '限制': `${(memory.jsHeapSizeLimit / 1048576).toFixed(2)} MB`
+                });
+            } else {
+                addLog('warn', '⚠️ 当前浏览器不支持 memory API');
+            }
+        }
+
+        function testTiming() {
+            addLog('info', '⚡ 测试执行时间');
+            const start = performance.now();
+            // 模拟异步操作
+            setTimeout(() => {
+                const end = performance.now();
+                addLog('success', `✅ setTimeout 延迟: ${(end - start).toFixed(2)}ms`);
+            }, 100);
+        }
+
+        // ==================== React DevTools 测试 ====================
+        function checkReactDevTools() {
+            const installed = !!window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+            if (installed) {
+                addLog('success', '⚛️ React DevTools 已安装 ✅');
+            } else {
+                addLog('error', '⚛️ React DevTools 未安装 ❌');
+            }
+            console.log('React DevTools 状态:', installed);
+        }
+
+        function openReactDevTools() {
+            addLog('info', '⚛️ 请按 F12 打开开发者工具');
+            alert('请按 F12 打开开发者工具，然后点击 ⚛️ Components 或 ⚛️ Profiler 标签');
+        }
+
+        // ==================== 错误追踪 ====================
+        function testTryCatch() {
+            addLog('info', '🔍 测试 try-catch');
+            try {
+                throw new Error('这是一个测试错误');
+            } catch (error) {
+                addLog('warn', `⚠️ 捕获错误: ${error.message}`);
+                console.error('错误详情:', error);
+            }
+        }
+
+        function testPromiseRejection() {
+            addLog('info', '🔍 测试 Promise 拒绝');
+            Promise.reject(new Error('Promise 拒绝测试'))
+                .catch(error => {
+                    addLog('warn', `⚠️ Promise 拒绝: ${error.message}`);
+                    console.error('Promise 错误:', error);
+                });
+        }
+
+        function testStackTrace() {
+            addLog('info', '🔍 测试堆栈追踪');
+            function deepFunction() {
+                throw new Error('深层错误');
+            }
+            function middleFunction() {
+                deepFunction();
+            }
+            try {
+                middleFunction();
+            } catch (error) {
+                addLog('warn', `⚠️ 堆栈信息已输出到 Console`);
+                console.error('完整堆栈:', error.stack);
+            }
+        }
+
+        // ==================== 完整流程测试 ====================
+        async function runFullTest() {
+            addLog('info', '🎯 开始完整测试套件...');
+            clearOutput();
+
+            await new Promise(r => setTimeout(r, 500));
+            testConsoleLog();
+            await new Promise(r => setTimeout(r, 500));
+            testHealthCheck();
+            await new Promise(r => setTimeout(r, 500));
+            testPerformance();
+            await new Promise(r => setTimeout(r, 500));
+            checkReactDevTools();
+
+            addLog('success', '🎉 完整测试套件执行完毕！');
+        }
+
+        async function simulateUserFlow() {
+            addLog('info', '🎯 模拟用户操作流程...');
+            addLog('info', '👤 用户打开首页');
+            await new Promise(r => setTimeout(r, 500));
+            addLog('info', '👤 用户点击任务列表');
+            await testGetTasks();
+            await new Promise(r => setTimeout(r, 500));
+            addLog('info', '👤 用户查看项目');
+            await testGetProjects();
+            await new Promise(r => setTimeout(r, 500));
+            addLog('success', '🎉 用户操作流程模拟完成！');
+        }
+
+        // ==================== 状态检查 ====================
+        async function checkStatus() {
+            const statusBar = document.getElementById('statusBar');
+
+            // 检查后端
+            let backendStatus = 'offline';
+            try {
+                const response = await fetch('http://localhost:8000/api/health', { method: 'HEAD' });
+                backendStatus = response.ok ? 'online' : 'offline';
+            } catch {}
+
+            // 检查前端
+            const frontendStatus = 'online'; // 当前页面能打开说明前端正常
+
+            // 检查 React DevTools
+            const reactStatus = !!window.__REACT_DEVTOOLS_GLOBAL_HOOK__ ? 'online' : 'offline';
+
+            statusBar.innerHTML = `
+                <div class="status-item">
+                    <div class="status-dot ${backendStatus}"></div>
+                    <span>后端服务 (${backendStatus === 'online' ? '✅' : '❌'})</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot ${frontendStatus}"></div>
+                    <span>前端服务 (✅)</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot ${reactStatus}"></div>
+                    <span>React DevTools (${reactStatus === 'online' ? '✅' : '❌'})</span>
+                </div>
+            `;
+        }
+
+        // 初始化
+        checkStatus();
+        setInterval(checkStatus, 5000);
+        addLog('success', '🚀 调试测试实验室已启动');
+        addLog('info', '💡 提示: 按 F12 打开开发者工具查看详细输出');
+    </script>
+</body>
+</html>

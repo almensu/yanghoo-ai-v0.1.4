@@ -29,7 +29,7 @@ export const testProjectManager = () => {
     const documentData = {
       taskUuid: 'test-task-456',
       taskTitle: '测试任务2',
-      filename: 'document.md',
+      filename: '汽车制造业与铁路物流的演变：福特、大众与特斯拉的比较分析.md',
       content: '# 测试文档\n\n这是一个测试文档的完整内容。\n\n## 章节1\n内容1\n\n## 章节2\n内容2'
     };
     

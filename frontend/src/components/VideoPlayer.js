@@ -2,24 +2,25 @@ import React, { useEffect, forwardRef, useRef, useImperativeHandle, useState, us
 import axios from 'axios';
 import { timeToSeconds } from '../utils/timestampUtils';
 
-// Custom CSS for subtitles - Updated to position subtitles at the red rectangle area with more specific selectors
+// Custom CSS for subtitles - Responsive subtitle display with viewport-relative sizing
 const subtitleStyles = `
+  /* Base subtitle styles with responsive sizing */
   video::cue,
   ::cue {
     background-color: rgba(0, 0, 0, 0.6);
     color: white;
-    padding: 4px 8px;
+    padding: 0.5vw 1vw;
     border-radius: 2px;
-    font-size: 16px;
+    font-size: clamp(12px, 2vw, 18px); /* Responsive font size: min 12px, preferred 2vw, max 18px */
     font-family: "Source Han Sans CN Bold", "思源黑体 CN Bold", Arial, sans-serif !important;
-    line-height: 1.5;
-    bottom: 60px !important; /* Moved higher from bottom */
+    line-height: 1.4;
+    bottom: 8vh !important; /* 8% of viewport height - responsive positioning */
     display: inline-block;
-    max-width: 80%;
+    max-width: 90%;
     white-space: pre-line;
     position: relative !important;
-    font-weight: bold !important; /* 字体加粗 */
-    text-shadow: 1px 1px 2px black, 0 0 1em black, 0 0 0.2em black !important; /* 添加文字阴影/描边效果 */
+    font-weight: bold !important;
+    text-shadow: 1px 1px 2px black, 0 0 1em black, 0 0 0.2em black !important;
   }
   
   /* 中文字幕显示为黄色 - 使用多种选择器确保覆盖各种情况 */
@@ -52,32 +53,92 @@ const subtitleStyles = `
     /* Adjust margin if needed, but primary positioning is via 'bottom' now */
     margin-bottom: 60px !important; 
   }
-  
-  /* Enhancing visibility of subtitles - make stronger selector */
+
+  /* Enhancing visibility of subtitles - responsive transform */
   video::-webkit-media-text-track-container,
   ::cue-region,
   ::-webkit-media-text-track-container {
-    transform: translateY(-60px) !important; /* Increased negative translate to move container up */
+    transform: translateY(-5vh) !important; /* Responsive translate based on viewport height */
     overflow: visible !important;
-    bottom: 60px !important;
+    bottom: 8vh !important;
   }
-  
-  /* Ensures text tracks have enough height for bilingual content */
+
+  /* Ensures text tracks have responsive height for bilingual content */
   video::-webkit-media-text-track-display,
   ::-webkit-media-text-track-display {
-    min-height: 6em;
-    padding-top: 1em;
-    padding-bottom: 3em;
+    min-height: 4vh;
+    max-height: 15vh; /* Limit maximum height to prevent covering too much screen */
+    padding-top: 0.5vh;
+    padding-bottom: 2vh;
     position: relative !important;
-    bottom: 60px !important;
+    bottom: 8vh !important;
   }
-  
-  /* Ensures text is readable */
+
+  /* Ensures text is readable - responsive padding */
   video::-webkit-media-text-track-display-backdrop,
   ::-webkit-media-text-track-display-backdrop {
     background: rgba(0, 0, 0, 0.5);
-    border-radius: 5px;
-    padding: 1em;
+    border-radius: 4px;
+    padding: 0.5vh 1vw;
+  }
+
+  /* Media query for small screens (mobile devices) */
+  @media (max-width: 768px) {
+    video::cue,
+    ::cue {
+      font-size: clamp(11px, 2.5vw, 14px) !important; /* Slightly larger relative size on mobile */
+      bottom: 6vh !important; /* Higher position on mobile to avoid controls */
+      padding: 0.3vh 0.8vw;
+      max-width: 95%;
+    }
+
+    video::-webkit-media-text-track-container,
+    ::cue-region,
+    ::-webkit-media-text-track-container {
+      transform: translateY(-4vh) !important;
+      bottom: 6vh !important;
+    }
+
+    video::-webkit-media-text-track-display,
+    ::-webkit-media-text-track-display {
+      min-height: 3vh;
+      max-height: 12vh;
+      bottom: 6vh !important;
+    }
+  }
+
+  /* Media query for extra small screens (very small mobile) */
+  @media (max-width: 480px) {
+    video::cue,
+    ::cue {
+      font-size: clamp(10px, 3vw, 13px) !important;
+      bottom: 5vh !important;
+      padding: 0.2vh 0.6vw;
+      line-height: 1.3 !important;
+    }
+
+    video::-webkit-media-text-track-container,
+    ::cue-region,
+    ::-webkit-media-text-track-container {
+      transform: translateY(-3vh) !important;
+      bottom: 5vh !important;
+    }
+  }
+
+  /* Media query for large screens (TVs and desktops) */
+  @media (min-width: 1920px) {
+    video::cue,
+    ::cue {
+      font-size: clamp(18px, 1.5vw, 24px) !important; /* Larger font for big screens */
+      bottom: 10vh !important; /* Lower position for more space */
+    }
+
+    video::-webkit-media-text-track-container,
+    ::cue-region,
+    ::-webkit-media-text-track-container {
+      transform: translateY(-6vh) !important;
+      bottom: 10vh !important;
+    }
   }
 `;
 
@@ -178,17 +239,17 @@ const AssSubtitleRenderer = ({ videoRef, assContent, isVisible }) => {
   });
 
   return (
-    <div 
+    <div
       className="absolute left-1/2 transform -translate-x-1/2 z-10 pointer-events-none"
       style={{
-        bottom: '15%', // 固定在底部15%的位置
-        maxWidth: '80%', // 最大宽度70%
+        bottom: 'clamp(3vh, 8%, 10vh)', // Responsive bottom: 3-10% of viewport height
+        maxWidth: '90%',
         width: 'auto',
         textAlign: 'center',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: '0px'
+        gap: '0.3vh'
       }}
     >
       {/* 中文字幕 - 黄色，在上方 */}
@@ -197,14 +258,14 @@ const AssSubtitleRenderer = ({ videoRef, assContent, isVisible }) => {
           style={{
             backgroundColor: 'rgba(0, 0, 0, 0.8)',
             color: '#FFEB3B',
-            fontSize: '14px',
+            fontSize: 'clamp(11px, 2.2vw, 16px)', // Responsive font size
             fontFamily: '"Source Han Sans CN Bold", "思源黑体 CN Bold", Arial, sans-serif',
             fontWeight: 'bold',
             textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
             lineHeight: '1.3',
             whiteSpace: 'pre-line',
-            padding: '6px 12px',
-            borderRadius: '6px',
+            padding: 'clamp(2px, 0.4vh, 6px) clamp(6px, 1vw, 12px)', // Responsive padding
+            borderRadius: 'clamp(3px, 0.5vh, 6px)',
             maxWidth: '100%',
             wordWrap: 'break-word',
             textAlign: 'center'
@@ -213,21 +274,21 @@ const AssSubtitleRenderer = ({ videoRef, assContent, isVisible }) => {
           {currentSubtitles.chinese.text}
         </div>
       )}
-      
+
       {/* 英文字幕 - 白色，在下方 */}
       {currentSubtitles.english && (
         <div
           style={{
             backgroundColor: 'rgba(0, 0, 0, 0.8)',
             color: '#FFFFFF',
-            fontSize: '14px',
+            fontSize: 'clamp(11px, 2.2vw, 16px)', // Responsive font size
             fontFamily: 'Arial, sans-serif',
             fontWeight: 'normal',
             textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
             lineHeight: '1.3',
             whiteSpace: 'pre-line',
-            padding: '6px 12px',
-            borderRadius: '6px',
+            padding: 'clamp(2px, 0.4vh, 6px) clamp(6px, 1vw, 12px)', // Responsive padding
+            borderRadius: 'clamp(3px, 0.5vh, 6px)',
             maxWidth: '100%',
             wordWrap: 'break-word',
             textAlign: 'center'

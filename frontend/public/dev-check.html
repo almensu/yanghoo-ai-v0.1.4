@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>开发环境检测 - YangHoo AI</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            padding: 40px;
+            color: #eee;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 2em;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .section h2 {
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            margin: 10px 0;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            border-left: 4px solid #555;
+        }
+        .status-item.success { border-left-color: #00ff88; }
+        .status-item.warning { border-left-color:ffaa00; }
+        .status-item.error { border-left-color: #ff4444; }
+        .status-name { flex: 1; }
+        .status-value {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+        .status-value.ok { background: #00ff8820; color: #00ff88; }
+        .status-value.fail { background: #ff444420; color: #ff4444; }
+        .status-value.warn { background: #ffaa0020; color: #ffaa00; }
+        .icon { font-size: 1.5em; }
+        .shortcut {
+            background: rgba(255,255,255,0.1);
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .summary {
+            text-align: center;
+            padding: 30px;
+            background: linear-gradient(90deg, rgba(0,212,255,0.1), rgba(123,44,191,0.1));
+            border-radius: 12px;
+            margin-top: 30px;
+        }
+        .summary-score {
+            font-size: 4em;
+            font-weight: bold;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        a {
+            color: #00d4ff;
+            text-decoration: none;
+        }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 开发环境检测</h1>
+
+        <!-- 浏览器信息 -->
+        <div class="section">
+            <h2>🌐 浏览器信息</h2>
+            <div id="browser-info"></div>
+        </div>
+
+        <!-- 开发者工具状态 -->
+        <div class="section">
+            <h2>🛠️ 开发者工具</h2>
+            <div id="devtools-status"></div>
+        </div>
+
+        <!-- 服务连接状态 -->
+        <div class="section">
+            <h2>🔌 服务连接</h2>
+            <div id="service-status"></div>
+        </div>
+
+        <!-- 总结 -->
+        <div class="summary" id="summary"></div>
+    </div>
+
+    <script>
+        const results = {};
+
+        // 检测浏览器信息
+        function detectBrowser() {
+            const ua = navigator.userAgent;
+            let browser = 'Unknown';
+            if (ua.includes('Chrome') && !ua.includes('Edg')) browser = 'Chrome';
+            else if (ua.includes('Firefox')) browser = 'Firefox';
+            else if (ua.includes('Safari') && !ua.includes('Chrome')) browser = 'Safari';
+            else if (ua.includes('Edg')) browser = 'Edge';
+
+            const os = navigator.platform;
+            const isMac = os.includes('Mac');
+
+            return {
+                browser,
+                version: navigator.appVersion.split(' ').pop(),
+                os,
+                isMac,
+                devtoolsShortcut: isMac ? 'Cmd+Option+I' : 'Ctrl+Shift+I',
+                consoleShortcut: isMac ? 'Cmd+Option+J' : 'Ctrl+Shift+J'
+            };
+        }
+
+        // 检测开发者工具
+        function detectDevTools() {
+            const checks = {
+                consoleOpen: new DetectDevTools({ emit: false }).check,
+                reactDevTools: !!window.__REACT_DEVTOOLS_GLOBAL_HOOK__,
+                hasConsole: typeof console !== 'undefined',
+                hasPerformance: typeof performance !== 'undefined'
+            };
+            return checks;
+        }
+
+        // 简单的 DevTools 检测
+        class DetectDevTools {
+            constructor(options = {}) {
+                this.threshold = options.threshold || 160;
+                this.emit = options.emit || true;
+            }
+            check() {
+                const widthThreshold = window.outerWidth - window.innerWidth > this.threshold;
+                const heightThreshold = window.outerHeight - window.innerHeight > this.threshold;
+                return widthThreshold || heightThreshold;
+            }
+        }
+
+        // 检测服务连接
+        async function checkServices() {
+            const services = [
+                { name: '后端 API', url: 'http://localhost:8000/docs' },
+                { name: '前端服务', url: 'http://localhost:3000' }
+            ];
+
+            const results = await Promise.all(services.map(async (service) => {
+                try {
+                    const response = await fetch(service.url, { method: 'HEAD', mode: 'no-cors' });
+                    return { name: service.name, status: 'ok' };
+                } catch {
+                    return { name: service.name, status: 'fail' };
+                }
+            }));
+            return results;
+        }
+
+        // 渲染状态项
+        function renderStatus(name, value, status, icon = '') {
+            const statusClass = status === 'ok' ? 'success' : status === 'fail' ? 'error' : 'warning';
+            const valueClass = status === 'ok' ? 'ok' : status === 'fail' ? 'fail' : 'warn';
+            return `
+                <div class="status-item ${statusClass}">
+                    <span class="status-name">${icon} ${name}</span>
+                    <span class="status-value ${valueClass}">${value}</span>
+                </div>
+            `;
+        }
+
+        // 主函数
+        async function runDetection() {
+            // 浏览器信息
+            const browser = detectBrowser();
+            document.getElementById('browser-info').innerHTML = `
+                ${renderStatus('浏览器', `${browser.browser} ${browser.version}`, 'ok', '🌍')}
+                ${renderStatus('操作系统', browser.os, 'ok', '💻')}
+                ${renderStatus('打开开发者工具', `<span class="shortcut">${browser.devtoolsShortcut}</span>`, 'ok', '⌨️')}
+                ${renderStatus('打开控制台', `<span class="shortcut">${browser.consoleShortcut}</span>`, 'ok', '⌨️')}
+            `;
+
+            // 开发者工具状态
+            const devtools = detectDevTools();
+            document.getElementById('devtools-status').innerHTML = `
+                ${renderStatus('Console API', devtools.hasConsole ? '可用' : '不可用', devtools.hasConsole ? 'ok' : 'fail', '📋')}
+                ${renderStatus('Performance API', devtools.hasPerformance ? '可用' : '不可用', devtools.hasPerformance ? 'ok' : 'fail', '⚡')}
+                ${renderStatus('React DevTools', devtools.reactDevTools ? '已安装 ✅' : '未安装 ❌', devtools.reactDevTools ? 'ok' : 'warn', '⚛️')}
+                ${!devtools.reactDevTools ? '<p style="margin-top:15px;color:#ffaa00;"><a href="https://chrome.google.com/webstore/detail/react-developer-tools/fmkadmapgofadopljbjfkapdkoienihi" target="_blank">📥 安装 React DevTools</a></p>' : ''}
+            `;
+
+            // 服务连接状态
+            const services = await checkServices();
+            document.getElementById('service-status').innerHTML = services.map(s => {
+                const statusText = s.status === 'ok' ? '运行中 ✅' : '未连接 ❌';
+                const icon = s.name.includes('后端') ? '🔧' : '⚛️';
+                return renderStatus(s.name, statusText, s.status, icon);
+            }).join('');
+
+            // 计算分数
+            let score = 0;
+            const total = 6;
+            if (devtools.hasConsole) score++;
+            if (devtools.hasPerformance) score++;
+            if (devtools.reactDevTools) score++;
+            if (services[0].status === 'ok') score++;
+            if (services[1].status === 'ok') score++;
+            score++; // 基础浏览器
+
+            const percentage = Math.round((score / total) * 100);
+            const emoji = percentage >= 80 ? '🎉' : percentage >= 50 ? '👌' : '⚠️';
+
+            document.getElementById('summary').innerHTML = `
+                <div class="summary-score">${percentage}%</div>
+                <p>${emoji} 开发环境就绪度</p>
+                <p style="margin-top:10px;color:#aaa;font-size:0.9em;">
+                    ${percentage === 100 ? '完美！所有工具都已就绪 🚀' : '建议安装缺失的工具以获得最佳体验'}
+                </p>
+            `;
+
+            // 输出到控制台
+            console.log('='.repeat(50));
+            console.log('🔍 开发环境检测报告');
+            console.log('='.repeat(50));
+            console.log(`浏览器: ${browser.browser}`);
+            console.log(`React DevTools: ${devtools.reactDevTools ? '✅ 已安装' : '❌ 未安装'}`);
+            console.log(`后端服务: ${services[0].status === 'ok' ? '✅ 运行中' : '❌ 未连接'}`);
+            console.log(`前端服务: ${services[1].status === 'ok' ? '✅ 运行中' : '❌ 未连接'}`);
+            console.log('='.repeat(50));
+        }
+
+        runDetection();
+    </script>
+</body>
+</html>

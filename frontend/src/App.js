@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
 import './App.css';
-import Sidebar from './components/Sidebar';
+import AppLayout from './layouts/AppLayout';
 // Import the page components
 import TaskListPage from './pages/TaskListPage'; 
 import StudioPage from './pages/StudioPage';   
@@ -15,6 +15,8 @@ import TestPage_KeyframeClip from './pages/TestPage_KeyframeClip'; // Import Key
 import TestPage_BlockEditor from './pages/TestPage_BlockEditor'; // Import Block Editor test page
 import TestPage_BlockDragToProject from './pages/TestPage_BlockDragToProject';
 import TestPage_MarkdownToProject from './pages/TestPage_MarkdownToProject'; // Import Block Drag to Project test page
+import BlockCollectionPage from './pages/BlockCollectionPage'; // Import Block Collection page
+import TestPage_BlockCollection from './pages/TestPage_BlockCollection'; // Import Block Collection test page
 
 const API_BASE_URL = 'http://127.0.0.1:8000';
 const WS_BASE_URL = 'ws://127.0.0.1:8000';
@@ -22,53 +24,30 @@ const WS_BASE_URL = 'ws://127.0.0.1:8000';
 function App() {
   return (
     <BrowserRouter>
-      <div className="flex h-screen bg-base-100" data-theme="cupcake">
-        <Sidebar /> {/* Sidebar persistent across pages */}
-        
-        {/* Main content area wrapper */}
-        <div className="flex-grow flex flex-col overflow-hidden"> {/* Changed overflow-auto to overflow-hidden */} 
-           {/* Main content area changes based on route */}
-           {/* Removed container/padding, apply in pages if needed */}
-           {/* Added flex-1 to make sure Routes container grows */}
-           <main className="flex-grow flex-1 flex flex-col overflow-auto"> {/* Allow main content to scroll */} 
-             <Routes> 
-               <Route 
-                 path="/" 
-                 element={
-                   <TaskListPage apiBaseUrl={API_BASE_URL} wsBaseUrl={WS_BASE_URL} />
-                 }
-                />
-               <Route 
-                 path="/studio/:taskUuid" 
-                 element={
-                   // Use the wrapper component to extract params
-                   <StudioPageWrapper apiBaseUrl={API_BASE_URL} />
-                 }
-                />
-               {/* Define a fallback route or a 404 page if needed */}
-               {/* <Route path="*" element={<div>404 Not Found</div>} /> */}
-               {/* Add route for VideoPlayer Test Page */}
-               <Route path="/test/video-player" element={<TestPage_VideoPlayer />} /> 
-               {/* Add route for VttPreviewer Test Page */}
-               <Route path="/test/vtt-previewer" element={<TestPage_VttPreviewer />} />
-               {/* Add route for MarkdownViewer Test Page */}
-               <Route path="/test/markdown" element={<TestPage_MarkdownViewer />} />
-               {/* Add route for MarkdownList Test Page */}
-               <Route path="/test/markdownlist" element={<TestPage_MarkdownList />} />
-               {/* Add route for YouTube Timestamp Test Page */}
-               <Route path="/test/youtube-timestamp" element={<TestPage_YouTubeTimestamp />} />
-               {/* Add route for ASS Subtitle Test Page */}
-               <Route path="/test/ass-subtitle" element={<TestPage_AssSubtitle />} />
-               {/* Add route for Keyframe Clip Test Page */}
-               <Route path="/test/keyframe-clip" element={<TestPage_KeyframeClip />} />
-               {/* Add route for Block Editor Test Page */}
-               <Route path="/test/block-editor" element={<TestPage_BlockEditor />} />
-            <Route path="/test/block-drag-to-project" element={<TestPage_BlockDragToProject />} />
-            <Route path="/test/markdown-to-project" element={<TestPage_MarkdownToProject />} />
-             </Routes>
-           </main>
-        </div>
-      </div>
+      <Routes>
+        <Route element={<AppLayout />}>
+          <Route
+            path="/"
+            element={<TaskListPage apiBaseUrl={API_BASE_URL} wsBaseUrl={WS_BASE_URL} />}
+          />
+          <Route
+            path="/studio/:taskUuid"
+            element={<StudioPageWrapper apiBaseUrl={API_BASE_URL} />}
+          />
+          <Route path="/test/video-player" element={<TestPage_VideoPlayer />} />
+          <Route path="/test/vtt-previewer" element={<TestPage_VttPreviewer />} />
+          <Route path="/test/markdown" element={<TestPage_MarkdownViewer />} />
+          <Route path="/test/markdownlist" element={<TestPage_MarkdownList />} />
+          <Route path="/test/youtube-timestamp" element={<TestPage_YouTubeTimestamp />} />
+          <Route path="/test/ass-subtitle" element={<TestPage_AssSubtitle />} />
+          <Route path="/test/keyframe-clip" element={<TestPage_KeyframeClip />} />
+          <Route path="/test/block-editor" element={<TestPage_BlockEditor />} />
+          <Route path="/test/block-drag-to-project" element={<TestPage_BlockDragToProject />} />
+          <Route path="/test/markdown-to-project" element={<TestPage_MarkdownToProject />} />
+          <Route path="/block" element={<BlockCollectionPage />} />
+          <Route path="/test/block-collection" element={<TestPage_BlockCollection />} />
+        </Route>
+      </Routes>
     </BrowserRouter>
   );
 }

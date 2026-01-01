@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List, Youtube, Camera, Blocks } from 'lucide-react'; // Added Blocks icon
+import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List, Youtube, Camera, Blocks, Star } from 'lucide-react'; // Added Blocks and Star icons
 
 function Sidebar() {
   // Use localStorage to persist sidebar state across page navigation
@@ -22,6 +22,7 @@ function Sidebar() {
   // Define sidebar items
   const menuItems = [
     { name: '视频列表', icon: <Video size={20} />, path: '/' }, // Changed path to root for TaskListPage
+    { name: 'Block 收藏馆', icon: <Star size={20} />, path: '/block' }, // Block Collection Page
     { name: '文档列表', icon: <FileText size={20} />, path: '/docs' },   // Example path (keep or remove based on need)
     // { name: 'Studio专区', icon: <Sparkles size={20} />, path: '/studio' }, // REMOVED - Should navigate from Task list
     { name: 'VideoPlayer 测试', icon: <Settings size={20} />, path: '/test/video-player' }, // Updated Test Page link
@@ -31,6 +32,7 @@ function Sidebar() {
     { name: 'YouTube 时间戳 测试', icon: <Youtube size={20} />, path: '/test/youtube-timestamp' }, // Added YouTube timestamp test page
     { name: '关键帧剪辑 测试', icon: <Camera size={20} />, path: '/test/keyframe-clip' }, // Added Keyframe Clip test page
     { name: '块编辑器 测试', icon: <Blocks size={20} />, path: '/test/block-editor' }, // Added Block Editor test page
+    { name: 'Block 收藏馆 测试', icon: <Star size={20} />, path: '/test/block-collection' }, // Added Block Collection test page
   ];
 
   return (

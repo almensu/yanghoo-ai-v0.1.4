@@ -337,26 +337,178 @@ export class ProjectManager {
   // ===== localStorage操作 =====
 
   /**
-   * 加载项目数据
+   * 添加以下方法
+   *
+   * 从后端API加载项目数据
    */
-  loadProjects() {
+  async loadProjectsFromAPI() {
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.PROJECTS);
-      return data ? JSON.parse(data) : {};
+      const response = await fetch('http://localhost:8000/api/projects');
+      if (!response.ok) {
+        throw new Error(`API错误: ${response.status}`);
+      }
+      const projectsArray = await response.json();
+      
+      // 转换为对象格式
+      const projectsObj = {};
+      projectsArray.forEach(project => {
+        projectsObj[project.id] = project;
+      });
+      
+      return projectsObj;
     } catch (error) {
-      console.error('Failed to load projects from localStorage:', error);
-      return {};
+      console.error('从API加载项目失败:', error);
+      // 回退到本地存储
+      return this.loadProjects();
     }
   }
-
+  
   /**
-   * 保存项目数据
+   * 保存项目数据到后端API
    */
-  saveProjects() {
+  async saveProjectsToAPI() {
     try {
-      localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(this.projects));
+      // 获取所有项目
+      const projects = Object.values(this.projects);
+      
+      // 对每个项目进行更新或创建
+      for (const project of projects) {
+        const method = project.id.startsWith('project_') ? 'PUT' : 'POST';
+        const url = method === 'PUT' 
+          ? `http://localhost:8000/api/projects/${project.id}` 
+          : 'http://localhost:8000/api/projects';
+        
+        const response = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(project)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API错误: ${response.status}`);
+        }
+      }
+      
+      return true;
     } catch (error) {
-      console.error('Failed to save projects to localStorage:', error);
+      console.error('保存项目到API失败:', error);
+      // 回退到本地存储
+      this.saveProjects();
+      return false;
+    }
+  }
+  
+  /**
+   * 混合加载项目（先尝试API，失败则使用本地存储）
+   */
+  async loadProjectsHybrid() {
+    // 先尝试从API加载
+    const apiProjects = await this.loadProjectsFromAPI();
+    
+    if (Object.keys(apiProjects).length > 0) {
+      this.projects = apiProjects;
+      return this.projects;
+    }
+    
+    // 如果API加载失败或没有数据，从本地加载
+    this.projects = this.loadProjects();
+    
+    // 如果本地有数据但API没有，尝试同步到API
+    if (Object.keys(this.projects).length > 0) {
+      this.saveProjectsToAPI();
+    }
+    
+    return this.projects;
+  }
+  
+  /**
+   * 混合保存项目（同时保存到API和本地存储）
+   */
+  async saveProjectsHybrid() {
+    // 先保存到本地
+    this.saveProjects();
+    
+    // 再保存到API
+    return await this.saveProjectsToAPI();
+  }
+  
+  /**
+   * 添加块到项目（API版本）
+   */
+  async addBlockAPI(projectId, blockData) {
+    try {
+      // 1. 创建块
+      const blockResponse = await fetch('http://localhost:8000/api/blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(blockData)
+      });
+      
+      if (!blockResponse.ok) {
+        throw new Error(`创建块API错误: ${blockResponse.status}`);
+      }
+      
+      const block = await blockResponse.json();
+      
+      // 2. 将块添加到项目
+      const linkResponse = await fetch(`http://localhost:8000/api/projects/${projectId}/blocks/${block.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (!linkResponse.ok) {
+        throw new Error(`关联块到项目API错误: ${linkResponse.status}`);
+      }
+      
+      // 3. 更新本地缓存
+      if (!this.projects[projectId]) {
+        // 如果本地没有此项目，重新加载所有项目
+        await this.loadProjectsHybrid();
+      } else {
+        // 否则只更新这个项目的块列表
+        if (!this.projects[projectId].selectedBlocks) {
+          this.projects[projectId].selectedBlocks = [];
+        }
+        this.projects[projectId].selectedBlocks.push(block.id);
+        this.saveProjects(); // 更新本地存储
+      }
+      
+      return block;
+    } catch (error) {
+      console.error('通过API添加块失败:', error);
+      // 回退到本地方法
+      return this.addBlock(projectId, blockData);
+    }
+  }
+  
+  /**
+   * 从项目中移除块（API版本）
+   */
+  async removeBlockAPI(projectId, blockId) {
+    try {
+      // 从项目中移除块
+      const response = await fetch(`http://localhost:8000/api/projects/${projectId}/blocks/${blockId}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API错误: ${response.status}`);
+      }
+      
+      // 更新本地缓存
+      if (this.projects[projectId] && this.projects[projectId].selectedBlocks) {
+        const index = this.projects[projectId].selectedBlocks.indexOf(blockId);
+        if (index !== -1) {
+          this.projects[projectId].selectedBlocks.splice(index, 1);
+          this.saveProjects(); // 更新本地存储
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('通过API移除块失败:', error);
+      // 回退到本地方法
+      return this.removeBlock(projectId, blockId);
     }
   }
 
@@ -574,7 +726,33 @@ export class ProjectManager {
     const remainingSeconds = Math.floor(seconds % 60);
     return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
   }
+
+  /**
+   * 从localStorage加载项目数据
+   */
+  loadProjects() {
+    try {
+      const projectsJson = localStorage.getItem(STORAGE_KEYS.PROJECTS);
+      return projectsJson ? JSON.parse(projectsJson) : {};
+    } catch (error) {
+      console.error('加载项目数据失败:', error);
+      return {};
+    }
+  }
+
+  /**
+   * 保存项目数据到localStorage
+   */
+  saveProjects() {
+    try {
+      localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(this.projects));
+      return true;
+    } catch (error) {
+      console.error('保存项目数据失败:', error);
+      return false;
+    }
+  }
 }
 
 // 单例实例
-export const projectManager = new ProjectManager(); 
+export const projectManager = new ProjectManager();

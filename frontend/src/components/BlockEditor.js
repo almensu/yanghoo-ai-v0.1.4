@@ -1,21 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Edit3, Trash2, ChevronUp, ChevronDown, 
-         Check, X, Hash, Type, Code, List, Quote, Minus, Table, Image, 
-         GripVertical, MoreHorizontal } from 'lucide-react';
+import { Search, Plus, Edit3, Trash2, ChevronUp, ChevronDown,
+         Check, X, Hash, Type, Code, List, Quote, Minus, Table, Image,
+         GripVertical, MoreHorizontal, Sparkles, Layers, Zap } from 'lucide-react';
 import { BlockManager, MarkdownParser } from '../utils/blocks';
+import IntelligentChunker, { ContextPreserver } from '../utils/semanticBlockParser';
+import { BlockMerger, BlockSplitter, BlockQualityAnalyzer } from '../utils/blockEnhancer';
 import MarkdownViewer from './MarkdownViewer';
 import QuickCollector from './QuickCollector';
 
-const BlockEditor = ({ 
-  markdownContent = '', 
-  onContentChange, 
-  taskUuid, 
+// 块类型格式化
+const formatBlockType = (type) => {
+  const typeMap = {
+    paragraph: '段落',
+    heading: '标题',
+    code: '代码',
+    list: '列表',
+    quote: '引用',
+    divider: '分隔线',
+    table: '表格',
+    image: '图片'
+  };
+  return typeMap[type] || type;
+};
+
+const BlockEditor = ({
+  markdownContent = '',
+  onContentChange,
+  taskUuid,
   apiBaseUrl,
   filename = null, // 当前编辑的文档文件名
   taskTitle = null, // 任务标题
   docId = null, // doc_files中的文档ID
   docCategory = 'user_documents', // 文档类别
-  className = '' 
+  className = '',
+  // 新增：智能分块选项
+  intelligentParsing = true,      // 是否启用智能分块
+  semanticAnalysis = true,        // 是否启用语义分析
+  autoMerge = true,               // 是否自动合并相似块
+  showQualityMetrics = false      // 是否显示质量指标
 }) => {
   const [blockManager, setBlockManager] = useState(null);
   const [blocks, setBlocks] = useState([]);
@@ -24,6 +46,12 @@ const BlockEditor = ({
   const [editContent, setEditContent] = useState('');
   const [hoveredBlock, setHoveredBlock] = useState(null);
   const textareaRef = useRef(null);
+
+  // 新增：智能解析状态
+  const [parsingMode, setParsingMode] = useState('intelligent'); // 'simple' | 'intelligent'
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [blockStats, setBlockStats] = useState(null);
+  const [qualityReport, setQualityReport] = useState(null);
 
   // 自动调整textarea高度
   useEffect(() => {
@@ -39,19 +67,105 @@ const BlockEditor = ({
   const [dragOver, setDragOver] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  // 初始化
+  // 初始化 - 智能分块解析
   useEffect(() => {
-    try {
-      const manager = new BlockManager();
-      if (markdownContent) {
-        manager.loadFromMarkdown(markdownContent);
-      }
-      setBlockManager(manager);
-      updateBlocks(manager);
-    } catch (error) {
-      console.error('Failed to initialize BlockManager:', error);
+    if (!markdownContent) {
+      setBlocks([]);
+      setBlockStats(null);
+      return;
     }
-  }, [markdownContent]);
+
+    const parseContent = async () => {
+      setIsProcessing(true);
+      try {
+        const manager = new BlockManager();
+
+        if (intelligentParsing && parsingMode === 'intelligent') {
+          // 使用智能语义分块
+          const chunker = new IntelligentChunker({
+            useSemanticAnalysis: semanticAnalysis,
+            preserveStructure: true,
+            minBlockSize: 100,
+            maxBlockSize: 1000
+          });
+
+          const parsedBlocks = chunker.chunk(markdownContent);
+
+          // 如果启用自动合并，进行智能合并
+          let finalBlocks = parsedBlocks;
+          if (autoMerge) {
+            const merger = new BlockMerger({ similarityThreshold: 0.2 });
+            const mergeResult = merger.smartMerge(parsedBlocks, 0.4);
+            finalBlocks = mergeResult.blocks;
+          }
+
+          // 添加上下文保留
+          const preserver = new ContextPreserver({ overlapRatio: 0.1 });
+          finalBlocks = preserver.enrichMetadata(finalBlocks, { title: filename });
+
+          // 转换为 BlockManager 格式
+          finalBlocks.forEach(block => {
+            manager.blocks.set(block.id, block);
+          });
+
+          // 计算统计信息
+          const stats = calculateBlockStats(finalBlocks);
+          setBlockStats(stats);
+
+          // 如果启用质量指标，生成质量报告
+          if (showQualityMetrics) {
+            const analyzer = new BlockQualityAnalyzer();
+            const report = analyzer.batchAnalyze(finalBlocks);
+            setQualityReport(report);
+          }
+        } else {
+          // 使用简单解析
+          manager.loadFromMarkdown(markdownContent);
+          const simpleBlocks = manager.getAllBlocks();
+          setBlockStats(calculateBlockStats(simpleBlocks));
+        }
+
+        setBlockManager(manager);
+        updateBlocks(manager);
+      } catch (error) {
+        console.error('Failed to parse content:', error);
+        // 降级到简单解析
+        const manager = new BlockManager();
+        manager.loadFromMarkdown(markdownContent);
+        setBlockManager(manager);
+        updateBlocks(manager);
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+
+    parseContent();
+  }, [markdownContent, intelligentParsing, parsingMode, semanticAnalysis, autoMerge, showQualityMetrics, filename]);
+
+  // 计算块统计信息
+  const calculateBlockStats = (blocks) => {
+    const stats = {
+      total: blocks.length,
+      byType: {},
+      avgSize: 0,
+      totalSize: 0,
+      typeDistribution: {}
+    };
+
+    let totalSize = 0;
+    blocks.forEach(block => {
+      const size = block.content?.length || 0;
+      const type = block.metadata?.type || 'unknown';
+
+      stats.byType[type] = (stats.byType[type] || 0) + 1;
+      totalSize += size;
+    });
+
+    stats.totalSize = totalSize;
+    stats.avgSize = blocks.length > 0 ? Math.round(totalSize / blocks.length) : 0;
+
+    return stats;
+  };
 
   const updateBlocks = (manager = blockManager) => {
     if (manager) {
@@ -322,8 +436,8 @@ const BlockEditor = ({
         <QuickCollector
           block={block}
           taskUuid={taskUuid}
-          taskTitle="当前文档" // 可以从props传入更准确的标题
-          filename="document.md" // 可以从props传入实际文件名
+          taskTitle={taskTitle} // 使用动态的 taskTitle
+          filename={filename} // 使用动态的 filename
           onCollected={(projectId, result) => {
             console.log(`Block ${block.id} collected to project ${projectId}`);
           }}
@@ -378,29 +492,126 @@ const BlockEditor = ({
   }
 
   return (
-    <div 
+    <div
       className={`flex flex-col h-full bg-white ${className}`}
       onClick={handleContainerClick}
     >
-      {/* 简化的工具栏 */}
-      <div className="block-toolbar flex items-center justify-between px-6 py-3 border-b bg-white sticky top-0 z-10">
-        <div className="flex items-center gap-4">
-          <h2 className="font-medium text-gray-900">文档编辑器</h2>
-          <div className="text-sm text-gray-500">
-            {blocks.length} 个块
+      {/* 增强的工具栏 */}
+      <div className="block-toolbar flex items-center justify-between px-4 py-2 border-b bg-white sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <h2 className="font-medium text-gray-900 text-sm">文档编辑器</h2>
+
+          {/* 解析模式切换 */}
+          {intelligentParsing && (
+            <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg">
+              <button
+                onClick={() => setParsingMode('simple')}
+                className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
+                  parsingMode === 'simple'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+                title="简单模式：基于 Markdown 语法的传统分块"
+              >
+                <Type size={12} />
+                简单
+              </button>
+              <button
+                onClick={() => setParsingMode('intelligent')}
+                className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
+                  parsingMode === 'intelligent'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+                title="智能模式：基于语义分析的智能分块"
+              >
+                <Sparkles size={12} />
+                智能
+              </button>
+            </div>
+          )}
+
+          {/* 块统计 */}
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            {isProcessing ? (
+              <span className="flex items-center gap-1">
+                <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                处理中...
+              </span>
+            ) : (
+              <>
+                <span>{blocks.length} 个块</span>
+                {blockStats && (
+                  <span className="text-gray-400">
+                    · 平均 {blockStats.avgSize} 字符
+                  </span>
+                )}
+              </>
+            )}
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
+          {/* 智能操作按钮 */}
+          {parsingMode === 'intelligent' && (
+            <>
+              <button
+                onClick={() => {
+                  const merger = new BlockMerger();
+                  const result = merger.smartMerge(blocks, 0.4);
+                  setBlocks(result.blocks);
+                }}
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 rounded transition-colors"
+                title="智能合并相似块"
+              >
+                <Layers size={12} />
+                合并
+              </button>
+              <button
+                onClick={() => {
+                  const splitter = new BlockSplitter();
+                  const result = splitter.batchSplit(blocks);
+                  setBlocks(result.blocks);
+                }}
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-orange-50 text-orange-700 hover:bg-orange-100 rounded transition-colors"
+                title="智能拆分大块"
+              >
+                <Zap size={12} />
+                拆分
+              </button>
+            </>
+          )}
+
           <button
             onClick={() => addBlock('paragraph')}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-500 text-white hover:bg-blue-600 rounded-lg transition-colors"
           >
-            <Plus size={16} />
+            <Plus size={14} />
             添加块
           </button>
         </div>
       </div>
+
+      {/* 质量指标面板 */}
+      {showQualityMetrics && qualityReport && (
+        <div className="px-4 py-2 bg-gray-50 border-b">
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-4">
+              <span className="text-gray-600">
+                平均质量: <strong className={qualityReport.averageQuality >= 70 ? 'text-green-600' : qualityReport.averageQuality >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                  {Math.round(qualityReport.averageQuality)}%
+                </strong>
+              </span>
+              <span className="text-gray-500">
+                优秀: {qualityReport.distribution.excellent} |
+                良好: {qualityReport.distribution.good} |
+                一般: {qualityReport.distribution.fair} |
+                较差: {qualityReport.distribution.poor}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 块列表 */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -425,18 +636,24 @@ const BlockEditor = ({
               const isBeingDragged = draggedBlock?.id === block.id;
               const isDragTarget = dragOver === block.id;
               const isHovered = hoveredBlock === block.id;
-              
+
+              // 智能元数据
+              const blockType = block.metadata?.type || 'paragraph';
+              const characterCount = block.content?.length || 0;
+              const isSemanticSplit = block.metadata?.semanticSplit;
+              const isMerged = block.metadata?.merged;
+
               return (
-                                 <div
-                   key={block.id}
-                   data-block-id={block.id}
-                   className={`
-                     group relative transition-colors duration-150 rounded-lg
-                     ${isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : ''}
-                     ${isBeingDragged ? 'opacity-50' : ''}
-                     ${isDragTarget ? 'bg-gray-100' : ''}
-                     mb-1
-                   `}
+                <div
+                  key={block.id}
+                  data-block-id={block.id}
+                  className={`
+                    group relative transition-colors duration-150 rounded-lg
+                    ${isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : ''}
+                    ${isBeingDragged ? 'opacity-50' : ''}
+                    ${isDragTarget ? 'bg-gray-100' : ''}
+                    mb-1
+                  `}
                   onMouseEnter={() => setHoveredBlock(block.id)}
                   onMouseLeave={() => setHoveredBlock(null)}
                   onDragOver={(e) => handleDragOver(e, block)}
@@ -446,7 +663,7 @@ const BlockEditor = ({
                   {isDragTarget && (
                     <div className="absolute -top-0.5 left-0 right-0 h-0.5 bg-blue-400 rounded-full z-10"></div>
                   )}
-                  
+
                   <div className="flex items-start">
                     {/* 左侧手柄区域 */}
                     <div className="flex items-center w-8 pt-3 justify-center">
@@ -466,11 +683,40 @@ const BlockEditor = ({
                     </div>
 
                     {/* 主要内容区域 */}
-                    <div 
+                    <div
                       className="flex-1 min-w-0 cursor-text"
                       onClick={(e) => handleTextClick(block.id, e)}
                     >
                       {renderBlockContent(block)}
+
+                      {/* 智能元数据标签 */}
+                      {(parsingMode === 'intelligent' || isSemanticSplit || isMerged) && (
+                        <div className="flex items-center gap-2 mt-1 px-3">
+                          {/* 块类型标签 */}
+                          <span className="text-xs text-gray-400">
+                            {formatBlockType(blockType)}
+                          </span>
+
+                          {/* 字符数 */}
+                          <span className="text-xs text-gray-300">
+                            {characterCount} 字符
+                          </span>
+
+                          {/* 智能标记 */}
+                          {isSemanticSplit && (
+                            <span className="text-xs text-purple-500 flex items-center gap-1">
+                              <Sparkles size={10} />
+                              语义分割
+                            </span>
+                          )}
+                          {isMerged && (
+                            <span className="text-xs text-purple-500 flex items-center gap-1">
+                              <Layers size={10} />
+                              已合并
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* 右侧操作区域 */}
@@ -501,4 +747,4 @@ const BlockEditor = ({
   );
 };
 
-export default BlockEditor; 
+export default BlockEditor;

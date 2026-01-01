@@ -5,6 +5,10 @@ import os
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 import uuid
+from pathlib import Path
+import re
+
+from ..utils.doc_registry import doc_registry
 
 doc_files_router = APIRouter(prefix="/api", tags=["doc_files"])
 
@@ -253,59 +257,75 @@ async def get_doc_file_content(task_uuid: str, doc_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to read document: {str(e)}')
 
-@doc_files_router.get('/tasks/{task_uuid}/doc_files/{doc_id}/blocks')
+@doc_files_router.get('/tasks/{task_uuid}/doc_files/{doc_id:path}/blocks')
 async def get_doc_file_blocks(task_uuid: str, doc_id: str):
-    """获取文档文件的块结构（用于项目篮溯源）"""
-    metadata = load_metadata()
+    """获取文档的块信息 - 增强版本，支持自动注册"""
     
-    if task_uuid not in metadata:
-        raise HTTPException(status_code=404, detail='Task not found')
+    # URL 解码文档 ID
+    import urllib.parse
+    doc_id = urllib.parse.unquote(doc_id)
+    print(f"处理文档: {doc_id}")
     
-    # 解析doc_id
+    # 首先尝试自动扫描和注册文档
     try:
-        parts = doc_id.split('_', 1)
-        if len(parts) != 2:
-            raise HTTPException(status_code=400, detail='Invalid doc_id format')
-        category, filename = parts
-    except:
-        raise HTTPException(status_code=400, detail='Invalid doc_id format')
+        registered_files = doc_registry.scan_and_register_docs(task_uuid)
+        if registered_files:
+            print(f"自动注册了 {len(registered_files)} 个文档: {registered_files}")
+    except Exception as e:
+        print(f"自动注册文档时出错: {e}")
     
-    doc_files = metadata[task_uuid].get('doc_files', {})
-    if category not in doc_files or filename not in doc_files[category]:
-        raise HTTPException(status_code=404, detail='Document not found')
+    # 获取文档信息
+    doc_info = doc_registry.get_document_info(task_uuid, doc_id)
     
-    doc_info = doc_files[category][filename]
-    file_path = f"backend/data/{doc_info['path']}"
+    if not doc_info:
+        # 如果仍然找不到，尝试直接从文件系统读取
+        task_dir = Path(f'backend/data/{task_uuid}')
+        file_path = task_dir / doc_id
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail='Document file not found')
+        
+        # 强制注册这个文档
+        try:
+            metadata = doc_registry.load_metadata()
+            doc_registry.register_document(metadata, task_uuid, file_path, force_update=True)
+            doc_registry.save_metadata(metadata)
+            doc_info = doc_registry.get_document_info(task_uuid, doc_id)
+        except Exception as e:
+            print(f"强制注册文档失败: {e}")
+            # 使用默认信息
+            doc_info = {
+                'description': Path(doc_id).stem,
+                'category': 'unknown',
+                'size': file_path.stat().st_size
+            }
     
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(f'backend/data/{task_uuid}/{doc_id}', 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # 简单的块解析（按段落分割）
-        blocks = []
-        paragraphs = content.split('\n\n')
-        
-        for i, paragraph in enumerate(paragraphs):
-            if paragraph.strip():
-                block_id = f"{doc_id}_block_{i+1}"
-                blocks.append({
-                    'id': block_id,
-                    'index': i + 1,
-                    'content': paragraph.strip(),
-                    'type': 'paragraph',
-                    'doc_id': doc_id,
-                    'task_uuid': task_uuid,
-                    'filename': filename,
-                    'category': category
-                })
+        # 使用更智能的块解析
+        blocks = parse_content_to_blocks(content, doc_id, task_uuid, doc_info)
         
         # 更新块数量
-        doc_info['blocks_count'] = len(blocks)
-        save_metadata(metadata)
+        if doc_info and doc_info.get('blocks_count') != len(blocks):
+            try:
+                metadata = doc_registry.load_metadata()
+                if task_uuid in metadata and 'doc_files' in metadata[task_uuid]:
+                    doc_files = metadata[task_uuid]['doc_files']
+                    for category, docs in doc_files.items():
+                        if doc_id in docs:
+                            docs[doc_id]['blocks_count'] = len(blocks)
+                            docs[doc_id]['last_modified'] = datetime.now().isoformat()
+                            break
+                    doc_registry.save_metadata(metadata)
+            except Exception as e:
+                print(f"更新块数量失败: {e}")
         
         return {
             'doc_id': doc_id,
-            'filename': filename,
+            'filename': doc_info.get('description', Path(doc_id).stem),
+            'display_name': doc_info.get('description', Path(doc_id).stem),
             'total_blocks': len(blocks),
             'blocks': blocks,
             'doc_info': doc_info
@@ -314,6 +334,92 @@ async def get_doc_file_blocks(task_uuid: str, doc_id: str):
         raise HTTPException(status_code=404, detail='Document file not found on disk')
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to parse document blocks: {str(e)}')
+
+
+def parse_content_to_blocks(content: str, filename: str, task_uuid: str, doc_info: dict) -> list:
+    """智能解析文档内容为块"""
+    if not content:
+        return []
+
+    blocks = []
+    
+    # 按段落分割（双换行符）
+    paragraphs = content.split('\n\n')
+    
+    for i, paragraph in enumerate(paragraphs):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+            
+        # 确定块类型
+        block_type = determine_block_type(paragraph)
+        
+        # 提取时间戳（如果存在）
+        timestamp = extract_timestamp(paragraph)
+        
+        block = {
+            'id': f"{filename.replace('.md', '')}_block_{i+1}",
+            'index': i + 1,
+            'content': paragraph,
+            'type': block_type,
+            'doc_id': filename,
+            'task_uuid': task_uuid,
+            'filename': filename,
+            'category': doc_info.get('category', 'unknown'),
+            'timestamp': timestamp
+        }
+        
+        blocks.append(block)
+    
+    return blocks
+
+
+def determine_block_type(content: str) -> str:
+    """确定块的类型"""
+    content_stripped = content.strip()
+    
+    if content_stripped.startswith('#'):
+        return 'heading'
+    elif content_stripped.startswith('```'):
+        return 'code'
+    elif content_stripped.startswith('>'):
+        return 'quote'
+    elif content_stripped.startswith('- ') or content_stripped.startswith('* '):
+        return 'list'
+    elif '|' in content_stripped and content_stripped.count('|') >= 2:
+        return 'table'
+    else:
+        return 'paragraph'
+
+
+def extract_timestamp(content: str) -> dict:
+    """从内容中提取时间戳"""
+    
+    # 匹配 [MM:SS] 或 [HH:MM:SS] 格式
+    timestamp_pattern = r'\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]'
+    matches = re.findall(timestamp_pattern, content)
+    
+    if matches:
+        # 取第一个匹配的时间戳
+        match = matches[0]
+        minutes = int(match[0])
+        seconds = int(match[1])
+        
+        if match[2]:  # 有小时
+            hours = minutes
+            minutes = seconds
+            seconds = int(match[2])
+            total_seconds = hours * 3600 + minutes * 60 + seconds
+        else:
+            total_seconds = minutes * 60 + seconds
+        
+        return {
+            'start': total_seconds,
+            'end': total_seconds + 30  # 默认30秒时长
+        }
+    
+    return None
+
 
 @doc_files_router.post('/doc_files/search')
 async def search_doc_files(data: DocFileSearchRequest):
@@ -367,3 +473,132 @@ async def search_doc_files(data: DocFileSearchRequest):
         'total_results': len(results),
         'results': results
     } 
+
+@doc_files_router.post('/tasks/{task_uuid}/doc_files/{doc_id:path}/rename')
+async def rename_document(task_uuid: str, doc_id: str, new_name: dict):
+    """重命名文档"""
+    new_filename = new_name.get('new_filename')
+    
+    if not new_filename:
+        raise HTTPException(status_code=400, detail='new_filename is required')
+    
+    # 确保新文件名有正确的扩展名
+    if not new_filename.endswith('.md'):
+        new_filename += '.md'
+    
+    try:
+        success = doc_registry.rename_document(task_uuid, doc_id, new_filename)
+        
+        if success:
+            return {
+                'success': True,
+                'old_filename': doc_id,
+                'new_filename': new_filename,
+                'message': f'文档已重命名: {doc_id} -> {new_filename}'
+            }
+        else:
+            raise HTTPException(status_code=500, detail='重命名失败')
+            
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'重命名失败: {str(e)}')
+
+
+@doc_files_router.post('/tasks/{task_uuid}/doc_files/register_ai_generated')
+async def register_ai_generated_document(task_uuid: str, doc_data: dict):
+    """注册 AI 生成的文档"""
+    filename = doc_data.get('filename')
+    content = doc_data.get('content')
+    ai_context = doc_data.get('ai_context', {})
+    
+    if not filename or not content:
+        raise HTTPException(status_code=400, detail='filename and content are required')
+    
+    # 确保文件名有正确的扩展名
+    if not filename.endswith('.md'):
+        filename += '.md'
+    
+    try:
+        success = doc_registry.register_ai_generated_document(
+            task_uuid, filename, content, ai_context
+        )
+        
+        if success:
+            return {
+                'success': True,
+                'filename': filename,
+                'message': f'AI 生成文档已注册: {filename}',
+                'doc_info': doc_registry.get_document_info(task_uuid, filename)
+            }
+        else:
+            raise HTTPException(status_code=500, detail='注册失败')
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'注册 AI 文档失败: {str(e)}')
+
+
+@doc_files_router.post('/tasks/{task_uuid}/doc_files/scan_and_register')
+async def scan_and_register_documents(task_uuid: str, force_update: bool = False):
+    """手动扫描并注册任务目录下的所有文档"""
+    try:
+        registered_files = doc_registry.scan_and_register_docs(task_uuid, force_update)
+        orphaned_files = doc_registry.cleanup_orphaned_entries(task_uuid)
+        
+        return {
+            'success': True,
+            'registered_files': registered_files,
+            'orphaned_files_cleaned': orphaned_files,
+            'message': f'扫描完成，注册了 {len(registered_files)} 个文档，清理了 {len(orphaned_files)} 个孤立条目'
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'扫描注册失败: {str(e)}')
+
+
+@doc_files_router.get('/tasks/{task_uuid}/doc_files/registry_status')
+async def get_registry_status(task_uuid: str):
+    """获取文档注册状态"""
+    try:
+        
+        task_dir = Path(f'backend/data/{task_uuid}')
+        
+        if not task_dir.exists():
+            raise HTTPException(status_code=404, detail='Task directory not found')
+        
+        # 获取文件系统中的文档
+        fs_files = [f.name for f in task_dir.iterdir() 
+                   if f.is_file() and f.suffix in {'.md', '.txt', '.json'}]
+        
+        # 获取 metadata 中注册的文档
+        metadata = doc_registry.load_metadata()
+        registered_files = []
+        
+        if task_uuid in metadata and 'doc_files' in metadata[task_uuid]:
+            doc_files = metadata[task_uuid]['doc_files']
+            for category, docs in doc_files.items():
+                for filename in docs.keys():
+                    registered_files.append(filename)
+        
+        # 找出未注册的文档
+        unregistered_files = [f for f in fs_files if f not in registered_files]
+        
+        # 找出孤立的注册条目
+        orphaned_entries = [f for f in registered_files if f not in fs_files]
+        
+        return {
+            'task_uuid': task_uuid,
+            'filesystem_files': fs_files,
+            'registered_files': registered_files,
+            'unregistered_files': unregistered_files,
+            'orphaned_entries': orphaned_entries,
+            'total_fs_files': len(fs_files),
+            'total_registered': len(registered_files),
+            'needs_registration': len(unregistered_files),
+            'needs_cleanup': len(orphaned_entries)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'获取注册状态失败: {str(e)}') 

@@ -1,0 +1,813 @@
+openapi: 3.0.3
+info:
+  title: Your API Name
+  description: API description for your service
+  version: 1.0.0
+  contact:
+    name: API Team
+    email: api@example.com
+    url: https://example.com/contact
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.example.com/v1
+    description: Production server
+  - url: https://staging-api.example.com/v1
+    description: Staging server
+  - url: http://localhost:8080/v1
+    description: Development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  version:
+                    type: string
+                    example: "1.0.0"
+
+  /users:
+    get:
+      summary: List users
+      tags:
+        - Users
+      parameters:
+        - name: page
+          in: query
+          description: Page number for pagination
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of items per page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          description: Search term
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: status
+          in: query
+          description: Filter by user status
+          required: false
+          schema:
+            type: string
+            enum: [active, inactive, suspended]
+        - name: sort_by
+          in: query
+          description: Sort field
+          required: false
+          schema:
+            type: string
+            enum: [created_at, email, last_name]
+            default: created_at
+        - name: sort_order
+          in: query
+          description: Sort order
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUsersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Create user
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{userId}:
+    get:
+      summary: Get user by ID
+      tags:
+        - Users
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      summary: Update user completely
+      tags:
+        - Users
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    patch:
+      summary: Partially update user
+      tags:
+        - Users
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchUserRequest'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Delete user
+      tags:
+        - Users
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: User deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{userId}/profile:
+    get:
+      summary: Get user profile
+      tags:
+        - Users
+        - Profiles
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      summary: Update user profile
+      tags:
+        - Users
+        - Profiles
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfileRequest'
+      responses:
+        '200':
+          description: User profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - role
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: User unique identifier
+        email:
+          type: string
+          format: email
+          description: User email address
+        firstName:
+          type: string
+          maxLength: 50
+          description: User first name
+        lastName:
+          type: string
+          maxLength: 50
+          description: User last name
+        avatar:
+          type: string
+          format: uri
+          description: Avatar image URL
+        role:
+          $ref: '#/components/schemas/UserRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+        lastLoginAt:
+          type: string
+          format: date-time
+          description: Last login timestamp
+
+    UserRole:
+      type: string
+      enum:
+        - admin
+        - user
+        - moderator
+        - guest
+      description: User role in the system
+
+    UserStatus:
+      type: string
+      enum:
+        - active
+        - inactive
+        - suspended
+        - pending_verification
+      description: User account status
+
+    UserProfile:
+      type: object
+      required:
+        - userId
+        - preferences
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: User ID
+        bio:
+          type: string
+          maxLength: 500
+          description: User biography
+        website:
+          type: string
+          format: uri
+          description: Personal website
+        location:
+          type: string
+          maxLength: 100
+          description: User location
+        timezone:
+          type: string
+          maxLength: 50
+          default: UTC
+          description: User timezone
+        socialLinks:
+          $ref: '#/components/schemas/SocialLinks'
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+
+    SocialLinks:
+      type: object
+      properties:
+        twitter:
+          type: string
+          maxLength: 50
+          description: Twitter username
+        linkedin:
+          type: string
+          maxLength: 100
+          description: LinkedIn profile
+        github:
+          type: string
+          maxLength: 50
+          description: GitHub username
+        instagram:
+          type: string
+          maxLength: 50
+          description: Instagram username
+
+    UserPreferences:
+      type: object
+      required:
+        - theme
+        - language
+      properties:
+        theme:
+          type: string
+          enum: [light, dark, auto]
+          default: light
+          description: UI theme preference
+        language:
+          type: string
+          maxLength: 10
+          default: en
+          description: Preferred language
+        emailNotifications:
+          type: boolean
+          default: true
+          description: Email notification preference
+        pushNotifications:
+          type: boolean
+          default: false
+          description: Push notification preference
+        marketingEmails:
+          type: boolean
+          default: false
+          description: Marketing emails preference
+
+    CreateUserRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: User password
+        firstName:
+          type: string
+          maxLength: 50
+          description: User first name
+        lastName:
+          type: string
+          maxLength: 50
+          description: User last name
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    UpdateUserRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+        firstName:
+          type: string
+          maxLength: 50
+          description: User first name
+        lastName:
+          type: string
+          maxLength: 50
+          description: User last name
+        role:
+          $ref: '#/components/schemas/UserRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+
+    PatchUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+        firstName:
+          type: string
+          maxLength: 50
+          description: User first name
+        lastName:
+          type: string
+          maxLength: 50
+          description: User last name
+        role:
+          $ref: '#/components/schemas/UserRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        avatar:
+          type: string
+          format: uri
+          description: Avatar image URL
+
+    UpdateUserProfileRequest:
+      type: object
+      properties:
+        bio:
+          type: string
+          maxLength: 500
+          description: User biography
+        website:
+          type: string
+          format: uri
+          description: Personal website
+        location:
+          type: string
+          maxLength: 100
+          description: User location
+        timezone:
+          type: string
+          maxLength: 50
+          description: User timezone
+        socialLinks:
+          $ref: '#/components/schemas/SocialLinks'
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+
+    Pagination:
+      type: object
+      required:
+        - page
+        - limit
+        - total
+        - pages
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          description: Current page number
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Items per page
+        total:
+          type: integer
+          minimum: 0
+          description: Total number of items
+        pages:
+          type: integer
+          minimum: 0
+          description: Total number of pages
+        hasNext:
+          type: boolean
+          description: Whether next page exists
+        hasPrev:
+          type: boolean
+          description: Whether previous page exists
+
+    UserResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/User'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    UserProfileResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/UserProfile'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    PaginatedUsersResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    ResponseMeta:
+      type: object
+      required:
+        - timestamp
+        - version
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Response timestamp
+        version:
+          type: string
+          description: API version
+        requestId:
+          type: string
+          format: uuid
+          description: Unique request identifier
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - meta
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetails'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    ErrorDetails:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Error code
+        message:
+          type: string
+          description: Error message
+        details:
+          type: array
+          items:
+            type: string
+          description: Additional error details
+        field:
+          type: string
+          description: Field name for validation errors
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validation_error:
+              summary: Validation error
+              value:
+                error:
+                  code: VALIDATION_ERROR
+                  message: Request validation failed
+                  details: ["Field 'email' is required"]
+                  field: email
+                meta:
+                  timestamp: "2024-01-01T00:00:00Z"
+                  version: "1.0.0"
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            auth_error:
+              summary: Authentication failed
+              value:
+                error:
+                  code: AUTHENTICATION_FAILED
+                  message: Invalid or missing authentication token
+                meta:
+                  timestamp: "2024-01-01T00:00:00Z"
+                  version: "1.0.0"
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            permission_error:
+              summary: Access denied
+              value:
+                error:
+                  code: AUTHORIZATION_DENIED
+                  message: You don't have permission to access this resource
+                meta:
+                  timestamp: "2024-01-01T00:00:00Z"
+                  version: "1.0.0"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            not_found:
+              summary: User not found
+              value:
+                error:
+                  code: USER_NOT_FOUND
+                  message: User with the specified ID was not found
+                meta:
+                  timestamp: "2024-01-01T00:00:00Z"
+                  version: "1.0.0"
+
+    Conflict:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            conflict:
+              summary: Email already exists
+              value:
+                error:
+                  code: EMAIL_ALREADY_EXISTS
+                  message: User with this email address already exists
+                meta:
+                  timestamp: "2024-01-01T00:00:00Z"
+                  version: "1.0.0"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            internal_error:
+              summary: Server error
+              value:
+                error:
+                  code: INTERNAL_SERVER_ERROR
+                  message: An unexpected error occurred
+                meta:
+                  timestamp: "2024-01-01T00:00:00Z"
+                  version: "1.0.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT authentication token
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Users
+    description: User management endpoints
+  - name: Profiles
+    description: User profile endpoints
