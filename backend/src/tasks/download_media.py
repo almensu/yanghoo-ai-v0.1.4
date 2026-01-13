@@ -23,6 +23,32 @@ def get_format_string(quality: str) -> str:
     # Default to 'best' if quality string is not recognized
     return quality_map.get(quality, quality_map['best'])
 
+def _get_cookies_file_path() -> str | None:
+    """
+    Get the path to the cookies file for yt-dlp authentication.
+    Checks multiple locations in order of priority.
+
+    Returns:
+        The absolute path to the cookies file, or None if not found.
+    """
+    # Possible locations for cookies.txt (in priority order)
+    possible_locations = [
+        # Backend directory (highest priority)
+        Path(__file__).parent.parent.parent / "cookies.txt",
+        # Current working directory
+        Path.cwd() / "cookies.txt",
+        # User's home directory
+        Path.home() / ".config" / "yt-dlp" / "cookies.txt",
+        Path.home() / "cookies.txt",
+    ]
+
+    for cookies_path in possible_locations:
+        if cookies_path.is_file():
+            logger.info(f"Using cookies file: {cookies_path}")
+            return str(cookies_path)
+
+    return None
+
 async def run_download_media(task_metadata: TaskMetadata, quality: str, base_dir_str: str) -> str:
     """
     Downloads the media file for a given task and quality using yt-dlp.
@@ -61,6 +87,9 @@ async def run_download_media(task_metadata: TaskMetadata, quality: str, base_dir
     # yt-dlp needs the template string including extension placeholder
     output_template_str = f"{str(output_template_base_path)}.%(ext)s"
 
+    # Check for cookies file
+    cookies_file = _get_cookies_file_path()
+
     ydl_opts = {
         'format': format_string,
         'outtmpl': output_template_str,
@@ -71,6 +100,13 @@ async def run_download_media(task_metadata: TaskMetadata, quality: str, base_dir
         # 'external_downloader': 'aria2c', # Removed as per user request
         # 'external_downloader_args': ['-x', '16', '-s', '16', '-k', '1M'], # Removed for HLS compatibility
     }
+
+    # Add cookies if available
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
+        logger.info(f"Using cookies file for authentication: {cookies_file}")
+    else:
+        logger.warning("No cookies file found. YouTube downloads may fail for age-restricted or bot-protected content.")
 
     loop = asyncio.get_event_loop()
     downloaded_file_path_abs: Path | None = None

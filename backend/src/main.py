@@ -3881,6 +3881,23 @@ async def get_prompt_file(filename: str):
         raise HTTPException(status_code=500, detail=f"Error retrieving prompt file: {str(e)}")
 # --- END: Prompt Files Endpoints ---
 
+# --- WebSocket Endpoint ---
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive, listen for client messages
+            data = await websocket.receive_text()
+            # Optionally respond to specific client messages (e.g., ping)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error for {websocket.client}: {e}", exc_info=True)
+        if websocket in manager.active_connections:
+            manager.disconnect(websocket)
+# --- END: WebSocket Endpoint ---
+
 # --- START: SRT Processing Endpoints ---
 
 if __name__ == "__main__":

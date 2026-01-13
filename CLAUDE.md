@@ -29,9 +29,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Stop both services
 ./stop.sh
+
+# Development mode with tmux split-screen log monitoring
+./dev.sh
 ```
 
 **Important**: `start.sh` requires `uv` to be installed. It will automatically sync dependencies using `uv sync` before starting services.
+
+**dev.sh**: Uses tmux to show live backend (blue) and frontend (green) logs in split-screen. Requires tmux installed (`brew install tmux` on macOS).
 
 ### Backend Development
 ```bash
@@ -55,6 +60,13 @@ npm test       # Run tests
 npm run build  # Production build
 ```
 
+**Frontend Architecture Note**: The frontend uses a modular core architecture:
+- `frontend/src/core/config/constants.js` - Centralized configuration (API URLs, timeouts, theme)
+- `frontend/src/core/api/` - Centralized API client with HTTP and WebSocket modules
+- `frontend/src/core/router/index.js` - Route definitions and navigation
+
+API endpoints are defined in `core/api/endpoints.js` for maintainability. All environment-specific configuration uses `REACT_APP_*` prefix (see `.env.example`).
+
 ### Managing Python Dependencies
 ```bash
 # Add a new dependency
@@ -77,6 +89,17 @@ uv run <command>
 ```bash
 # Register existing documents in metadata.json
 uv run python backend/migrate_existing_docs.py
+```
+
+### Testing and Linting
+```bash
+# Frontend tests (from frontend directory)
+npm test
+
+# Python linting (requires dev dependencies)
+uv run black backend/src/       # Format code
+uv run ruff check backend/src/  # Lint code
+uv run mypy backend/src/        # Type checking
 ```
 
 ## Architecture Overview
@@ -119,6 +142,16 @@ The application processes media through a multi-stage pipeline:
    - Auto-registers discovered documents in `metadata.json`
    - Tracks document type, category, language, format
    - Supports document renaming with history tracking
+
+5. **Block Registry** (`utils/block_registry.py`) - Backend block/project metadata storage
+   - Server-side persistence for blocks and projects
+   - Stored in `backend/data/blocks_metadata.json`
+   - RESTful API via `routes/blocks.py`
+
+6. **Doc Files API** (`routes/doc_files.py`) - Document file management endpoints
+   - CRUD operations for task documents
+   - Search and filter by category, type, language
+   - Integrated with doc_registry for auto-categorization
 
 ### Data Flow
 
@@ -201,18 +234,31 @@ AI conversations automatically save as documents when:
 Backend accepts requests from:
 - `http://localhost:3000`
 - `http://127.0.0.1:3000`
+- `http://localhost:8080` (Vue)
+- `http://localhost:4200` (Angular)
+
+### Environment Configuration
+Frontend supports environment variables for API endpoints:
+- `REACT_APP_API_BASE_URL` - Backend API URL (default: `http://127.0.0.1:8000`)
+- `REACT_APP_WS_BASE_URL` - WebSocket URL (default: `ws://127.0.0.1:8000`)
+
+Create `frontend/.env` or `frontend/.env.local` to override defaults.
 
 ## File Structure Notes
 
 - `backend/data/metadata.json` - Central task registry (auto-created)
 - `backend/data/metadata_archived.json` - Archived tasks
+- `backend/data/blocks_metadata.json` - Block and project registry
 - `backend/src/routes/` - API endpoint definitions
 - `backend/src/tasks/` - Background task processors
 - `backend/src/utils/` - Utilities (block_registry, doc_registry)
+- `backend/src/orchestrator.py` - Multi-stage transcription pipeline orchestration
 - `frontend/src/components/Studio/` - Main workspace components
 - `frontend/src/components/BlockEditor/` - Block editor components
+- `frontend/src/core/` - Centralized architecture (config, API, router)
 - `frontend/src/features/` - Feature-specific modules
 - `frontend/src/layouts/` - Layout components (AppLayout)
+- `frontend/src/shared/` - Shared components and utilities
 
 ## Project-Specific Features
 
@@ -227,7 +273,39 @@ Navigate and reuse content across different tasks through the block system.
 ### Supported Platforms
 YouTube, Twitter, XiaoYuZhou (podcasts), Bilibili
 
+### Keyframe Extraction Pipeline
+- Scene detection using PySceneDetect
+- Configurable extraction methods (fixed interval or fixed count)
+- Metadata stored in `keyframes_json_path` with video info and extraction settings
+- Thumbnails accessible via static file serving
+
 ## Documentation Guides
 
 - `BLOCK_COLLECTION_GUIDE.md` - Complete guide to the Block Collection feature
 - `DOCUMENT_MANAGEMENT_BEST_PRACTICES.md` - Document lifecycle management
+- `docs/full_workflow.md` - Complete workflow documentation
+- `docs/progress_tracking.md` - Progress tracking implementation
+
+## Common Issues and Solutions
+
+### Port Already in Use
+The `start.sh` and `dev.sh` scripts automatically detect and kill processes using ports 8000 and 3000. If manual intervention is needed:
+```bash
+# Kill process on port 8000
+lsof -ti :8000 | xargs kill -9
+
+# Kill process on port 3000
+lsof -ti :3000 | xargs kill -9
+```
+
+### WebSocket Connection Failures
+- Verify backend is running on port 8000
+- Check firewall settings
+- Ensure `WS_BASE_URL` matches backend address (127.0.0.1 vs localhost)
+
+### Large File Processing
+For long audio files (>1 hour), the system uses the orchestrator pipeline:
+1. Splits audio into chunks (`split_audio.py`)
+2. Transcribes each chunk in parallel (`transcribe_whisperx_chunk.py`)
+3. Merges transcription JSONs (`merge_jsons.py`)
+4. Produces final merged transcription

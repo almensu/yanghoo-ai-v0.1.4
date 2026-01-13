@@ -5,6 +5,36 @@ import shutil # Import shutil for renaming
 from pathlib import Path
 from uuid import UUID
 from ..schemas import TaskMetadata
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def _get_cookies_file_path() -> str | None:
+    """
+    Get the path to the cookies file for yt-dlp authentication.
+    Checks multiple locations in order of priority.
+
+    Returns:
+        The absolute path to the cookies file, or None if not found.
+    """
+    # Possible locations for cookies.txt (in priority order)
+    possible_locations = [
+        # Backend directory (highest priority)
+        Path(__file__).parent.parent.parent / "cookies.txt",
+        # Current working directory
+        Path.cwd() / "cookies.txt",
+        # User's home directory
+        Path.home() / ".config" / "yt-dlp" / "cookies.txt",
+        Path.home() / "cookies.txt",
+    ]
+
+    for cookies_path in possible_locations:
+        if cookies_path.is_file():
+            logger.info(f"Using cookies file: {cookies_path}")
+            return str(cookies_path)
+
+    return None
 
 async def run_fetch_info_json(task_metadata: TaskMetadata, base_dir_str: str) -> str:
     """
@@ -51,6 +81,14 @@ async def run_fetch_info_json(task_metadata: TaskMetadata, base_dir_str: str) ->
         'ignoreerrors': False,
         'overwrites': True, # Overwrite temp file if it exists
     }
+
+    # Check for cookies file
+    cookies_file = _get_cookies_file_path()
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
+        logger.info(f"Using cookies file for authentication: {cookies_file}")
+    else:
+        logger.warning("No cookies file found. YouTube info.json download may fail for age-restricted or bot-protected content.")
 
     loop = asyncio.get_event_loop()
 

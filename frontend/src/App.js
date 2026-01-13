@@ -1,64 +1,111 @@
-import React from 'react';
+/**
+ * Main Application Component
+ * 
+ * Features:
+ * - React Router for navigation
+ * - Lazy loading for pages with Suspense
+ * - Error boundaries for graceful error handling
+ * - Centralized configuration
+ */
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
 import './App.css';
+
+// Core imports
+import { API_BASE_URL, WS_BASE_URL } from './core/config/constants';
+
+// Layout and shared components
 import AppLayout from './layouts/AppLayout';
-// Import the page components
-import TaskListPage from './pages/TaskListPage'; 
-import StudioPage from './pages/StudioPage';   
-import TestPage_VideoPlayer from './pages/TestPage_VideoPlayer'; // Updated import
-import TestPage_VttPreviewer from './pages/TestPage_VttPreviewer'; // Import new test page
-import TestPage_MarkdownViewer from './pages/TestPage_MarkdownViewer'; // Import Markdown test page
-import TestPage_MarkdownList from './pages/TestPage_MarkdownList'; // Import MarkdownList test page
-import TestPage_YouTubeTimestamp from './pages/TestPage_YouTubeTimestamp'; // Import YouTube timestamp test page
-import TestPage_AssSubtitle from './pages/TestPage_AssSubtitle'; // Import ASS subtitle test page
-import TestPage_KeyframeClip from './pages/TestPage_KeyframeClip'; // Import Keyframe Clip test page
-import TestPage_BlockEditor from './pages/TestPage_BlockEditor'; // Import Block Editor test page
-import TestPage_BlockDragToProject from './pages/TestPage_BlockDragToProject';
-import TestPage_MarkdownToProject from './pages/TestPage_MarkdownToProject'; // Import Block Drag to Project test page
-import BlockCollectionPage from './pages/BlockCollectionPage'; // Import Block Collection page
-import TestPage_BlockCollection from './pages/TestPage_BlockCollection'; // Import Block Collection test page
+import ErrorBoundary from './shared/components/ErrorBoundary';
+import { PageLoading } from './shared/components/Loading';
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
-const WS_BASE_URL = 'ws://127.0.0.1:8000';
+// Lazy load main pages for better performance
+const TaskListPage = lazy(() => import('./pages/TaskListPage'));
+const StudioPage = lazy(() => import('./pages/StudioPage'));
+const BlockCollectionPage = lazy(() => import('./pages/BlockCollectionPage'));
 
+// Lazy load test pages (development only)
+const TestPage_VideoPlayer = lazy(() => import('./pages/TestPage_VideoPlayer'));
+const TestPage_VttPreviewer = lazy(() => import('./pages/TestPage_VttPreviewer'));
+const TestPage_MarkdownViewer = lazy(() => import('./pages/TestPage_MarkdownViewer'));
+const TestPage_MarkdownList = lazy(() => import('./pages/TestPage_MarkdownList'));
+const TestPage_YouTubeTimestamp = lazy(() => import('./pages/TestPage_YouTubeTimestamp'));
+const TestPage_AssSubtitle = lazy(() => import('./pages/TestPage_AssSubtitle'));
+const TestPage_KeyframeClip = lazy(() => import('./pages/TestPage_KeyframeClip'));
+const TestPage_BlockEditor = lazy(() => import('./pages/TestPage_BlockEditor'));
+const TestPage_BlockDragToProject = lazy(() => import('./pages/TestPage_BlockDragToProject'));
+const TestPage_MarkdownToProject = lazy(() => import('./pages/TestPage_MarkdownToProject'));
+const TestPage_BlockCollection = lazy(() => import('./pages/TestPage_BlockCollection'));
+
+/**
+ * Wrapper component for lazy-loaded pages
+ * Provides Suspense fallback and Error Boundary
+ */
+function LazyPage({ children }) {
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<PageLoading />}>
+        {children}
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+/**
+ * Helper wrapper component to extract route params and pass to StudioPage
+ */
+function StudioPageWrapper() {
+  const { taskUuid } = useParams();
+  return (
+    <LazyPage>
+      <StudioPage taskUuid={taskUuid} apiBaseUrl={API_BASE_URL} />
+    </LazyPage>
+  );
+}
+
+/**
+ * Main App Component
+ */
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route element={<AppLayout />}>
+          {/* Main Routes */}
           <Route
             path="/"
-            element={<TaskListPage apiBaseUrl={API_BASE_URL} wsBaseUrl={WS_BASE_URL} />}
+            element={
+              <LazyPage>
+                <TaskListPage apiBaseUrl={API_BASE_URL} wsBaseUrl={WS_BASE_URL} />
+              </LazyPage>
+            }
           />
+          <Route path="/studio/:taskUuid" element={<StudioPageWrapper />} />
           <Route
-            path="/studio/:taskUuid"
-            element={<StudioPageWrapper apiBaseUrl={API_BASE_URL} />}
+            path="/block"
+            element={
+              <LazyPage>
+                <BlockCollectionPage />
+              </LazyPage>
+            }
           />
-          <Route path="/test/video-player" element={<TestPage_VideoPlayer />} />
-          <Route path="/test/vtt-previewer" element={<TestPage_VttPreviewer />} />
-          <Route path="/test/markdown" element={<TestPage_MarkdownViewer />} />
-          <Route path="/test/markdownlist" element={<TestPage_MarkdownList />} />
-          <Route path="/test/youtube-timestamp" element={<TestPage_YouTubeTimestamp />} />
-          <Route path="/test/ass-subtitle" element={<TestPage_AssSubtitle />} />
-          <Route path="/test/keyframe-clip" element={<TestPage_KeyframeClip />} />
-          <Route path="/test/block-editor" element={<TestPage_BlockEditor />} />
-          <Route path="/test/block-drag-to-project" element={<TestPage_BlockDragToProject />} />
-          <Route path="/test/markdown-to-project" element={<TestPage_MarkdownToProject />} />
-          <Route path="/block" element={<BlockCollectionPage />} />
-          <Route path="/test/block-collection" element={<TestPage_BlockCollection />} />
+
+          {/* Test/Development Routes */}
+          <Route path="/test/video-player" element={<LazyPage><TestPage_VideoPlayer /></LazyPage>} />
+          <Route path="/test/vtt-previewer" element={<LazyPage><TestPage_VttPreviewer /></LazyPage>} />
+          <Route path="/test/markdown" element={<LazyPage><TestPage_MarkdownViewer /></LazyPage>} />
+          <Route path="/test/markdownlist" element={<LazyPage><TestPage_MarkdownList /></LazyPage>} />
+          <Route path="/test/youtube-timestamp" element={<LazyPage><TestPage_YouTubeTimestamp /></LazyPage>} />
+          <Route path="/test/ass-subtitle" element={<LazyPage><TestPage_AssSubtitle /></LazyPage>} />
+          <Route path="/test/keyframe-clip" element={<LazyPage><TestPage_KeyframeClip /></LazyPage>} />
+          <Route path="/test/block-editor" element={<LazyPage><TestPage_BlockEditor /></LazyPage>} />
+          <Route path="/test/block-drag-to-project" element={<LazyPage><TestPage_BlockDragToProject /></LazyPage>} />
+          <Route path="/test/markdown-to-project" element={<LazyPage><TestPage_MarkdownToProject /></LazyPage>} />
+          <Route path="/test/block-collection" element={<LazyPage><TestPage_BlockCollection /></LazyPage>} />
         </Route>
       </Routes>
     </BrowserRouter>
   );
-}
-
-// Helper wrapper component to extract route param and pass to StudioPage
-function StudioPageWrapper({ apiBaseUrl }) {
-  // useParams hook extracts dynamic parameters from the URL
-  const { taskUuid } = useParams(); 
-  
-  // Render the actual StudioPage, passing the extracted uuid and apiBaseUrl
-  return <StudioPage taskUuid={taskUuid} apiBaseUrl={apiBaseUrl} />;
 }
 
 export default App;

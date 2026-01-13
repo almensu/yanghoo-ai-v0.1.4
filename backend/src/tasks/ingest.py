@@ -6,6 +6,36 @@ import glob
 import shutil
 from pathlib import Path # Import Path
 from ..schemas import Platform, TaskMetadata
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def _get_cookies_file_path() -> str | None:
+    """
+    Get the path to the cookies file for yt-dlp authentication.
+    Checks multiple locations in order of priority.
+
+    Returns:
+        The absolute path to the cookies file, or None if not found.
+    """
+    # Possible locations for cookies.txt (in priority order)
+    possible_locations = [
+        # Backend directory (highest priority)
+        Path(__file__).parent.parent.parent / "cookies.txt",
+        # Current working directory
+        Path.cwd() / "cookies.txt",
+        # User's home directory
+        Path.home() / ".config" / "yt-dlp" / "cookies.txt",
+        Path.home() / "cookies.txt",
+    ]
+
+    for cookies_path in possible_locations:
+        if cookies_path.is_file():
+            logger.info(f"Using cookies file: {cookies_path}")
+            return str(cookies_path)
+
+    return None
 
 def detect_platform(url: str) -> Platform:
     if "youtube.com" in url or "youtu.be" in url:
@@ -33,9 +63,17 @@ async def create_ingest_task(url: str, base_dir_str: str) -> TaskMetadata:
     ydl_info_opts = {
         'quiet': True,
         'no_warnings': True,
-        'extract_flat': True, 
-        'skip_download': True, 
+        'extract_flat': True,
+        'skip_download': True,
     }
+
+    # Check for cookies file
+    cookies_file = _get_cookies_file_path()
+    if cookies_file:
+        ydl_info_opts['cookiefile'] = cookies_file
+        logger.info(f"Using cookies file for authentication: {cookies_file}")
+    else:
+        logger.warning("No cookies file found. YouTube ingest may fail for age-restricted or bot-protected content.")
 
     # Options for thumbnail download using yt-dlp
     # Base name for thumbnail (Path object)
@@ -48,6 +86,10 @@ async def create_ingest_task(url: str, base_dir_str: str) -> TaskMetadata:
         # yt-dlp expects string path for outtmpl
         'outtmpl': str(thumbnail_base_name),
     }
+
+    # Add cookies to thumbnail download options if available
+    if cookies_file:
+        ydl_thumb_opts['cookiefile'] = cookies_file
 
     title = None
     actual_thumbnail_rel_path = None # Store the final relative path as string

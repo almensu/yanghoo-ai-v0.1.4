@@ -64,4 +64,7 @@ cursor/rules/
 
 # Project specific files
 启动.md
-docs/
+
+# YouTube Cookies - NEVER commit authentication files
+cookies.txt
+backend/cookies.txt

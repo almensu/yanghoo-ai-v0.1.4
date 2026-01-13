@@ -1,11 +1,11 @@
 import React from 'react';
+import PropTypes from 'prop-types';
 // Replace react-icons imports with lucide-react
-import { 
-  FileVideo, VideoOff, FileAudio, VolumeX, 
-  Download, AudioWaveform, Captions, Languages, Trash2, 
+import {
+  FileVideo, VideoOff, FileAudio, VolumeX,
+  Download, AudioWaveform, Captions, Languages, Trash2,
   Headphones, Combine, Tv, Mic, Archive, Scissors,
-  ListVideo, ServerCrash, DownloadCloud, CheckCircle2, AlertCircle, XCircle, HelpCircle, Trash, MoreVertical, 
-  ChevronDown, Settings, FileText, Folder, PlaySquare, ArrowDownUp
+  DownloadCloud, Trash, ChevronDown, Settings, FileText, Folder, PlaySquare, ArrowDownUp
 } from 'lucide-react'; 
 
 // Basic placeholder for image loading/error
@@ -47,6 +47,29 @@ const cn = (...classes) => classes.filter(Boolean).join(' ');
 const IconWrapper = ({ icon: Icon, className, ...props }) => (
   <Icon className={cn("w-4 h-4", className)} {...props} /> // Default size w-4 h-4
 );
+
+// PropTypes for ImageWithFallback
+ImageWithFallback.propTypes = {
+  src: PropTypes.string,
+  alt: PropTypes.string,
+  className: PropTypes.string,
+};
+
+ImageWithFallback.defaultProps = {
+  src: '',
+  alt: '',
+  className: '',
+};
+
+// PropTypes for IconWrapper
+IconWrapper.propTypes = {
+  icon: PropTypes.elementType.isRequired,
+  className: PropTypes.string,
+};
+
+IconWrapper.defaultProps = {
+  className: '',
+};
 
 function CardView({
   tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio,
@@ -98,11 +121,6 @@ function CardView({
     return task.srt_md_files && Object.keys(task.srt_md_files).length > 0;
   };
 
-  const hasRawSrtFiles = (task) => {
-    // Check if there are any raw SRT files in the directory (before processing)
-    return task.raw_srt_files && task.raw_srt_files.length > 0;
-  };
-
   const getSelectedWhisperXModel = (uuid) => whisperxModels[uuid] || 'medium.en';
   const handleWhisperXModelChange = (uuid, model) => setWhisperxModels(prev => ({ ...prev, [uuid]: model }));
 
@@ -133,9 +151,13 @@ function CardView({
           <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-52 z-[1]">
             {sortOptions.map(opt => (
               <li key={opt.label}>
-                <a onClick={() => handleSort(opt.field, opt.order)} className={cn(sortField === opt.field && sortOrder === opt.order && "bg-base-300")}>
+                <button
+                  type="button"
+                  onClick={() => handleSort(opt.field, opt.order)}
+                  className={cn(sortField === opt.field && sortOrder === opt.order && "bg-base-300")}
+                >
                   {opt.label}
-                </a>
+                </button>
               </li>
             ))}
           </ul>
@@ -158,7 +180,6 @@ function CardView({
           const srtZhExists = hasSrt(task.srt_files, 'zh-Hans');
           const transcriptSrtExists = hasTranscriptSrt(task);
           const srtMdFilesExist = hasSrtMdFiles(task);
-          const rawSrtFilesExist = hasRawSrtFiles(task);
           const assEnExists = hasAss(task.ass_files, 'en');
           const assZhExists = hasAss(task.ass_files, 'zh-Hans');
           const assMainExists = hasAss(task.ass_files, 'main');
@@ -261,7 +282,15 @@ function CardView({
                           </button>
                           <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-32 z-[1]">
                             {videoQualities.map(quality => (
-                              <li key={quality}><a className="text-xs" onClick={() => onDownloadRequest(task.uuid, quality)}>{quality}</a></li>
+                              <li key={quality}>
+                                <button
+                                  type="button"
+                                  className="text-xs"
+                                  onClick={() => onDownloadRequest(task.uuid, quality)}
+                                >
+                                  {quality}
+                                </button>
+                              </li>
                             ))}
                           </ul>
                         </div>
@@ -662,5 +691,62 @@ function CardView({
     </div>
   );
 }
+
+CardView.propTypes = {
+  tasks: PropTypes.arrayOf(
+    PropTypes.shape({
+      uuid: PropTypes.string.isRequired,
+      title: PropTypes.string,
+      url: PropTypes.string,
+      platform: PropTypes.string,
+      thumbnail_path: PropTypes.string,
+      media_files: PropTypes.object,
+      extracted_wav_path: PropTypes.string,
+      downloaded_audio_path: PropTypes.string,
+      vtt_files: PropTypes.object,
+      srt_files: PropTypes.object,
+      raw_srt_files: PropTypes.array,
+      srt_md_files: PropTypes.object,
+      ass_files: PropTypes.object,
+      whisperx_json_path: PropTypes.string,
+      transcription_model: PropTypes.string,
+      merged_vtt_md_path: PropTypes.string,
+      info_json_path: PropTypes.string,
+      archived: PropTypes.bool,
+      last_modified: PropTypes.string,
+      created_at: PropTypes.string,
+    })
+  ),
+  onDelete: PropTypes.func.isRequired,
+  onArchive: PropTypes.func.isRequired,
+  onDownloadRequest: PropTypes.func.isRequired,
+  onDownloadAudio: PropTypes.func.isRequired,
+  onExtractAudio: PropTypes.func.isRequired,
+  onDeleteVideo: PropTypes.func.isRequired,
+  onDeleteAudio: PropTypes.func.isRequired,
+  onDownloadVtt: PropTypes.func.isRequired,
+  onDeleteVtt: PropTypes.func.isRequired,
+  onNaturalSegmentVtt: PropTypes.func.isRequired,
+  onMergeVtt: PropTypes.func.isRequired,
+  onCreateVideo: PropTypes.func.isRequired,
+  onTranscribeWhisperX: PropTypes.func.isRequired,
+  onDeleteWhisperX: PropTypes.func.isRequired,
+  onSplitTranscribeWhisperX: PropTypes.func.isRequired,
+  onOpenFolder: PropTypes.func.isRequired,
+  onGoToStudio: PropTypes.func.isRequired,
+  onProcessSrt: PropTypes.func.isRequired,
+  onMergeSrt: PropTypes.func.isRequired,
+  onDeleteSrt: PropTypes.func.isRequired,
+  onDeleteAss: PropTypes.func.isRequired,
+  sortField: PropTypes.string,
+  sortOrder: PropTypes.string,
+  handleSort: PropTypes.func,
+};
+
+CardView.defaultProps = {
+  tasks: [],
+  sortField: 'created_at',
+  sortOrder: 'desc',
+};
 
 export default CardView; 
