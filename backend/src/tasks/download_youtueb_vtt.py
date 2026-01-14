@@ -16,31 +16,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Use an asyncio Lock for metadata file operations
 metadata_lock = asyncio.Lock()
 
-def _get_cookies_file_path() -> str | None:
-    """
-    Get the path to the cookies file for yt-dlp authentication.
-    Checks multiple locations in order of priority.
-
-    Returns:
-        The absolute path to the cookies file, or None if not found.
-    """
-    # Possible locations for cookies.txt (in priority order)
-    possible_locations = [
-        # Backend directory (highest priority)
-        Path(__file__).parent.parent.parent / "cookies.txt",
-        # Current working directory
-        Path.cwd() / "cookies.txt",
-        # User's home directory
-        Path.home() / ".config" / "yt-dlp" / "cookies.txt",
-        Path.home() / "cookies.txt",
-    ]
-
-    for cookies_path in possible_locations:
-        if cookies_path.is_file():
-            logging.info(f"Using cookies file: {cookies_path}")
-            return str(cookies_path)
-
-    return None
+# Browser to use for cookies (macOS default: safari, Linux/Windows: chrome)
+DEFAULT_BROWSER = "safari"  # Can be "chrome", "safari", "firefox", etc.
 
 async def download_youtube_vtt(task_meta: TaskMetadata, metadata_file: str = "backend/data/metadata.json") -> dict:
     """
@@ -78,13 +55,6 @@ async def download_youtube_vtt(task_meta: TaskMetadata, metadata_file: str = "ba
 
         logging.info(f"Starting VTT download for URL: {video_url}")
 
-        # Check for cookies file
-        cookies_file = _get_cookies_file_path()
-        if cookies_file:
-            logging.info(f"Using cookies file for authentication: {cookies_file}")
-        else:
-            logging.warning("No cookies file found. YouTube VTT download may fail for age-restricted or bot-protected content.")
-
         # Try downloading English subtitles first
         en_cmd = [
             "yt-dlp",
@@ -93,13 +63,9 @@ async def download_youtube_vtt(task_meta: TaskMetadata, metadata_file: str = "ba
             "--write-auto-subs",
             "--sub-lang", "en",
             "--sub-format", "vtt",
+            "--cookies-from-browser", DEFAULT_BROWSER,
+            video_url
         ]
-
-        # Add cookies if available
-        if cookies_file:
-            en_cmd.extend(["--cookies", cookies_file])
-
-        en_cmd.append(video_url)
         
         logging.info(f"Running English download command: {' '.join(en_cmd)}")
         
@@ -167,13 +133,9 @@ async def download_youtube_vtt(task_meta: TaskMetadata, metadata_file: str = "ba
             "--write-auto-subs",
             "--sub-lang", "zh-Hans",
             "--sub-format", "vtt",
+            "--cookies-from-browser", DEFAULT_BROWSER,
+            video_url
         ]
-
-        # Add cookies if available
-        if cookies_file:
-            zh_cmd.extend(["--cookies", cookies_file])
-
-        zh_cmd.append(video_url)
         
         logging.info(f"Running Chinese download command: {' '.join(zh_cmd)}")
         
