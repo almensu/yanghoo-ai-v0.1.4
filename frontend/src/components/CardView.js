@@ -5,7 +5,7 @@ import {
   FileVideo, VideoOff, FileAudio, VolumeX,
   Download, AudioWaveform, Captions, Languages, Trash2,
   Headphones, Combine, Tv, Mic, Archive, Scissors,
-  DownloadCloud, Trash, ChevronDown, Settings, FileText, Folder, PlaySquare, ArrowDownUp
+  DownloadCloud, Trash, ChevronDown, Settings, FileText, Folder, PlaySquare, ArrowDownUp, Sparkles
 } from 'lucide-react'; 
 
 // Basic placeholder for image loading/error
@@ -77,7 +77,7 @@ function CardView({
   onDeleteVtt, onNaturalSegmentVtt, onMergeVtt, onCreateVideo,
   onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX, onOpenFolder, onGoToStudio,
   // Add SRT processing handlers
-  onProcessSrt, onMergeSrt, onDeleteSrt,
+  onProcessSrt, onMergeSrt, onDeleteSrt, onGenerateSrt, onTranslateSubtitles,
   // Add ASS processing handlers
   onDeleteAss,
   // Sorting props
@@ -526,42 +526,53 @@ function CardView({
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 text-xs">
                                <IconWrapper icon={FileText} className={cn(
-                                 srtMdFilesExist ? 'text-green-500' : 
-                                 (srtEnExists || srtZhExists) ? 'text-orange-500' : 
+                                 srtMdFilesExist ? 'text-green-500' :
+                                 (srtEnExists || srtZhExists) ? 'text-orange-500' :
                                  'text-base-content/40'
                                )}/>
                                <span className={cn(!(srtEnExists || srtZhExists || srtMdFilesExist) && 'text-base-content/60')}>
                                    SRT 字幕 {
-                                     srtMdFilesExist ? '(已合并)' : 
-                                     (srtEnExists || srtZhExists) ? '(已处理)' : 
+                                     srtMdFilesExist ? '(已合并)' :
+                                     (srtEnExists || srtZhExists) ? '(已处理)' :
                                      ''
                                    }
                                </span>
                             </div>
                             <div className="flex gap-1">
-                                {/* Stage 1: Process SRT (always show when no transcript.srt exists) */}
-                                {!transcriptSrtExists && (
-                                  <button 
+                                {/* Generate SRT Button - bridges VTT to LLM Translation */}
+                                {(!transcriptSrtExists || !srtEnExists) && vttEnExists && (
+                                  <button
                                      className={cn(
-                                         "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200"
-                                      )} 
-                                     onClick={() => onProcessSrt(task.uuid)}
-                                     data-tip="预处理 SRT"
+                                         "btn btn-outline btn-xs btn-square tooltip",
+                                         srtEnExists ? "btn-success" : "btn-primary"
+                                      )}
+                                     onClick={() => onGenerateSrt && onGenerateSrt(task.uuid)}
+                                     data-tip={
+                                       srtEnExists ? "SRT 已生成" :
+                                       "生成 SRT (VTT → 预处理)"
+                                     }
                                   >
-                                     <IconWrapper icon={Settings} className="text-orange-500" /> 
+                                     <IconWrapper icon={Settings} className={cn(srtEnExists ? 'text-success' : 'text-primary', "w-3 h-3")} />
                                   </button>
                                 )}
-                                
-                                {/* Stage 2: Merge SRT to MD (when we have transcript.srt but no MD files) */}
-                                {transcriptSrtExists && !srtMdFilesExist && (
-                                  <button 
-                                     className={cn(
-                                         "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200"
-                                      )} 
-                                     onClick={() => onMergeSrt(task.uuid)}
-                                     data-tip="一键生成全部格式 (MD)"
+                                {/* Legacy Process SRT button - hidden if we have Generate SRT */}
+                                {(!transcriptSrtExists && !vttEnExists) && (
+                                  <button
+                                     className="btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200"
+                                     onClick={() => onProcessSrt(task.uuid)}
+                                     data-tip="预处理 SRT (需要手动添加 SRT 文件)"
                                   >
-                                     <IconWrapper icon={Combine} className="text-orange-500" /> 
+                                     <IconWrapper icon={Settings} className="text-orange-500" />
+                                  </button>
+                                )}
+                                {/* Merge SRT to MD */}
+                                {transcriptSrtExists && !srtMdFilesExist && (
+                                  <button
+                                     className="btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200"
+                                     onClick={() => onMergeSrt(task.uuid)}
+                                     data-tip="合并 SRT → MD"
+                                  >
+                                     <IconWrapper icon={Combine} className="text-orange-500" />
                                   </button>
                                 )}
                             </div>
@@ -587,19 +598,38 @@ function CardView({
                             </div>
                             <div className="flex justify-between items-center">
                                 <div className="flex items-center gap-1 text-xs">
-                                   <IconWrapper icon={Languages} className="text-base-content/50"/> 
+                                   <IconWrapper icon={Languages} className="text-base-content/50"/>
                                    <span className={cn(!srtZhExists && 'text-base-content/60')}>中文</span>
                                </div>
-                               <button 
+                               <button
                                    className={cn(
                                        "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200",
                                        (!srtZhExists) && 'btn-disabled'
-                                   )} 
+                                   )}
                                    onClick={() => onDeleteSrt(task.uuid, 'zh-Hans')}
                                    disabled={!srtZhExists}
                                    data-tip="删除中文 SRT"
                                >
                                    <IconWrapper icon={Trash} className="w-3 h-3 text-error/70" />
+                               </button>
+                            </div>
+                            {/* LLM Translation Button */}
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-1 text-xs">
+                                   <IconWrapper icon={Sparkles} className="text-base-content/50"/>
+                                   <span className="text-base-content/70">LLM 翻译</span>
+                               </div>
+                               <button
+                                   className={cn(
+                                       "btn btn-outline btn-xs btn-square tooltip",
+                                       srtZhExists ? "btn-success" : "btn-primary",
+                                       (!srtEnExists) && 'btn-disabled'
+                                   )}
+                                   onClick={() => onTranslateSubtitles && onTranslateSubtitles(task.uuid)}
+                                   disabled={!srtEnExists}
+                                   data-tip={srtZhExists ? "已翻译" : "翻译英文字幕到中文"}
+                               >
+                                   <IconWrapper icon={Sparkles} className={cn(srtZhExists ? 'text-success' : 'text-primary', "w-3 h-3")} />
                                </button>
                             </div>
                         </div>
@@ -737,6 +767,8 @@ CardView.propTypes = {
   onProcessSrt: PropTypes.func.isRequired,
   onMergeSrt: PropTypes.func.isRequired,
   onDeleteSrt: PropTypes.func.isRequired,
+  onGenerateSrt: PropTypes.func,
+  onTranslateSubtitles: PropTypes.func,
   onDeleteAss: PropTypes.func.isRequired,
   sortField: PropTypes.string,
   sortOrder: PropTypes.string,

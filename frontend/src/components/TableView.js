@@ -49,13 +49,13 @@ const ImageWithFallback = ({ src, alt, className }) => {
   return <img src={finalSrc} alt={alt} className={className} onError={onError} />;
 };
 
-function TableView({ 
-  tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio, 
-  onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt, 
+function TableView({
+  tasks, onDelete, onArchive, onDownloadRequest, onDownloadAudio,
+  onExtractAudio, onDeleteVideo, onDeleteAudio, onDownloadVtt,
   onDeleteVtt, onNaturalSegmentVtt, onMergeVtt, onCreateVideo,
   onTranscribeWhisperX, onDeleteWhisperX, onSplitTranscribeWhisperX,
   // Add SRT processing handlers
-  onProcessSrt, onMergeSrt, onDeleteSrt,
+  onProcessSrt, onMergeSrt, onDeleteSrt, onGenerateSrt, onTranslateSubtitles,
   // Add ASS processing handlers
   onDeleteAss,
   // Sorting props
