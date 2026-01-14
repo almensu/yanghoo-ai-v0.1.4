@@ -256,6 +256,105 @@ async def natural_segment_vtt_endpoint(task_uuid: str, merge_threshold: float = 
         logger.error(f"Natural segmentation failed for {task_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Natural segmentation failed: {str(e)}")
 
+@router.post("/api/tasks/{task_uuid}/generate_srt", response_model=Dict[str, Any])
+async def generate_srt_endpoint(task_uuid: str):
+    """
+    Generate SRT files from VTT:
+    1. Convert VTT to SRT (transcript_en.vtt → transcript.srt)
+    2. Process SRT to separate languages (transcript.srt → transcript_en.srt)
+    3. Generate ASS files
+    4. Update metadata
+
+    This bridges the gap between VTT download and LLM translation.
+
+    Args:
+        task_uuid: The UUID of the task
+
+    Returns:
+        Dict with generation status and file information
+    """
+    try:
+        # Validate task_uuid
+        try:
+            uuid_obj = UUID(task_uuid)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid UUID format: {task_uuid}")
+
+        # Check if task exists
+        metadata_path = Path(DATA_DIR) / "metadata.json"
+        if not metadata_path.exists():
+            raise HTTPException(status_code=404, detail="Metadata file not found")
+
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="Failed to parse metadata JSON")
+
+        if task_uuid not in metadata:
+            raise HTTPException(status_code=404, detail=f"Task {task_uuid} not found")
+
+        task_dir = Path(DATA_DIR) / task_uuid
+        if not task_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Task directory not found")
+
+        # Step 1: Check if VTT file exists
+        vtt_path = task_dir / "transcript_en.vtt"
+        if not vtt_path.exists():
+            raise HTTPException(
+                status_code=400,
+                detail="VTT file not found. Please download VTT first using the 'Download VTT' button."
+            )
+
+        logger.info(f"Starting SRT generation for task {task_uuid}")
+
+        # Step 2: Convert VTT to SRT
+        from ..tasks.convert_vtt_to_srt import convert_vtt_to_srt
+        srt_path = task_dir / "transcript.srt"
+
+        subtitle_count = convert_vtt_to_srt(str(vtt_path), str(srt_path))
+        logger.info(f"Converted {subtitle_count} subtitles from VTT to SRT")
+
+        # Step 3: Process SRT to separate languages
+        from ..tasks.process_srt import process_srt_files
+
+        result = await process_srt_files(task_uuid, str(metadata_path))
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=f"SRT processing failed: {result.get('error', 'Unknown error')}"
+            )
+
+        # Step 4: Update metadata with generation timestamp
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+
+        if task_uuid in metadata:
+            from datetime import datetime
+            metadata[task_uuid]["srt_generated_at"] = datetime.now().isoformat()
+            metadata[task_uuid]["last_modified"] = datetime.now().isoformat()
+
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Successfully generated SRT files for task {task_uuid}")
+
+        return {
+            "status": "success",
+            "message": f"Successfully generated SRT files with {subtitle_count} subtitles",
+            "task_uuid": task_uuid,
+            "processed_files": result.get("processed_files", {}),
+            "stats": result.get("stats", {}),
+            "subtitle_count": subtitle_count
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"SRT generation failed for {task_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"SRT generation failed: {str(e)}")
+
 @router.post("/api/tasks/{task_uuid}/process_srt", response_model=Dict[str, Any])
 async def process_srt_endpoint(task_uuid: str):
     """
