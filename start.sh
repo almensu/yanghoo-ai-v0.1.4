@@ -86,11 +86,10 @@ fi
 echo "[信息] 等待服务启动..."
 sleep 8
 
-# 自动打开检测页面和应用
-echo "[信息] 打开浏览器..."
-open "http://localhost:3000/dev-check.html"
+# 自动打开监控页面
+echo "[信息] 打开浏览器监控页面..."
+open "http://localhost:3000/monitor.html"
 sleep 2
-open "http://localhost:3000/"
 
 echo "--- Startup initiated ---"
 echo "Backend log: ${PROJECT_ROOT}/backend.log"
