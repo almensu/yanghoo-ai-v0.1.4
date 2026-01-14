@@ -112,17 +112,14 @@
             flex: 1;
             display: flex;
             overflow: hidden;
+            gap: 1px;
         }
 
         .log-panel {
             flex: 1;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid #333;
-        }
-
-        .log-panel:last-child {
-            border-right: none;
+            min-width: 0;
         }
 
         .log-panel-header {
@@ -142,6 +139,10 @@
 
         .log-panel-header.frontend {
             color: #00ff88;
+        }
+
+        .log-panel-header.browser {
+            color: #ff9500;
         }
 
         .log-panel-header .error-count {
@@ -319,6 +320,21 @@
                 </div>
             </div>
         </div>
+
+        <div class="log-panel">
+            <div class="log-panel-header browser">
+                <span>🌐 浏览器控制台</span>
+                <span class="error-count" id="browser-errors">0 错误</span>
+            </div>
+            <div class="log-content" id="browser-logs">
+                <div class="empty-state">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    </svg>
+                    <div>等待浏览器错误...</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="connection-status">
@@ -332,6 +348,7 @@
         let filterPattern = null;
         let backendErrors = 0;
         let frontendErrors = 0;
+        let browserErrors = 0;
 
         // 连接 WebSocket
         function connectWebSocket() {
@@ -405,9 +422,12 @@
                 if (service === 'backend') {
                     backendErrors++;
                     document.getElementById('backend-errors').textContent = `${backendErrors} 错误`;
-                } else {
+                } else if (service === 'frontend') {
                     frontendErrors++;
                     document.getElementById('frontend-errors').textContent = `${frontendErrors} 错误`;
+                } else if (service === 'browser') {
+                    browserErrors++;
+                    document.getElementById('browser-errors').textContent = `${browserErrors} 错误`;
                 }
             }
 
@@ -442,13 +462,17 @@
         function clearLogs() {
             const backendContainer = document.getElementById('backend-logs');
             const frontendContainer = document.getElementById('frontend-logs');
+            const browserContainer = document.getElementById('browser-logs');
 
             backendContainer.innerHTML = '<div class="empty-state"><div>日志已清空</div></div>';
             frontendContainer.innerHTML = '<div class="empty-state"><div>日志已清空</div></div>';
+            browserContainer.innerHTML = '<div class="empty-state"><div>日志已清空</div></div>';
             backendErrors = 0;
             frontendErrors = 0;
+            browserErrors = 0;
             document.getElementById('backend-errors').textContent = '0 错误';
             document.getElementById('frontend-errors').textContent = '0 错误';
+            document.getElementById('browser-errors').textContent = '0 错误';
         }
 
         // 清空日志文件

@@ -3,13 +3,15 @@
 提供实时日志流、服务状态和统计信息
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Body
 from fastapi.responses import StreamingResponse
-from typing import Dict
+from typing import Dict, Optional
+from pydantic import BaseModel
 import asyncio
 import json
 from pathlib import Path
 import os
+from datetime import datetime
 
 router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
@@ -17,6 +19,28 @@ router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 BACKEND_LOG = PROJECT_ROOT / "backend.log"
 FRONTEND_LOG = PROJECT_ROOT / "frontend.log"
+BROWSER_ERROR_LOG = PROJECT_ROOT / "browser_errors.log"
+
+
+# 浏览器错误数据模型
+class BrowserError(BaseModel):
+    """浏览器错误报告"""
+    message: str
+    source: Optional[str] = None
+    lineno: Optional[int] = None
+    colno: Optional[int] = None
+    error: Optional[str] = None
+    url: Optional[str] = None
+    userAgent: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
+class BrowserConsoleLog(BaseModel):
+    """浏览器控制台日志"""
+    level: str  # log, info, warn, error
+    args: list
+    url: Optional[str] = None
+    timestamp: Optional[str] = None
 
 
 class LogStreamer:
@@ -226,3 +250,97 @@ async def clear_logs(service: str = None):
             frontend_streamer.last_position = 0
 
     return {"status": "cleared"}
+
+
+# ========== 浏览器错误监控 ==========
+
+
+@router.post("/browser/error")
+async def report_browser_error(error: BrowserError):
+    """接收并记录浏览器错误"""
+    try:
+        timestamp = error.timestamp or datetime.utcnow().isoformat()
+
+        # 格式化错误信息
+        error_entry = {
+            "timestamp": timestamp,
+            "type": "error",
+            "message": error.message,
+            "source": error.source,
+            "line": error.lineno,
+            "column": error.colno,
+            "error_object": error.error,
+            "url": error.url,
+            "user_agent": error.userAgent
+        }
+
+        # 写入日志文件
+        with open(BROWSER_ERROR_LOG, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(error_entry, ensure_ascii=False) + '\n')
+
+        # 通过 WebSocket 广播给监控页面
+        await manager.broadcast({
+            "service": "browser",
+            "line": f"{error.message} at {error.source}:{error.lineno}:{error.colno}",
+            "type": "error",
+            "details": error_entry
+        })
+
+        return {"status": "logged", "id": f"{timestamp}-{error.source}-{error.lineno}"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/browser/console")
+async def report_browser_console(log: BrowserConsoleLog):
+    """接收并记录浏览器控制台日志"""
+    try:
+        timestamp = log.timestamp or datetime.utcnow().isoformat()
+
+        # 格式化日志信息
+        log_entry = {
+            "timestamp": timestamp,
+            "level": log.level,
+            "args": log.args,
+            "url": log.url
+        }
+
+        # 只记录 warn 和 error 级别
+        if log.level in ['warn', 'error']:
+            with open(BROWSER_ERROR_LOG, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+
+            # 通过 WebSocket 广播
+            await manager.broadcast({
+                "service": "browser",
+                "line": " ".join(str(arg) for arg in log.args),
+                "type": "warning" if log.level == "warn" else "error",
+                "details": log_entry
+            })
+
+        return {"status": "logged"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/browser/errors")
+async def get_browser_errors(tail: int = 50):
+    """获取最近的浏览器错误"""
+    if not BROWSER_ERROR_LOG.exists():
+        return {"errors": []}
+
+    errors = []
+    with open(BROWSER_ERROR_LOG, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        recent_lines = lines[-tail:] if len(lines) > tail else lines
+
+        for line in recent_lines:
+            try:
+                error_data = json.loads(line.strip())
+                errors.append(error_data)
+            except:
+                pass
+
+    return {"errors": errors}
