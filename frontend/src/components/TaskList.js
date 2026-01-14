@@ -4,17 +4,17 @@ import CardView from './CardView'; // Assuming CardView is in the same directory
 import TableView from './TableView'; // Assuming TableView is in the same directory
 
 // Destructure all the props passed from App.js
-function TaskList({ 
+function TaskList({
   tasks = [], // Default to empty array
-  isLoading, 
-  error, 
-  onDelete, 
-  onArchive, 
+  isLoading,
+  error,
+  onDelete,
+  onArchive,
   onRestoreArchived, // Pass this handler
-  onDownloadRequest, 
+  onDownloadRequest,
   onDownloadAudio,
-  onExtractAudio, 
-  onDeleteVideo, 
+  onExtractAudio,
+  onDeleteVideo,
   onDeleteAudio,
   onDownloadVtt,
   onDeleteVtt,
@@ -23,6 +23,8 @@ function TaskList({
   onProcessSrt,
   onMergeSrt,
   onDeleteSrt,
+  onGenerateSrt,
+  onTranslateSubtitles,
   onDeleteAss,
   onTranscribeWhisperX,
   onDeleteWhisperX,
@@ -34,7 +36,7 @@ function TaskList({
   sortField,
   sortOrder,
   handleSort,
-  SortIndicator 
+  SortIndicator
 }) {
   const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
   const [searchTerm, setSearchTerm] = useState(''); // State for search term (if you add search input later)
@@ -95,6 +97,7 @@ function TaskList({
               onProcessSrt={onProcessSrt}
               onMergeSrt={onMergeSrt}
               onDeleteSrt={onDeleteSrt}
+              onTranslateSubtitles={onTranslateSubtitles}
               onDeleteAss={onDeleteAss}
               onTranscribeWhisperX={onTranscribeWhisperX}
               onDeleteWhisperX={onDeleteWhisperX}
@@ -125,6 +128,7 @@ function TaskList({
               onProcessSrt={onProcessSrt}
               onMergeSrt={onMergeSrt}
               onDeleteSrt={onDeleteSrt}
+              onTranslateSubtitles={onTranslateSubtitles}
               onDeleteAss={onDeleteAss}
               onTranscribeWhisperX={onTranscribeWhisperX}
               onDeleteWhisperX={onDeleteWhisperX}

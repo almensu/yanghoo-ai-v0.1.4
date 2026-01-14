@@ -24,6 +24,8 @@ import {
   processSrt as apiProcessSrt,
   mergeSrt as apiMergeSrt,
   deleteSrt as apiDeleteSrt,
+  generateSrt as apiGenerateSrt,
+  translateSubtitles as apiTranslateSubtitles,
   deleteAss as apiDeleteAss,
 } from '../services/api';
 
@@ -283,6 +285,8 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
       const msg = err.response?.data?.detail || 'Failed VTT merge.';
       setFetchError(msg);
       toast.error(`VTT 合并失败：${msg}`);
+      // Clear error after 5 seconds
+      setTimeout(() => setFetchError(null), 5000);
     } finally {
       setFetchLoading(false);
     }
@@ -362,6 +366,25 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
     }
   };
 
+  const handleGenerateSrt = async (taskUuid) => {
+    setFetchLoading(true);
+    setFetchError(null);
+    try {
+      const data = await apiGenerateSrt(apiBaseUrl, taskUuid);
+      const { subtitle_count, stats } = data;
+      toast.success(`SRT 生成成功：处理 ${subtitle_count} 条字幕 (${stats?.english_subtitles || 0} 英文)`);
+      await fetchTasks();
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Failed to generate SRT.';
+      setFetchError(msg);
+      toast.error(`SRT 生成失败：${msg}`);
+      // Clear error after 5 seconds
+      setTimeout(() => setFetchError(null), 5000);
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
   const handleMergeSrt = async (taskUuid) => {
     setFetchLoading(true);
     setFetchError(null);
@@ -409,6 +432,23 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
     }
   };
 
+  const handleTranslateSubtitles = async (taskUuid) => {
+    setFetchLoading(true);
+    setFetchError(null);
+    try {
+      const data = await apiTranslateSubtitles(apiBaseUrl, taskUuid);
+      const { translated_count, model_used } = data;
+      toast.success(`LLM 翻译完成：已翻译 ${translated_count} 条字幕 (${model_used})`);
+      await fetchTasks();
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Failed translation.';
+      setFetchError(msg);
+      toast.error(`LLM 翻译失败：${msg}`);
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
   return (
     <div className="container mx-auto p-4 pt-8 flex flex-col h-full">
       <IngestForm
@@ -438,6 +478,8 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
           onProcessSrt={handleProcessSrt}
           onMergeSrt={handleMergeSrt}
           onDeleteSrt={handleDeleteSrt}
+          onGenerateSrt={handleGenerateSrt}
+          onTranslateSubtitles={handleTranslateSubtitles}
           onDeleteAss={handleDeleteAss}
           onTranscribeWhisperX={handleTranscribeWhisperX}
           onDeleteWhisperX={handleDeleteWhisperX}

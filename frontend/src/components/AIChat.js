@@ -82,8 +82,10 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     }, 2000);
   };
   const chatContainerRef = useRef(null);
-  const [selectedModel, setSelectedModel] = useState('deepseek');
+  const [selectedModel, setSelectedModel] = useState('glm-4.7');
   const [availableModels] = useState([
+    { id: 'glm-4.7', name: '智谱 GLM-4.7' },
+    { id: 'glm-4-flash', name: '智谱 GLM-4 Flash' },
     { id: 'qwen3:0.6b', name: 'Ollama - qwen3:0.6b' },
     { id: 'qwen3:14b', name: 'Ollama - qwen3:14b' },
     { id: 'deepseek-r1:1.5b', name: 'Ollama - deepseek-r1:1.5b' },
@@ -949,14 +951,17 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       );
     }
     
-    // 检查是否是Gemini过载错误消息
-    const isGeminiOverloadError = content.includes('过载') || content.includes('overloaded') || 
-                                  content.includes('UNAVAILABLE') || content.includes('503');
+    // 检查是否是API过载错误消息
+    const isOverloadError = content.includes('过载') || content.includes('overloaded') ||
+                                  content.includes('UNAVAILABLE') || content.includes('503') ||
+                                  content.includes('余额不足') || content.includes('1113');
+    const isCurrentlyUsingGLM = selectedModel.includes('glm');
     const isCurrentlyUsingGemini = selectedModel.includes('gemini');
-    
-    // 如果是Gemini过载错误且当前使用的是Gemini模型，显示快速切换选项
-    if (isGeminiOverloadError && isCurrentlyUsingGemini) {
-      const alternativeModels = availableModels.filter(m => !m.id.includes('gemini'));
+
+    // 如果是API过载错误且当前使用的是GLM或Gemini模型，显示快速切换选项
+    if (isOverloadError && (isCurrentlyUsingGLM || isCurrentlyUsingGemini)) {
+      const excludedModel = isCurrentlyUsingGLM ? 'glm' : 'gemini';
+      const alternativeModels = availableModels.filter(m => !m.id.includes(excludedModel));
       
       return (
         <div>

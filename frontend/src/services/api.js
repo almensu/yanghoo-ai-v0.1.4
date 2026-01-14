@@ -107,3 +107,22 @@ export const deleteAss = async (apiBaseUrl, uuid, langCode) => {
   return res.status;
 };
 
+export const translateSubtitles = async (apiBaseUrl, uuid, options = {}) => {
+  const res = await http.post(
+    `${apiBaseUrl}/api/tasks/${uuid}/translate-subtitles`,
+    {
+      model: options.model || 'glm-4.7',
+      source_lang: options.source_lang || 'English',
+      target_lang: options.target_lang || 'Chinese',
+      chunk_size: options.chunk_size || 50,
+      deduplicate: options.deduplicate !== false
+    }
+  );
+  return res.data;
+};
+
+export const generateSrt = async (apiBaseUrl, uuid) => {
+  const res = await http.post(`${apiBaseUrl}/api/tasks/${uuid}/generate_srt`);
+  return res.data;
+};
+
