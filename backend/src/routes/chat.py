@@ -36,6 +36,14 @@ def get_gemini_api_key():
     logger.info(f"Gemini API key successfully loaded (length: {len(api_key)})")
     return api_key
 
+def get_zhipu_api_key():
+    api_key = os.environ.get("ZHIPU_API_KEY")
+    if not api_key:
+        logger.error("ZHIPU_API_KEY environment variable not set.")
+        raise HTTPException(status_code=400, detail="请设置 ZHIPU_API_KEY 环境变量或选择其他模型")
+    logger.info(f"Zhipu API key successfully loaded (length: {len(api_key)})")
+    return api_key
+
 class Message(BaseModel):
     role: str
     content: str
@@ -86,19 +94,24 @@ async def chat(request: ChatRequest, api_key: str = Depends(get_openai_api_key))
         for msg in request.messages:
             if msg.role != 'system': # Exclude any system messages from history
                 messages_for_api.append({"role": msg.role, "content": msg.content})
-        
+
         # 根据模型类型选择不同的处理方式
         model_to_use = request.model
         logger.info(f"Processing model: {model_to_use}")
-        
+
+        # 检查模型是否使用Zhipu AI (GLM)
+        if model_to_use and model_to_use.startswith('glm'):
+            # 使用Zhipu AI API
+            logger.info(f"Using Zhipu AI API for model: {model_to_use}")
+            return await process_zhipu_request(model_to_use, messages_for_api)
         # 检查模型是否使用Gemini
-        if model_to_use and model_to_use.startswith('gemini'):
+        elif model_to_use and model_to_use.startswith('gemini'):
             # 使用Gemini API
             logger.info(f"Using Gemini API for model: {model_to_use}")
             return await process_gemini_request(model_to_use, messages_for_api)
         # 检查模型是否使用Ollama
-        elif model_to_use and (model_to_use.startswith('llama') or 
-                            model_to_use.startswith('qwen') or 
+        elif model_to_use and (model_to_use.startswith('llama') or
+                            model_to_use.startswith('qwen') or
                             model_to_use.startswith('deepseek-r1') or
                             model_to_use == 'llama2'):
             # 使用Ollama API
@@ -108,7 +121,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(get_openai_api_key))
             # 使用OpenAI兼容API（用于DeepSeek或OpenAI模型）
             logger.info(f"Using OpenAI compatible API for model: {model_to_use}")
             return await process_openai_request(model_to_use, messages_for_api, api_key)
-            
+
     except Exception as e:
         error_msg = f"Chat API Error: {str(e)}"
         logger.error(error_msg, exc_info=True)
@@ -158,6 +171,43 @@ async def process_openai_request(model: str, messages: List[Dict], api_key: str)
         raise HTTPException(status_code=e.status_code or 500, detail=f"AI service error: {str(e)}")
     except Exception as e:
         error_msg = f"Unexpected error with {model} model: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_msg)
+
+# 处理Zhipu AI API请求 (GLM模型)
+async def process_zhipu_request(model: str, messages: List[Dict]) -> ChatResponse:
+    try:
+        # 验证Zhipu API Key
+        zhipu_api_key = get_zhipu_api_key()
+
+        # 使用OpenAI SDK连接Zhipu AI (Coding端点)
+        base_url = "https://open.bigmodel.cn/api/coding/paas/v4/"
+        logger.info(f"Using Zhipu AI Coding API with model: {model}, base_url: {base_url}")
+
+        client = openai.OpenAI(api_key=zhipu_api_key, base_url=base_url)
+
+        # 调用API
+        chat_completion = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=8000,
+            top_p=0.9,
+        )
+
+        assistant_reply = chat_completion.choices[0].message.content
+        logger.info(f"Received response from Zhipu AI model {model} (length: {len(assistant_reply)})")
+
+        return ChatResponse(
+            content=assistant_reply.strip(),
+            model_used=model
+        )
+    except openai.APIError as e:
+        error_msg = f"Zhipu AI API Error: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(status_code=e.status_code or 500, detail=f"AI service error: {str(e)}")
+    except Exception as e:
+        error_msg = f"Unexpected error with Zhipu AI model {model}: {str(e)}"
         logger.error(error_msg, exc_info=True)
         raise HTTPException(status_code=500, detail=error_msg)
 
@@ -785,3 +835,114 @@ def detect_ai_content_type(content: str) -> str:
         return 'report'
     else:
         return 'general'
+
+
+# =====================================================================
+# 字幕翻译 API 端点
+# =====================================================================
+
+class SubtitleTranslationRequest(BaseModel):
+    """Request model for subtitle translation"""
+    model: Optional[str] = "gemini-2.5-flash"
+    source_lang: Optional[str] = "English"
+    target_lang: Optional[str] = "Chinese"
+    chunk_size: Optional[int] = 50
+    deduplicate: Optional[bool] = True
+
+
+@router.post("/api/tasks/{task_uuid}/translate-subtitles")
+async def translate_subtitles_endpoint(task_uuid: str, request: SubtitleTranslationRequest):
+    """
+    Translate subtitles using LLM (Zhipu AI GLM).
+
+    Expects transcript_en.srt to exist in the task directory.
+    Generates transcript_zh-Hans.srt and clean_text_zh.txt.
+    """
+    try:
+        from ..data_management import DATA_DIR
+        from ..tasks.translate_srt_zhipu import translate_srt_file
+
+        # Get task directory
+        task_dir = DATA_DIR / task_uuid
+        if not task_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Task not found: {task_uuid}")
+
+        logger.info(f"Starting subtitle translation for task {task_uuid}")
+
+        # Define paths
+        input_srt = task_dir / "transcript_en.srt"
+        output_srt = task_dir / "transcript_zh-Hans.srt"
+        output_txt = task_dir / "clean_text_zh.txt"
+
+        # Check if input file exists
+        if not input_srt.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Input file not found: transcript_en.srt. Please generate it first."
+            )
+
+        # Get Zhipu API key
+        zhipu_api_key = get_zhipu_api_key()
+
+        # Perform translation
+        logger.info(f"Translating {input_srt} -> {output_srt} with Zhipu AI")
+        result = await translate_srt_file(
+            srt_input_path=str(input_srt),
+            srt_output_path=str(output_srt),
+            txt_output_path=str(output_txt),
+            model=request.model,
+            source_lang=request.source_lang,
+            target_lang=request.target_lang,
+            chunk_size=request.chunk_size,
+            deduplicate=request.deduplicate,
+            api_key=zhipu_api_key
+        )
+
+        # Update metadata
+        metadata_file = DATA_DIR / "metadata.json"
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+
+                if task_uuid in metadata:
+                    # Update srt_files
+                    if "srt_files" not in metadata[task_uuid]:
+                        metadata[task_uuid]["srt_files"] = {}
+                    metadata[task_uuid]["srt_files"]["zh-Hans"] = f"{task_uuid}/transcript_zh-Hans.srt"
+
+                    # Update clean_text_files
+                    if "clean_text_files" not in metadata[task_uuid]:
+                        metadata[task_uuid]["clean_text_files"] = {}
+                    metadata[task_uuid]["clean_text_files"]["zh"] = f"{task_uuid}/clean_text_zh.txt"
+
+                    # Update last_modified
+                    metadata[task_uuid]["last_modified"] = datetime.now().isoformat()
+
+                    # Save metadata
+                    with open(metadata_file, 'w', encoding='utf-8') as f:
+                        json.dump(metadata, f, indent=4, ensure_ascii=False, default=str)
+
+                    logger.info(f"Updated metadata for task {task_uuid}")
+
+            except Exception as e:
+                logger.warning(f"Failed to update metadata: {e}")
+
+        # Return success response
+        return {
+            "success": True,
+            "message": "Subtitle translation completed successfully",
+            "task_uuid": task_uuid,
+            "original_count": result["original_count"],
+            "translated_count": result["translated_count"],
+            "srt_file": f"{task_uuid}/transcript_zh-Hans.srt",
+            "clean_text_file": f"{task_uuid}/clean_text_zh.txt",
+            "model_used": result["model_used"]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Subtitle translation error: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_msg)
