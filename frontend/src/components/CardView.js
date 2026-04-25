@@ -170,13 +170,12 @@ function CardView({
           const isTranscribing = false; // Placeholder
 
           return (
-            // Use card-bordered and adjust padding/shadow
-            <div key={task.uuid} className="card card-bordered bg-base-100 shadow-sm border-base-300 rounded-lg overflow-hidden relative group">
+            <div key={task.uuid} className="wb-card overflow-hidden relative group">
               {task.archived && (
-                <span className="badge badge-neutral badge-sm absolute top-2 right-2 z-10 font-normal opacity-80 uppercase tracking-tight">Archived</span>
+                <span className="badge badge-neutral badge-sm absolute top-3 right-3 z-10 font-bold opacity-90 uppercase tracking-tight shadow-sm scale-90">Archived</span>
               )}
                {/* Action buttons on hover */}
-              <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-1">
+              <div className="absolute top-3 left-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-1">
                    <div className="tooltip" data-tip={task.archived ? "取消归档" : "归档任务"}>
                        <button 
                            className={cn(

@@ -594,19 +594,19 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, refinedSentenc
       <div ref={contentRef} className="flex-grow overflow-y-auto p-4 pt-2 space-y-4">
         
         {/* Workspace Tabs */}
-        <div className="flex border-b border-gray-200 mb-4 sticky top-0 bg-white z-10">
+        <div className="flex border-b border-base-300 mb-4 sticky top-0 bg-base-100 z-10 -mx-4 px-4 shadow-[0_4px_6px_-4px_rgba(0,0,0,0.1)]">
           <button
-            className={`px-4 py-2 text-xs font-medium ${workspaceTab === 'docs' ? 'border-b-2 border-primary text-primary' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-4 py-3 text-xs font-bold transition-all ${workspaceTab === 'docs' ? 'border-b-2 border-primary text-primary' : 'text-base-content/50 hover:text-base-content hover:bg-base-200'}`}
             onClick={() => setWorkspaceTab('docs')}
           >
-            Documents
+            DOCUMENTS
           </button>
           <button
-            className={`px-4 py-2 text-xs font-medium ${workspaceTab === 'sentences' ? 'border-b-2 border-primary text-primary' : 'text-gray-500 hover:text-gray-700'} flex items-center gap-1`}
+            className={`px-4 py-3 text-xs font-bold transition-all ${workspaceTab === 'sentences' ? 'border-b-2 border-primary text-primary' : 'text-base-content/50 hover:text-base-content hover:bg-base-200'} flex items-center gap-1.5`}
             onClick={() => setWorkspaceTab('sentences')}
           >
-            Refined 
-            {refinedSentences.length > 0 && <span className="badge badge-xs badge-ghost scale-75">{refinedSentences.length}</span>}
+            REFINED 
+            {refinedSentences.length > 0 && <span className="badge badge-xs badge-primary font-mono">{refinedSentences.length}</span>}
           </button>
         </div>
 

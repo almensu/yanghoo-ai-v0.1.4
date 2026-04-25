@@ -1114,15 +1114,15 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       
       .thinking-block {
         display: block;
-        margin-bottom: 0.75rem;
+        margin-bottom: 1rem;
         padding: 0.75rem;
-        border-radius: 0.5rem;
+        border-radius: var(--wb-radius-base);
         font-size: 0.875rem;
-        opacity: 0.8;
-        background-color: rgba(243, 244, 246, 0.5);
-        border: 1px solid #e5e7eb;
+        background-color: var(--wb-bg-page);
+        border: 1px solid var(--wb-border-base);
         position: relative;
         contain: content;
+        color: var(--wb-text-secondary);
       }
     `;
     document.head.appendChild(style);
@@ -1142,14 +1142,14 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     <div className="flex h-full w-full relative">
       {/* 主聊天区域 */}
     <div 
-        className="flex flex-col h-full w-full bg-white rounded-lg shadow overflow-hidden relative aichat-container"
+        className="flex flex-col h-full w-full bg-base-100 rounded-lg shadow-sm border border-base-300 overflow-hidden relative aichat-container"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
       {/* 顶部模型选择栏 - 增强版 */}
-      <div className="p-3 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
+      <div className="p-3 border-b bg-base-200 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-700">AI模型:</span>
@@ -1682,7 +1682,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
 
 
       {/* 输入区域 */}
-      <div className="border-t p-3 bg-gradient-to-r from-gray-50 to-gray-100">
+      <div className="border-t p-3 bg-base-200">
         <div className="flex gap-2 items-center">
           <div className="relative flex-grow">
             <textarea
