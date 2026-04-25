@@ -1171,6 +1171,82 @@ function Studio({ taskUuid, apiBaseUrl }) {
   }, [taskUuid, apiBaseUrl]); // Remove displayLang dependency
 
 
+  // --- NEW: Subtitle optimization function to handle short sentences ---
+  const optimizeSubtitleTiming = useCallback((cues) => {
+    if (!cues || cues.length === 0 || !subtitleOptimization.enabled) return cues;
+
+    const MIN_DISPLAY_TIME = subtitleOptimization.minDisplayTime;
+    const MAX_GAP_FOR_MERGE = subtitleOptimization.maxGapForMerge;
+    const MIN_TEXT_LENGTH_FOR_SHORT = subtitleOptimization.minTextLengthForShort;
+
+    const optimizedCues = [];
+
+    for (let i = 0; i < cues.length; i++) {
+      const currentCue = { ...cues[i] };
+      const duration = currentCue.endTime - currentCue.startTime;
+
+      // 获取当前字幕的文本长度
+      let textLength = 0;
+      if (currentCue.isBilingual) {
+        textLength = (currentCue.enText || '').length + (currentCue.zhText || '').length;
+      } else {
+        textLength = (currentCue.text || '').length;
+      }
+
+      // 检查是否是短句且显示时间过短
+      const isShortSentence = textLength < MIN_TEXT_LENGTH_FOR_SHORT;
+      const isTooFast = duration < MIN_DISPLAY_TIME;
+
+      if (isShortSentence && isTooFast) {
+        // 尝试与下一个字幕合并（如果间隔很近）
+        const nextCue = cues[i + 1];
+        if (nextCue && (nextCue.startTime - currentCue.endTime) <= MAX_GAP_FOR_MERGE) {
+          // 合并当前字幕和下一个字幕
+          const mergedCue = {
+            ...currentCue,
+            endTime: Math.max(nextCue.endTime, currentCue.startTime + MIN_DISPLAY_TIME),
+            id: `${currentCue.id}-merged-${nextCue.id}`
+          };
+
+          if (currentCue.isBilingual && nextCue.isBilingual) {
+            // 双语字幕合并
+            mergedCue.enText = [currentCue.enText, nextCue.enText].filter(Boolean).join(' ');
+            mergedCue.zhText = [currentCue.zhText, nextCue.zhText].filter(Boolean).join(' ');
+          } else if (currentCue.isBilingual) {
+            // 当前是双语，下一个是单语
+            mergedCue.enText = currentCue.enText;
+            mergedCue.zhText = [currentCue.zhText, nextCue.text].filter(Boolean).join(' ');
+          } else if (nextCue.isBilingual) {
+            // 当前是单语，下一个是双语
+            mergedCue.isBilingual = true;
+            mergedCue.enText = nextCue.enText;
+            mergedCue.zhText = [currentCue.text, nextCue.zhText].filter(Boolean).join(' ');
+            delete mergedCue.text;
+          } else {
+            // 都是单语字幕
+            mergedCue.text = [currentCue.text, nextCue.text].filter(Boolean).join(' ');
+          }
+
+          optimizedCues.push(mergedCue);
+          i++; // 跳过下一个字幕，因为已经合并了
+          continue;
+        } else {
+          // 无法合并，延长当前字幕的显示时间
+          const nextCueStart = nextCue ? nextCue.startTime : currentCue.endTime + MIN_DISPLAY_TIME;
+          currentCue.endTime = Math.min(
+            nextCueStart - 0.1, // 留0.1秒间隔
+            currentCue.startTime + MIN_DISPLAY_TIME
+          );
+        }
+      }
+
+      optimizedCues.push(currentCue);
+    }
+
+    console.log(`Studio: Optimized ${cues.length} cues to ${optimizedCues.length} cues`);
+    return optimizedCues;
+  }, [subtitleOptimization]);
+
   // --- NEW Effect to Create/Update Blob URL when Cues or Language Change (当 cues 或语言变化时, 创建/更新 Blob URL 的 Effect) ---
   useEffect(() => {
     // 1. Clean up previous blob URL (清理上一个 blob URL)
@@ -1253,83 +1329,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
          setVttBlobUrl(null);
     }
 
-  }, [parsedCuesByLang, displayLang, availableLangs, subtitleOptimization]); // Dependencies
-
-  // --- NEW: Subtitle optimization function to handle short sentences ---
-  const optimizeSubtitleTiming = useCallback((cues) => {
-    if (!cues || cues.length === 0 || !subtitleOptimization.enabled) return cues;
-    
-    const MIN_DISPLAY_TIME = subtitleOptimization.minDisplayTime;
-    const MAX_GAP_FOR_MERGE = subtitleOptimization.maxGapForMerge;
-    const MIN_TEXT_LENGTH_FOR_SHORT = subtitleOptimization.minTextLengthForShort;
-    
-    const optimizedCues = [];
-    
-    for (let i = 0; i < cues.length; i++) {
-      const currentCue = { ...cues[i] };
-      const duration = currentCue.endTime - currentCue.startTime;
-      
-      // 获取当前字幕的文本长度
-      let textLength = 0;
-      if (currentCue.isBilingual) {
-        textLength = (currentCue.enText || '').length + (currentCue.zhText || '').length;
-      } else {
-        textLength = (currentCue.text || '').length;
-      }
-      
-      // 检查是否是短句且显示时间过短
-      const isShortSentence = textLength < MIN_TEXT_LENGTH_FOR_SHORT;
-      const isTooFast = duration < MIN_DISPLAY_TIME;
-      
-      if (isShortSentence && isTooFast) {
-        // 尝试与下一个字幕合并（如果间隔很近）
-        const nextCue = cues[i + 1];
-        if (nextCue && (nextCue.startTime - currentCue.endTime) <= MAX_GAP_FOR_MERGE) {
-          // 合并当前字幕和下一个字幕
-          const mergedCue = {
-            ...currentCue,
-            endTime: Math.max(nextCue.endTime, currentCue.startTime + MIN_DISPLAY_TIME),
-            id: `${currentCue.id}-merged-${nextCue.id}`
-          };
-          
-          if (currentCue.isBilingual && nextCue.isBilingual) {
-            // 双语字幕合并
-            mergedCue.enText = [currentCue.enText, nextCue.enText].filter(Boolean).join(' ');
-            mergedCue.zhText = [currentCue.zhText, nextCue.zhText].filter(Boolean).join(' ');
-          } else if (currentCue.isBilingual) {
-            // 当前是双语，下一个是单语
-            mergedCue.enText = currentCue.enText;
-            mergedCue.zhText = [currentCue.zhText, nextCue.text].filter(Boolean).join(' ');
-          } else if (nextCue.isBilingual) {
-            // 当前是单语，下一个是双语
-            mergedCue.isBilingual = true;
-            mergedCue.enText = nextCue.enText;
-            mergedCue.zhText = [currentCue.text, nextCue.zhText].filter(Boolean).join(' ');
-            delete mergedCue.text;
-          } else {
-            // 都是单语字幕
-            mergedCue.text = [currentCue.text, nextCue.text].filter(Boolean).join(' ');
-          }
-          
-          optimizedCues.push(mergedCue);
-          i++; // 跳过下一个字幕，因为已经合并了
-          continue;
-        } else {
-          // 无法合并，延长当前字幕的显示时间
-          const nextCueStart = nextCue ? nextCue.startTime : currentCue.endTime + MIN_DISPLAY_TIME;
-          currentCue.endTime = Math.min(
-            nextCueStart - 0.1, // 留0.1秒间隔
-            currentCue.startTime + MIN_DISPLAY_TIME
-          );
-        }
-      }
-      
-      optimizedCues.push(currentCue);
-    }
-    
-    console.log(`Studio: Optimized ${cues.length} cues to ${optimizedCues.length} cues`);
-    return optimizedCues;
-  }, [subtitleOptimization]);
+  }, [parsedCuesByLang, displayLang, availableLangs, subtitleOptimization, optimizeSubtitleTiming]);
 
   // --- Compute displayed cues for VttPreviewer (修改以确保 cue 有 ID) ---
   const displayedCues = useMemo(() => {
@@ -1650,7 +1650,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
       setCuttingMessage('提交剪辑请求失败: ' + (error.response?.data?.detail || error.message));
       setCutOutputPath(null);
     }
-  }, [selectedCueIds, displayedCues, taskUuid, videoRelativePath, apiBaseUrl, cuttingStatus, pollCutStatus, vttMode, displayLang, parsedCuesByLang, outputFormat]);
+  }, [selectedCueIds, displayedCues, taskUuid, videoRelativePath, apiBaseUrl, cuttingStatus, pollCutStatus, vttMode, displayLang, parsedCuesByLang, outputFormat, taskDetails?.ass_files]);
 
   // --- Handler to toggle VTT mode ---
   const toggleVttMode = (newMode) => {

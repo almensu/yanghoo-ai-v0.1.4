@@ -1082,6 +1082,50 @@ const VideoPlayer = forwardRef(({
     };
   }, []);
 
+  // 初始化YouTube播放器
+  const initializeYouTubePlayer = useCallback(() => {
+    if (!window.YT || !window.YT.Player) {
+      console.log("VideoPlayer: YouTube API not loaded yet");
+      return false;
+    }
+
+    const iframe = document.getElementById('youtube-player-iframe');
+    if (!iframe) {
+      console.log("VideoPlayer: YouTube iframe not found");
+      return false;
+    }
+
+    try {
+      const videoId = extractYouTubeVideoId(iframe.src);
+      if (!videoId) {
+        console.error("VideoPlayer: Could not extract video ID from iframe");
+        return false;
+      }
+
+      console.log(`VideoPlayer: Initializing YouTube player for video ID: ${videoId}`);
+
+      new window.YT.Player('youtube-player-iframe', {
+        events: {
+          'onReady': (event) => {
+            console.log('VideoPlayer: YouTube player ready via API');
+            youtubePlayerRef.current = event.target;
+          },
+          'onStateChange': (event) => {
+            console.log(`VideoPlayer: YouTube player state changed to: ${event.data}`);
+          },
+          'onError': (event) => {
+            console.error(`VideoPlayer: YouTube player error: ${event.data}`);
+          }
+        }
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Error initializing YouTube player:', error);
+      return false;
+    }
+  }, []);
+
   // --- 添加YouTube API加载功能 ---
   useEffect(() => {
     // 仅在显示YouTube视频时加载API
@@ -1133,55 +1177,8 @@ const VideoPlayer = forwardRef(({
         }
       }
     };
-  }, [shouldShowLocal, embedVideoAvailable]);
-  
-  // 初始化YouTube播放器
-  const initializeYouTubePlayer = () => {
-    // 确保API和iframe都已就绪
-    if (!window.YT || !window.YT.Player) {
-      console.log("VideoPlayer: YouTube API not loaded yet");
-      return false;
-    }
-    
-    const iframe = document.getElementById('youtube-player-iframe');
-    if (!iframe) {
-      console.log("VideoPlayer: YouTube iframe not found");
-      return false;
-    }
-    
-    try {
-      // 提取视频ID
-      const videoId = extractYouTubeVideoId(iframe.src);
-      if (!videoId) {
-        console.error("VideoPlayer: Could not extract video ID from iframe");
-        return false;
-      }
-      
-      console.log(`VideoPlayer: Initializing YouTube player for video ID: ${videoId}`);
-      
-      // 创建新的播放器实例
-      new window.YT.Player('youtube-player-iframe', {
-        events: {
-          'onReady': (event) => {
-            console.log('VideoPlayer: YouTube player ready via API');
-            youtubePlayerRef.current = event.target;
-          },
-          'onStateChange': (event) => {
-            console.log(`VideoPlayer: YouTube player state changed to: ${event.data}`);
-          },
-          'onError': (event) => {
-            console.error(`VideoPlayer: YouTube player error: ${event.data}`);
-          }
-        }
-      });
-      
-      return true;
-    } catch (error) {
-      console.error('Error initializing YouTube player:', error);
-      return false;
-    }
-  };
-  
+  }, [shouldShowLocal, embedVideoAvailable, initializeYouTubePlayer]);
+
   // 当iframe加载完成时初始化播放器
   useEffect(() => {
     if (!shouldShowLocal && embedVideoAvailable) {
@@ -1201,7 +1198,7 @@ const VideoPlayer = forwardRef(({
         return () => iframe.removeEventListener('load', handleIframeLoad);
       }
     }
-  }, [shouldShowLocal, embedVideoAvailable, formattedEmbedUrl]);
+  }, [shouldShowLocal, embedVideoAvailable, formattedEmbedUrl, initializeYouTubePlayer]);
 
   // 处理YouTube URL格式转换
   useEffect(() => {
