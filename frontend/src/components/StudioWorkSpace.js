@@ -7,13 +7,6 @@ import BlockEditor from './BlockEditor'; // Import block editor component
 import PlaceholderComponent1 from './PlaceholderComponent1';
 import PlaceholderComponent2 from './PlaceholderComponent2';
 import MarkdownList from './MarkdownList'; // Import the new list component
-import TimestampFormatTest from './TimestampFormatTest'; // 导入时间戳格式测试组件
-import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
-
-// 添加中文字体支持 - 使用开源的思源黑体
-// 这是一个Base64编码的字体子集，仅包含常用中文字符
-const chineseFontBase64 = 'AAEAAAAKAIAAAwAgT1MvMkB6THoAAACsAAAAYGNtYXAAVADaAAABDAAAAUJnbHlmQGT/JQAAAlgAAABMaGVhZBpX0HcAAAOkAAAANmhoZWEHUANhAAAD3AAAACRobXR4B+gAAAAABAAAAAASbG9jYQBkAAAAAAQUAAAACm1heHABFQA5AAAEIAAAAIB2bWV4cAAAACIAAARgAAAABnBvc3QAAwAAAAAEaAAAACBwcmVwukanGAAABIgAAAAcAAEAAgAEAAMABAAFAAYABwAIAAkACgALAA0ADgAPABAAEQASABMAFAAVABYAFwAYABkAGgAbABwAHQAeAB8AIAAhACIAIwAkACUAJgAnACgAKQAqACsALAAtAC4ALwAwADEAMgAzADQANQA2ADcAOAA5ADoAOwA8AD0APgA/AEAAQQBCAEMARABFAEYARwBIAEkASgBLAEwATQBOAE8AUABRAFIAUwBUAFUAVgBXAFgAWQBaAFsAXABdAF4AXwBgAGEAYgBjAGQAZQBmAGcAaABpAGoAawBsAG0AbgBvAHAAcQByAHMAdAB1AHYAdwB4AHkAegB7AHwAfQB+AH8AgACBAIIAgwCEAIUAhgCHAIgAiQCKAIsAjACNAI4AjwCQAJEAkgCTAJQAlQCWAJcAmACZAJoAmwCcAJ0AngCfAKAAoQCiAKMApAClAKYApwCoAKkAqgCrAKwArQCuAK8AsACxALIAswC0ALUAtgC3ALgAuQC6ALsAvAC9AL4AvwDAAMEAwgDDAMQAxQDGAMcAyADJAMoAywDMAM0AzgDPANAA0QDSANMA1ADVANYA1wDYANkA2gDbANwA3QDeAN8A4ADhAOIA4wDkAOUA5gDnAOgA6QDqAOsA7ADtAO4A7wDwAPEA8gDzAPQA9QD2APcA+AD5APoA+wD8AP0A/gD/AQABAQECAQMBBAEFAQYBBwEIAQkBCgELAQwBDQEOAQ8BEAERARIBEwEUARUBFgEXARgBGQEaARsBHAEdAR4BHwEgASEBIgEjASQBJQEmAScBKAEpASoBKwEsAS0BLgEvATABMQEyATMBNAE1ATYBNwE4ATkBOgE7ATwBPQE+AT8BQAFBAUIBQwFEAUUBRgFHAUgBSQFKAUsBTAFNAU4BTwFQAVEBUgFTAVQBVQFWAVcBWAFZAVoBWwFcAV0BXgFfAWABYQFiAWMBZAFlAWYBZwFoAWkBagFrAWwBbQFuAW8BcAFxAXIBcwF0AXUBdgF3AXgBeQF6AXsBfAF9AX4BfwGAAYEBggGDAYQBhQGGAYcBiAGJAYoBiwGMAY0BjgGPAZABkQGSAZMBlAGVAZYBlwGYAZkBmgGbAZwBnQGeAZ8BoAGhAaIBowGkAaUBpgGnAagBqQGqAasBrAGtAa4BrwGwAbEBsgGzAbQBtQG2AbcBuAG5AboBuwG8Ab0BvgG/AcABwQHCAcMBxAHFAcYBxwHIAckBygHLAcwBzQHOAc8B0AHRAdIB0wHUAdUB1gHXAdgB2QHaAdsB3AHdAd4B3wHgAeEB4gHjAeQB5QHmAecB6AHpAeoB6wHsAe0B7gHvAfAB8QHyAfMB9AH1AfYB9wH4AfkB+gH7AfwB/QH+Af8CAAIBAgICAwIEAgUCBgIHAggCCQIKAgsCDAINAg4CDwIQAhECEgITAhQCFQIWAhcCGAIZAhoCGwIcAh0CHgIfAiACIQIiAiMCJAIlAiYCJwIoAikCKgIrAiwCLQIuAi8CMAIxAjICMwI0AjUCNgI3AjgCOQI6AjsCPAI9Aj4CPwJAAkECQgJDAkQCRQJGAkcCSAJJAkoCSwJMAk0CTgJPAlACUQJSAlMCVAJVAlYCVwJYAlkCWgJbAlwCXQJeAl8CYAJhAmICYwJkAmUCZgJnAmgCaQJqAmsCbAJtAm4CbwJwAnECcgJzAnQCdQJ2AncCeAJ5AnoCewJ8An0CfgJ/AoACgQKCAoMChAKFAoYChwKIAokCigKLAowCjQKOAo8CkAKRApICkwKUApUClgKXApgCmQKaApsCnAKdAp4CnwKgAqECogKjAqQCpQKmAqcCqAKpAqoCqwKsAq0CrgKvArACsQKyArMCtAK1ArYCtwK4ArkCugK7ArwCvQK+Ar8CwALBAsICwwLEAsUCxgLHAsgCyQLKAssCzALNAs4CzwLQAtEC0gLTAtQC1QLWAtcC2ALZAtoC2wLcAt0C3gLfAuAC4QLiAuMC5ALlAuYC5wLoAukC6gLrAuwC7QLuAu8C8ALxAvIC8wL0AvUC9gL3AvgC+QL6AvsC/AL9Av4C/wMAAwEDAgMDAwQDBQMGAwcDCAMJAwoDCwMMAw0DDgMPAxADEQMSAxMDFAMVAxYDFwMYAxkDGgMbAxwDHQMeAx8DIAMhAyIDIwMkAyUDJgMnAygDKQMqAysDLAMtAy4DLwMwAzEDMgMzAzQDNQM2AzcDOAM5AzoDOwM8Az0DPgM/A0ADQQNCA0MDRANFA0YDRwNIA0kDSgNLA0wDTQNOA08DUANRA1IDUwNUA1UDVgNXA1gDWQNaA1sDXANdA14DXwNgA2EDYgNjA2QDZQNmA2cDaANpA2oDawNsA20DbgNvA3ADcQNyA3MDdAN1A3YDdwN4A3kDegN7A3wDfQN+A38DgAOBA4IDgwOEA4UDhgOHA4gDiQOKA4sDjAONA44DjwOQA5EDkgOTA5QDlQOWA5cDmAOZA5oDmwOcA50DngOfA6ADoQOiA6MDpAOlA6YDpwOoA6kDqgOrA6wDrQOuA68DsAOxA7IDswO0A7UDtgO3A7gDuQO6A7sDvAO9A74DvwPAA8EDwgPDA8QDxQPGA8cDyAPJA8oDywPMA80DzgPPA9AD0QPSA9MD1APVA9YD1wPYA9kD2gPbA9wD3QPeA98D4APhA+ID4wPkA+UD5gPnA+gD6QPqA+sD7APtA+4D7wPwA/ED8gPzA/QD9QP2A/cD+AP5A/oD+wP8A/0D/gP/BAAEAQQCBAMEBAQFBAYEBwQIBAkECgQLBAwEDQQOBA8EEAQRBBIEEwQUBBUEFgQXBBgEGQQaBBsEHAQdBB4EHwQgBCEEIgQjBCQEJQQmBCcEKAQpBCoEKwQsBC0ELgQvBDAEMQQyBDMENAQ1BDYENwQ4BDkEOgQ7BDwEPQQ+BD8EQARBBEIEQwREBEUERgRHBEgESQRKBEsETARNBE4ETwRQBFEEUgRTBFQEVQRWBFcEWARZBFoEWwRcBF0EXgRfBGAEYQRiBGMEZARlBGYEZwRoBGkEagRrBGwEbQRuBG8EcARxBHIEcwR0BHUEdgR3BHgEeQR6BHsEfAR9BH4EfwSABIEEggSDBIQEhQSGBIcEiASJBIoEiwSMBI0EjgSPBJAEkQSSBJMElASVBJYElwSYBJkEmgSbBJwEnQSeBJ8EoAShBKIEowSkBKUEpgSnBKgEqQSqBKsErAStBK4ErwSwBLEEsgSzBLQEtQS2BLcEuAS5BLoEuwS8BL0EvgS/BMAEwQTCBMMExATFBMYExwTIBMkEygTLBMwEzQTOBM8E0ATRBNIF9gX3BfgF+QX6BfsF/AX9Bf4F/wYABgEGAgYDBgQGBQYGBgcGCAYJBgoGCwYMBg0GDgYPBhAGEQYSBhMGFAYVBhYGFwYYBhkGGgYbBhwGHQYeBh8GIAYhBiIGIwYkBiUGJgYnBigGKQYqBisGLAYtBi4GLwYwBjEGMgYzBjQGNQY2BjcGOAY5BjoGOwY8Bj0GPgY/BkAGQQZCBkMGRAZFBkYGRwZIBkkGSgZLBkwGTQZOBk8GUAZRBlIGUwZUBlUGVgZXBlgGWQZaBls=';
 
 // Props:
 // - taskUuid: The UUID of the current task
@@ -44,14 +37,11 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
   
   // Doc files management state
   const [docFiles, setDocFiles] = useState([]);
-  const [selectedDocFile, setSelectedDocFile] = useState(null);
-  const [isLoadingDocFiles, setIsLoadingDocFiles] = useState(false);
 
   const handleExpandToggle = () => {
     // 保存当前状态
     const scrollPosition = contentRef.current?.scrollTop || 0;
     const currentFile = selectedFile;
-    const currentEditMode = editMode;
     const currentContent = currentMarkdownContent;
     
     setIsExpanded(prev => {
@@ -76,9 +66,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
 
   const handleSelectFile = (filename) => {
     if (selectedFile === filename) return;
-    
-    const scrollPosition = contentRef.current?.scrollTop || 0;
-    
+
     selectedFileRef.current = filename;
     setSelectedFile(filename);
     setIsEditing(false);
@@ -120,8 +108,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
   // Doc files API functions
   const fetchDocFiles = async () => {
     if (!taskUuid || !apiBaseUrl) return;
-    
-    setIsLoadingDocFiles(true);
+
     setError(null);
     try {
       const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files`);
@@ -130,8 +117,6 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
       console.error("Error fetching doc files:", err);
       setError('Failed to load document files.');
       setDocFiles([]);
-    } finally {
-      setIsLoadingDocFiles(false);
     }
   };
 
@@ -145,46 +130,6 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
     }
   };
 
-  const updateDocFile = async (docId, updateData) => {
-    try {
-      await axios.put(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files/${docId}`, updateData);
-      await fetchDocFiles(); // Refresh the list
-    } catch (err) {
-      console.error("Error updating doc file:", err);
-      setError('Failed to update document file.');
-    }
-  };
-
-  const deleteDocFile = async (docId) => {
-    try {
-      await axios.delete(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files/${docId}`);
-      await fetchDocFiles(); // Refresh the list
-    } catch (err) {
-      console.error("Error deleting doc file:", err);
-      setError('Failed to delete document file.');
-    }
-  };
-
-  const getDocFileContent = async (docId) => {
-    try {
-      const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files/${docId}/content`);
-      return response.data;
-    } catch (err) {
-      console.error("Error getting doc file content:", err);
-      throw err;
-    }
-  };
-
-  const getDocFileBlocks = async (docId) => {
-    try {
-      const response = await axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/doc_files/${docId}/blocks`);
-      return response.data;
-    } catch (err) {
-      console.error("Error getting doc file blocks:", err);
-      throw err;
-    }
-  };
-  
   // Auto-register new markdown files to doc_files when created
   const registerMarkdownToDocFiles = async (filename, content) => {
     try {
@@ -482,12 +427,6 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
       
       // Convert markdown to HTML using marked
       const htmlContent = marked(content);
-      
-      // Generate filename
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-      const filename = selectedFile 
-        ? selectedFile.replace('.md', '.pdf')
-        : `markdown-export-${timestamp}.pdf`;
       
       // Add title if we have a selected file
       const title = selectedFile ? selectedFile.replace('.md', '') : `Markdown Export`;
