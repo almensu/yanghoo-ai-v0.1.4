@@ -827,6 +827,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
   const [videoRelativePath, setVideoRelativePath] = useState(''); 
   const [embedUrl, setEmbedUrl] = useState(null); 
   const [markdownContent, setMarkdownContent] = useState('');
+  const [refinedSentences, setRefinedSentences] = useState([]);
 
   // --- NEW: State for multiple VTTs ---
   const [availableLangs, setAvailableLangs] = useState([]); // e.g., ['en', 'zh-Hans']
@@ -1057,74 +1058,78 @@ function Studio({ taskUuid, apiBaseUrl }) {
 
             const markdownPromise = axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/markdown/parallel`, { responseType: 'text' })
                 .then(response => ({ status: 'fulfilled', data: response.data }))
-                .catch(err => ({ status: 'rejected', reason: err.response?.data?.detail || err.message }));
+                .catch(err => ({ status: 'rejected', reason: err.reason || err.message }));
 
-            const allPromises = [...subtitlePromises, markdownPromise];
-            const results = await Promise.allSettled(allPromises); // Use allSettled
+            const sentencesPromise = details.sentences_json_path 
+                ? axios.get(`${apiBaseUrl}/api/tasks/${taskUuid}/files/transcript-sentences.json`)
+                    .then(response => ({ status: 'fulfilled', data: response.data }))
+                    .catch(err => ({ status: 'rejected', reason: err.message }))
+                : Promise.resolve({ status: 'rejected', reason: 'No sentences path' });
 
-            console.log("Studio: Subtitle and Markdown fetch results:", results);
+            const allPromises = [...subtitlePromises, markdownPromise, sentencesPromise];
+            const results = await Promise.allSettled(allPromises);
 
-            // --- Process Subtitle Results --- 
+            console.log("Studio: All fetch results:", results);
+
+            // --- Process Subtitle Results (first subtitlePromises.length items) --- 
             const newParsedCues = {};
             const newVttErrors = {};
             const processedLangs = [];
-            
-            results.slice(0, subtitlePromises.length).forEach((result, index) => {
-                if (result.status === 'fulfilled' && result.value.status === 'fulfilled') {
-                    const rawContent = result.value.data;
-                    const fileType = result.value.type;
-                    const lang = result.value.lang;
-                    
-                    let cues, parsingError;
-                    
-                    if (fileType === 'vtt') {
-                        const parseResult = parseVtt(rawContent, lang);
-                        cues = parseResult.cues;
-                        parsingError = parseResult.error;
-                    } else if (fileType === 'srt') {
-                        const parseResult = detectAndParseSrt(rawContent, 'srt');
-                        cues = parseResult.cues;
-                        parsingError = parseResult.error;
-                        if (parseResult.detectedType) {
-                            console.log(`Studio: SRT detected as ${parseResult.detectedType}`);
-                        }
-                    } else {
-                        cues = [];
-                        parsingError = `Unknown file type: ${fileType}`;
-                    }
-                    
-                    newParsedCues[lang] = cues;
-                    processedLangs.push(lang);
-                    if (parsingError) {
-                        console.warn(`Studio: ${fileType.toUpperCase()} parsing issues for ${lang}:`, parsingError);
-                        newVttErrors[lang] = parsingError;
-                    }
-                    console.log(`Studio: ${fileType.toUpperCase()} for ${lang} loaded and parsed successfully (${cues.length} cues).`);
+
+            results.slice(0, subtitlePromises.length).forEach((result) => {
+              if (result.status === 'fulfilled' && result.value.status === 'fulfilled') {
+                const rawContent = result.value.data;
+                const fileType = result.value.type;
+                const lang = result.value.lang;
+
+                let cues = [];
+                let parsingError = null;
+
+                if (fileType === 'vtt') {
+                  const parseResult = parseVtt(rawContent, lang);
+                  cues = parseResult.cues;
+                  parsingError = parseResult.error;
+                } else if (fileType === 'srt') {
+                  const parseResult = detectAndParseSrt(rawContent, 'srt');
+                  cues = parseResult.cues;
+                  parsingError = parseResult.error;
                 } else {
-                    const reason = result.status === 'fulfilled' ? result.value.reason : (result.reason || 'Unknown fetch error');
-                    const fileType = result.status === 'fulfilled' ? result.value.type : 'unknown';
-                    const lang = result.status === 'fulfilled' ? result.value.lang : 'unknown';
-                    console.error(`Studio: Failed to fetch or process ${fileType.toUpperCase()} for ${lang}:`, reason);
-                    newVttErrors[lang] = `Failed to load: ${reason}`;
+                  parsingError = `Unknown file type: ${fileType}`;
                 }
+
+                newParsedCues[lang] = cues;
+                processedLangs.push(lang);
+
+                if (parsingError) {
+                  newVttErrors[lang] = parsingError;
+                }
+              } else {
+                const value = result.status === 'fulfilled' ? result.value : {};
+                const lang = value.lang || 'unknown';
+                const reason = value.reason || result.reason || 'Unknown fetch error';
+                newVttErrors[lang] = `Failed to load: ${reason}`;
+              }
             });
-            
+
             setAvailableLangs(processedLangs);
             setParsedCuesByLang(newParsedCues);
             setVttErrors(newVttErrors);
-            console.log("Studio Debug: Processed subtitle results (字幕处理结果):", { parsedCuesByLang: newParsedCues, vttErrors: newVttErrors });
 
-            // --- Process Markdown Result --- 
-            const markdownResult = results[results.length - 1]; // Last result is markdown
+            // --- Process Markdown Result (next to last) --- 
+            const markdownResult = results[results.length - 2]; 
             if (markdownResult.status === 'fulfilled' && markdownResult.value.status === 'fulfilled') {
-                console.log("Studio: Fetched Markdown Content:", markdownResult.value.data?.substring(0, 100) + "..."); // Log first 100 chars
                 setMarkdownContent(markdownResult.value.data);
-                console.log("Studio: Markdown content loaded.");
             } else {
-                const reason = markdownResult.status === 'fulfilled' ? markdownResult.value.reason : (markdownResult.reason || 'Unknown fetch error');
-                console.error("Studio: Failed to load Markdown:", reason);
-                setError(prev => prev ? `${prev} Failed to load Markdown.` : 'Failed to load Markdown.'); // Append or set error
-                setMarkdownContent(''); // Explicitly set to empty string on error
+                setMarkdownContent('');
+            }
+
+            // --- Process Sentences Result (last item) ---
+            const sentencesResult = results[results.length - 1];
+            if (sentencesResult.status === 'fulfilled' && sentencesResult.value.status === 'fulfilled') {
+                setRefinedSentences(sentencesResult.value.data || []);
+                console.log("Studio: Refined sentences loaded:", sentencesResult.value.data?.length);
+            } else {
+                setRefinedSentences([]);
             }
 
             // Set initial displayLang based on availability
@@ -2356,6 +2361,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
             taskUuid={taskUuid} 
             apiBaseUrl={apiBaseUrl} 
             markdownContent={markdownContent}
+            refinedSentences={refinedSentences}
             videoRef={videoElementRef}
             taskDetails={taskDetails}
           />

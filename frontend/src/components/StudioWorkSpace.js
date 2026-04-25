@@ -6,15 +6,18 @@ import MarkdownEditor from './MarkdownEditor'; // Import the editor component
 import BlockEditor from './BlockEditor'; // Import block editor component
 import PlaceholderComponent1 from './PlaceholderComponent1';
 import PlaceholderComponent2 from './PlaceholderComponent2';
-import MarkdownList from './MarkdownList'; // Import the new list component
+import MarkdownList from './MarkdownList';
+import SentencesViewer from './SentencesViewer'; // Import the new sentences component
 
 // Props:
 // - taskUuid: The UUID of the current task
 // - apiBaseUrl: The base URL for the backend API
 // - markdownContent: Optional fallback markdown content from parent
+// - refinedSentences: List of sentences for the refined view
 // - videoRef: Reference to the video element for timestamp navigation
 
-function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, taskDetails }) {
+function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, refinedSentences = [], videoRef, taskDetails }) {
+  const [workspaceTab, setWorkspaceTab] = useState('docs'); // 'docs' or 'sentences'
   const [markdownFiles, setMarkdownFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null); // Name of the selected file
   const [currentMarkdownContent, setCurrentMarkdownContent] = useState(markdownContent || '');
@@ -590,250 +593,277 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
       </div>
       <div ref={contentRef} className="flex-grow overflow-y-auto p-4 pt-2 space-y-4">
         
-        <div> 
-          <div className="flex items-center justify-between mb-1">
-            <h4 className="text-md font-medium text-gray-700">Markdown Documents</h4>
-            <button 
-              onClick={handleCreateNew}
-              className="text-gray-600 hover:text-primary focus:outline-none p-1 rounded-full hover:bg-gray-100"
-              title="Create new markdown document"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
+        {/* Workspace Tabs */}
+        <div className="flex border-b border-gray-200 mb-4 sticky top-0 bg-white z-10">
+          <button
+            className={`px-4 py-2 text-xs font-medium ${workspaceTab === 'docs' ? 'border-b-2 border-primary text-primary' : 'text-gray-500 hover:text-gray-700'}`}
+            onClick={() => setWorkspaceTab('docs')}
+          >
+            Documents
+          </button>
+          <button
+            className={`px-4 py-2 text-xs font-medium ${workspaceTab === 'sentences' ? 'border-b-2 border-primary text-primary' : 'text-gray-500 hover:text-gray-700'} flex items-center gap-1`}
+            onClick={() => setWorkspaceTab('sentences')}
+          >
+            Refined 
+            {refinedSentences.length > 0 && <span className="badge badge-xs badge-ghost scale-75">{refinedSentences.length}</span>}
+          </button>
+        </div>
+
+        {workspaceTab === 'sentences' ? (
+          <div className="h-full">
+            <SentencesViewer 
+              sentences={refinedSentences}
+              videoRef={videoRef}
+              syncEnabled={true}
+            />
           </div>
-          
-          {isLoadingList && <p className="text-sm text-gray-500 italic">Loading file list...</p>}
-          {error && <p className="text-sm text-red-500">Error: {error}</p>}
-          
-          {!isLoadingList && !isCreatingNew && (
-                      <MarkdownList
-            files={markdownFiles}
-            selectedFile={selectedFile}
-            onSelectFile={handleSelectFile}
-            onFileDeleted={handleFileDeleted}
-            onFileRenamed={handleFileRenamed}
-            taskUuid={taskUuid}
-            apiBaseUrl={apiBaseUrl}
-          />
-          )}
-
-          {isCreatingNew && (
-            <div className="mt-3 border rounded p-3 bg-base-100">
-              <div className="flex items-center gap-2 mb-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        ) : (
+          <div> 
+            <div className="flex items-center justify-between mb-1">
+              <h4 className="text-md font-medium text-gray-700">Markdown Documents</h4>
+              <button 
+                onClick={handleCreateNew}
+                className="text-gray-600 hover:text-primary focus:outline-none p-1 rounded-full hover:bg-gray-100"
+                title="Create new markdown document"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                <input
-                  type="text"
-                  value={newFileName}
-                  onChange={(e) => setNewFileName(e.target.value)}
-                  placeholder="Enter file name (e.g. notes.md)"
-                  className="flex-1 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div className="flex justify-end gap-2 mt-2">
-                <button
-                  onClick={() => setIsCreatingNew(false)}
-                  className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveNew}
-                  disabled={!newFileName || isSaving}
-                  className={`px-3 py-1 text-xs rounded ${!newFileName || isSaving ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary text-primary-content hover:bg-primary-focus'}`}
-                >
-                  {isSaving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
+              </button>
             </div>
-          )}
+            
+            {isLoadingList && <p className="text-sm text-gray-500 italic">Loading file list...</p>}
+            {error && <p className="text-sm text-red-500">Error: {error}</p>}
+            
+            {!isLoadingList && !isCreatingNew && (
+              <MarkdownList
+                files={markdownFiles}
+                selectedFile={selectedFile}
+                onSelectFile={handleSelectFile}
+                onFileDeleted={handleFileDeleted}
+                onFileRenamed={handleFileRenamed}
+                taskUuid={taskUuid}
+                apiBaseUrl={apiBaseUrl}
+              />
+            )}
 
-          <div className="mt-4 border-t pt-4">
-            {isLoadingContent ? (
-              <p className="text-sm text-gray-500 italic">Loading content for {selectedFile}...</p>
-            ) : isEditing ? (
-              <div>
-                <MarkdownEditor 
-                  key={`editor-${selectedFile || 'new'}`}
-                  value={currentMarkdownContent}
-                  onChange={handleContentChange}
-                />
+            {isCreatingNew && (
+              <div className="mt-3 border rounded p-3 bg-base-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  <input
+                    type="text"
+                    value={newFileName}
+                    onChange={(e) => setNewFileName(e.target.value)}
+                    placeholder="Enter file name (e.g. notes.md)"
+                    className="flex-1 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
                 <div className="flex justify-end gap-2 mt-2">
                   <button
-                    onClick={() => isCreatingNew ? setIsCreatingNew(false) : setIsEditing(false)}
+                    onClick={() => setIsCreatingNew(false)}
                     className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300"
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={isCreatingNew ? handleSaveNew : handleSaveEdit}
-                    disabled={isSaving}
-                    className={`px-3 py-1 text-xs rounded ${isSaving ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary text-primary-content hover:bg-primary-focus'}`}
+                    onClick={handleSaveNew}
+                    disabled={!newFileName || isSaving}
+                    className={`px-3 py-1 text-xs rounded ${!newFileName || isSaving ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary text-primary-content hover:bg-primary-focus'}`}
                   >
                     {isSaving ? 'Saving...' : 'Save'}
                   </button>
                 </div>
               </div>
-            ) : selectedFile ? (
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  {/* 模式切换 */}
-                  <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+            )}
+
+            <div className="mt-4 border-t pt-4">
+              {isLoadingContent ? (
+                <p className="text-sm text-gray-500 italic">Loading content for {selectedFile}...</p>
+              ) : isEditing ? (
+                <div>
+                  <MarkdownEditor 
+                    key={`editor-${selectedFile || 'new'}`}
+                    value={currentMarkdownContent}
+                    onChange={handleContentChange}
+                  />
+                  <div className="flex justify-end gap-2 mt-2">
                     <button
-                      onClick={() => setEditMode('normal')}
-                      className={`px-3 py-1 text-xs rounded ${
-                        editMode === 'normal' 
-                          ? 'bg-white text-gray-900 shadow-sm' 
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
+                      onClick={() => isCreatingNew ? setIsCreatingNew(false) : setIsEditing(false)}
+                      className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300"
                     >
-                      普通模式
+                      Cancel
                     </button>
                     <button
-                      onClick={() => setEditMode('block')}
-                      className={`px-3 py-1 text-xs rounded ${
-                        editMode === 'block' 
-                          ? 'bg-white text-gray-900 shadow-sm' 
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
+                      onClick={isCreatingNew ? handleSaveNew : handleSaveEdit}
+                      disabled={isSaving}
+                      className={`px-3 py-1 text-xs rounded ${isSaving ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary text-primary-content hover:bg-primary-focus'}`}
                     >
-                      块编辑
+                      {isSaving ? 'Saving...' : 'Save'}
                     </button>
                   </div>
-
-                  {/* 操作按钮 */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleCopyContent()}
-                      className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
-                      title="复制内容"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      复制
-                    </button>
-                    {editMode === 'normal' && (
+                </div>
+              ) : selectedFile ? (
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    {/* 模式切换 */}
+                    <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
                       <button
-                        onClick={() => setIsEditing(true)}
+                        onClick={() => setEditMode('normal')}
+                        className={`px-3 py-1 text-xs rounded ${
+                          editMode === 'normal' 
+                            ? 'bg-white text-gray-900 shadow-sm' 
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        普通模式
+                      </button>
+                      <button
+                        onClick={() => setEditMode('block')}
+                        className={`px-3 py-1 text-xs rounded ${
+                          editMode === 'block' 
+                            ? 'bg-white text-gray-900 shadow-sm' 
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        块编辑
+                      </button>
+                    </div>
+
+                    {/* 操作按钮 */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleCopyContent()}
                         className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
+                        title="复制内容"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
-                        编辑
+                        复制
                       </button>
-                    )}
-                  </div>
-                </div>
-                {editMode === 'block' ? (
-                  <BlockEditor
-                    key={`block-editor-${selectedFile}-${isExpanded ? 'expanded' : 'normal'}`}
-                    markdownContent={currentMarkdownContent}
-                    onContentChange={async (newContent) => {
-                      setCurrentMarkdownContent(newContent);
-                      // 自动保存
-                      if (selectedFile && taskUuid && apiBaseUrl) {
-                        try {
-                          await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodeURIComponent(selectedFile)}`, 
-                            newContent,
-                            { headers: { 'Content-Type': 'text/plain' } }
-                          );
-                        } catch (err) {
-                          console.error(`Error auto-saving ${selectedFile}:`, err);
-                        }
-                      }
-                    }}
-                    taskUuid={taskUuid}
-                    apiBaseUrl={apiBaseUrl}
-                    filename={selectedFile}
-                    taskTitle={taskDetails?.title || `Task ${taskUuid}`}
-                    docId={(() => {
-                      // 查找当前文件对应的doc_file信息
-                      const docFile = docFiles.find(doc => doc.filename === selectedFile);
-                      return docFile ? docFile.id : null;
-                    })()}
-                    docCategory={(() => {
-                      const docFile = docFiles.find(doc => doc.filename === selectedFile);
-                      return docFile ? docFile.category : 'user_documents';
-                    })()}
-                    className="border-0"
-                  />
-                ) : hasTimestamps && videoRef ? (
-                  <MarkdownWithTimestamps
-                    key={`viewer-timestamps-${selectedFile}-${isExpanded ? 'expanded' : 'normal'}`}
-                    markdownContent={currentMarkdownContent}
-                    videoRef={videoRef}
-                  />
-                ) : (
-                  <MarkdownViewer 
-                    key={`viewer-${selectedFile}-${isExpanded ? 'expanded' : 'normal'}`}
-                    markdownContent={currentMarkdownContent}
-                    videoRef={videoRef}
-                  />
-                )}
-              </div>
-            ) : !isLoadingList && markdownFiles.length > 0 ? (
-              <p className="text-gray-500 text-sm italic">Select a markdown file above to view its content.</p>
-            ) : markdownContent ? (
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <p className="text-xs text-gray-500 italic">Displaying default markdown content:</p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleCopyContent(markdownContent)}
-                      className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
-                      title="Copy content to clipboard"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      Copy
-                    </button>
-                    <button
-                      onClick={() => handleExportToPDF(markdownContent)}
-                      disabled={isExportingPDF}
-                      className={`px-3 py-1 text-xs rounded flex items-center gap-1 ${
-                        isExportingPDF 
-                          ? 'bg-gray-300 cursor-not-allowed' 
-                          : 'bg-base-200 hover:bg-base-300'
-                      }`}
-                      title="Export to PDF"
-                    >
-                      {isExportingPDF ? (
-                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
+                      {editMode === 'normal' && (
+                        <button
+                          onClick={() => setIsEditing(true)}
+                          className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                          编辑
+                        </button>
                       )}
-                      {isExportingPDF ? 'Exporting...' : 'Export'}
-                    </button>
+                    </div>
                   </div>
+                  {editMode === 'block' ? (
+                    <BlockEditor
+                      key={`block-editor-${selectedFile}-${isExpanded ? 'expanded' : 'normal'}`}
+                      markdownContent={currentMarkdownContent}
+                      onContentChange={async (newContent) => {
+                        setCurrentMarkdownContent(newContent);
+                        // 自动保存
+                        if (selectedFile && taskUuid && apiBaseUrl) {
+                          try {
+                            await axios.post(`${apiBaseUrl}/api/tasks/${taskUuid}/files/${encodeURIComponent(selectedFile)}`, 
+                              newContent,
+                              { headers: { 'Content-Type': 'text/plain' } }
+                            );
+                          } catch (err) {
+                            console.error(`Error auto-saving ${selectedFile}:`, err);
+                          }
+                        }
+                      }}
+                      taskUuid={taskUuid}
+                      apiBaseUrl={apiBaseUrl}
+                      filename={selectedFile}
+                      taskTitle={taskDetails?.title || `Task ${taskUuid}`}
+                      docId={(() => {
+                        // 查找当前文件对应的doc_file信息
+                        const docFile = docFiles.find(doc => doc.filename === selectedFile);
+                        return docFile ? docFile.id : null;
+                      })()}
+                      docCategory={(() => {
+                        const docFile = docFiles.find(doc => doc.filename === selectedFile);
+                        return docFile ? docFile.category : 'user_documents';
+                      })()}
+                      className="border-0"
+                    />
+                  ) : hasTimestamps && videoRef ? (
+                    <MarkdownWithTimestamps
+                      key={`viewer-timestamps-${selectedFile}-${isExpanded ? 'expanded' : 'normal'}`}
+                      markdownContent={currentMarkdownContent}
+                      videoRef={videoRef}
+                    />
+                  ) : (
+                    <MarkdownViewer 
+                      key={`viewer-${selectedFile}-${isExpanded ? 'expanded' : 'normal'}`}
+                      markdownContent={currentMarkdownContent}
+                      videoRef={videoRef}
+                    />
+                  )}
                 </div>
-                {hasTimestamps && videoRef ? (
-                  <MarkdownWithTimestamps
-                    key={`default-content-timestamps-${isExpanded ? 'expanded' : 'normal'}`}
-                    markdownContent={markdownContent}
-                    videoRef={videoRef}
-                  />
-                ) : (
-                  <MarkdownViewer 
-                    key={`default-content-${isExpanded ? 'expanded' : 'normal'}`}
-                    markdownContent={markdownContent}
-                    videoRef={videoRef}
-                  />
-                )}
-              </div>
-            ) : null}
+              ) : !isLoadingList && markdownFiles.length > 0 ? (
+                <p className="text-gray-500 text-sm italic">Select a markdown file above to view its content.</p>
+              ) : markdownContent ? (
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <p className="text-xs text-gray-500 italic">Displaying default markdown content:</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleCopyContent(markdownContent)}
+                        className="px-3 py-1 text-xs rounded bg-base-200 hover:bg-base-300 flex items-center gap-1"
+                        title="Copy content to clipboard"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Copy
+                      </button>
+                      <button
+                        onClick={() => handleExportToPDF(markdownContent)}
+                        disabled={isExportingPDF}
+                        className={`px-3 py-1 text-xs rounded flex items-center gap-1 ${
+                          isExportingPDF 
+                            ? 'bg-gray-300 cursor-not-allowed' 
+                            : 'bg-base-200 hover:bg-base-300'
+                        }`}
+                        title="Export to PDF"
+                      >
+                        {isExportingPDF ? (
+                          <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                        )}
+                        {isExportingPDF ? 'Exporting...' : 'Export'}
+                      </button>
+                    </div>
+                  </div>
+                  {hasTimestamps && videoRef ? (
+                    <MarkdownWithTimestamps
+                      key={`default-content-timestamps-${isExpanded ? 'expanded' : 'normal'}`}
+                      markdownContent={markdownContent}
+                      videoRef={videoRef}
+                    />
+                  ) : (
+                    <MarkdownViewer 
+                      key={`default-content-${isExpanded ? 'expanded' : 'normal'}`}
+                      markdownContent={markdownContent}
+                      videoRef={videoRef}
+                    />
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
         
 
         
