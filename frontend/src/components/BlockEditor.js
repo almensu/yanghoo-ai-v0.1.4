@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Edit3, Trash2, ChevronUp, ChevronDown, 
-         Check, X, Hash, Type, Code, List, Quote, Minus, Table, Image, 
-         GripVertical, MoreHorizontal } from 'lucide-react';
-import { BlockManager, MarkdownParser } from '../utils/blocks';
+import { Plus, Trash2, Type, GripVertical, MoreHorizontal } from 'lucide-react';
+import { BlockManager } from '../utils/blocks';
 import MarkdownViewer from './MarkdownViewer';
 import QuickCollector from './QuickCollector';
 
@@ -37,7 +35,6 @@ const BlockEditor = ({
   // 拖拽状态
   const [draggedBlock, setDraggedBlock] = useState(null);
   const [dragOver, setDragOver] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
 
   // 初始化
   useEffect(() => {
@@ -101,7 +98,7 @@ const BlockEditor = ({
   // 拖拽处理
   const handleDragStart = (e, block) => {
     setDraggedBlock(block);
-    setIsDragging(true);
+
     e.dataTransfer.effectAllowed = 'move';
     
     // 设置拖拽数据，支持拖拽到项目篮
@@ -130,7 +127,7 @@ const BlockEditor = ({
   const handleDragEnd = () => {
     setDraggedBlock(null);
     setDragOver(null);
-    setIsDragging(false);
+
   };
 
   const handleDragOver = (e, targetBlock) => {
@@ -182,7 +179,7 @@ const BlockEditor = ({
 
     setDraggedBlock(null);
     setDragOver(null);
-    setIsDragging(false);
+
   };
 
   // 块操作

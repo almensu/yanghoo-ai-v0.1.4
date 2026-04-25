@@ -2,21 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { projectManager } from '../utils/ProjectManager';
 import { formatTokenCount } from '../utils/tokenUtils';
 import './ProjectBubble.css';
-import { 
-  Package, 
-  Plus, 
-  X, 
-  ChevronRight, 
-  ChevronDown, 
-  Edit3, 
-  Trash2, 
+import {
+  Package,
+  Plus,
+  X,
   Download,
   MessageCircle,
-  GripVertical,
   FileText,
   Hash,
-  Minimize2,
-  Maximize2
+  Minimize2
 } from 'lucide-react';
 
 const ProjectBubble = ({ 
@@ -69,8 +63,8 @@ const ProjectBubble = ({
   const handleCreateProject = () => {
     if (!newProjectName.trim()) return;
 
-    const newProject = projectManager.createProject(
-      newProjectName.trim(), 
+    projectManager.createProject(
+      newProjectName.trim(),
       newProjectDescription.trim()
     );
 
@@ -88,16 +82,6 @@ const ProjectBubble = ({
     loadActiveProject();
   };
 
-  // 删除项目
-  const handleDeleteProject = (projectId, e) => {
-    e.stopPropagation();
-    if (window.confirm('确定要删除这个项目吗？')) {
-      projectManager.deleteProject(projectId);
-      loadProjects();
-      loadActiveProject();
-    }
-  };
-
   // 移除项目项
   const handleRemoveItem = (itemId, type) => {
     if (!activeProject) return;
@@ -112,11 +96,6 @@ const ProjectBubble = ({
   };
 
   // 拖拽处理
-  const handleDragStart = (e, item, type) => {
-    setDraggedItem({ item, type });
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
   const handleDragOver = (e) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';

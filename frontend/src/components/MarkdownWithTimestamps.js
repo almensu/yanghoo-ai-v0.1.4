@@ -22,10 +22,7 @@ const MarkdownWithTimestamps = ({
   timestampClassName = '',
   onTimestampClick
 }) => {
-  // 视频引用状态
   const [isVideoAvailable, setIsVideoAvailable] = useState(false);
-  // 添加点击历史记录状态，用于显示最近点击的时间戳
-  const [lastClickedTimestamp, setLastClickedTimestamp] = useState(null);
   // 容器引用
   const containerRef = useRef(null);
   // 用ref保存handleTimestampClick的最新引用，避免闭包问题
@@ -81,7 +78,6 @@ const MarkdownWithTimestamps = ({
         console.log(`[MarkdownWithTimestamps] seekToTimestamp返回结果:`, result);
         
         // 记录最近点击的时间戳
-        setLastClickedTimestamp(timeStr);
         return true;
       } else if (videoRef.current.video && typeof videoRef.current.video.seekToTimestamp === 'function') {
         // 检查是否videoRef.current有video子属性且有seekToTimestamp方法
@@ -92,7 +88,6 @@ const MarkdownWithTimestamps = ({
         console.log(`[MarkdownWithTimestamps] video.seekToTimestamp返回结果:`, result);
         console.log(`[MarkdownWithTimestamps] 时间戳已标准化: ${timeStr} -> ${normalizedTimestamp}`);
         
-        setLastClickedTimestamp(timeStr);
         return true;
       } else if (videoRef.current.video && videoRef.current.video instanceof HTMLVideoElement) {
         // 回退到直接操作video元素
@@ -111,7 +106,6 @@ const MarkdownWithTimestamps = ({
             .catch(err => console.error("[MarkdownWithTimestamps] 自动播放失败:", err));
         }
         
-        setLastClickedTimestamp(timeStr);
         return true;
       } else if (videoRef.current instanceof HTMLVideoElement) {
         // 直接使用video元素的情况
@@ -128,7 +122,6 @@ const MarkdownWithTimestamps = ({
             .catch(err => console.error("[MarkdownWithTimestamps] 自动播放失败:", err));
         }
         
-        setLastClickedTimestamp(timeStr);
         return true;
       } else {
         // 找不到合适的视频控制方法 - 添加更详细的调试信息
@@ -144,7 +137,6 @@ const MarkdownWithTimestamps = ({
           try {
             const normalizedTimestamp = normalizeTimestamp(timeStr);
             videoRef.current.seekToTimestamp(normalizedTimestamp);
-            setLastClickedTimestamp(timeStr);
             return true;
           } catch (forceError) {
             console.error("[MarkdownWithTimestamps] 强制调用也失败:", forceError);

@@ -33,7 +33,6 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments, videoRef }) => {
   const [dragSelection, setDragSelection] = useState(new Set());
   const [lastClickedFrame, setLastClickedFrame] = useState(null);
 
-  const timelineRef = useRef(null);
   const gridContainerRef = useRef(null);
   const frameRefs = useRef(new Map());
 

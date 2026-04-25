@@ -111,7 +111,6 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
 
   // 拖拽相关状态
   const [isDragOver, setIsDragOver] = useState(false);
-  const [dragCounter, setDragCounter] = useState(0);
   const chatAreaRef = useRef(null);
 
   // "@" 文档提及功能相关状态
@@ -147,7 +146,6 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       if (event.key === 'Escape') {
         setShowFileDropdown(false);
         setIsDragOver(false);
-        setDragCounter(0);
       }
     };
 
@@ -284,8 +282,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     
     // 立即重置拖拽状态
     setIsDragOver(false);
-    setDragCounter(0);
-    
+
     console.log('拖拽drop事件触发');
     
     try {
@@ -1484,7 +1481,6 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
           className="absolute inset-0 bg-blue-500 bg-opacity-15 backdrop-blur-sm z-50 flex items-center justify-center"
           onClick={() => {
             setIsDragOver(false);
-            setDragCounter(0);
           }}
         >
           <div className="bg-white rounded-xl shadow-2xl p-8 border-2 border-blue-500 border-dashed transform scale-105 transition-all duration-200 ease-out">
