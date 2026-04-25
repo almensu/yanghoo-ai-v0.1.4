@@ -193,6 +193,14 @@ async def load_metadata() -> Dict[str, TaskMetadata]:
                 try:
                     task_meta = TaskMetadata(**meta_dict)
                     
+                    # --- Stage 7: Canonical ID Consistency Check ---
+                    canonical_id = str(task_meta.uuid)
+                    if uuid_str != canonical_id:
+                        logger.error(f"Metadata ID mismatch: key '{uuid_str}' != record.uuid '{canonical_id}'. "
+                                     f"Skipping record to prevent data corruption.")
+                        continue
+                    # -----------------------------------------------
+
                     # Dynamic detection of raw SRT files in task directory
                     task_dir = DATA_DIR / uuid_str
                     raw_srt_files = []
@@ -220,14 +228,21 @@ async def load_metadata() -> Dict[str, TaskMetadata]:
     return valid_metadata
 
 async def save_metadata(metadata: Dict[str, TaskMetadata]):
-    logger.info(f"Attempting to save metadata. Data to save: {metadata}") # Log the data
+    # logger.info(f"Attempting to save metadata. Data to save: {metadata}") # Log the data (Removed for privacy/log volume)
+    
+    # --- Stage 7: Canonical ID Normalization ---
+    normalized_metadata = {}
+    for task_meta in metadata.values():
+        normalized_metadata[str(task_meta.uuid)] = task_meta
+    # --------------------------------------------
+
     try:
         # Use METADATA_FILE (Path object) directly with aiofiles
         async with aiofiles.open(METADATA_FILE, mode='w', encoding='utf-8') as f:
-            content_to_write = json.dumps(metadata, indent=4, default=pydantic_encoder, ensure_ascii=False)
-            logger.debug(f"Content prepared for writing to {METADATA_FILE}:\n{content_to_write}") # Log exact content
+            content_to_write = json.dumps(normalized_metadata, indent=4, default=pydantic_encoder, ensure_ascii=False)
+            # logger.debug(f"Content prepared for writing to {METADATA_FILE}:\n{content_to_write}") 
             await f.write(content_to_write)
-        logger.info(f"Successfully saved metadata to {METADATA_FILE}") # Log success
+        logger.info(f"Successfully saved metadata to {METADATA_FILE}") 
     except IOError as e:
         logger.error(f"Error saving metadata to {METADATA_FILE}: {e}")
     except Exception as e:
