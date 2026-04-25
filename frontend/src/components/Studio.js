@@ -20,9 +20,9 @@ function VideoTaskSelector({ apiBaseUrl, currentTaskUuid }) {
     if (isOpen) {
       fetchTasks();
     }
-  }, [isOpen]);
+  }, [isOpen, fetchTasks]);
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await axios.get(`${apiBaseUrl}/api/tasks`);
@@ -35,7 +35,7 @@ function VideoTaskSelector({ apiBaseUrl, currentTaskUuid }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [apiBaseUrl]);
 
   const handleSelectTask = (taskUuid) => {
     navigate(`/studio/${taskUuid}`);

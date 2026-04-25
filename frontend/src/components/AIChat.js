@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { estimateTokenCount, formatTokenCount } from '../utils/tokenUtils';
 import { Copy, Save } from 'lucide-react';
@@ -132,7 +132,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     if (taskUuid && apiBaseUrl) {
       fetchMarkdownFiles();
     }
-  }, [taskUuid, apiBaseUrl]);
+  }, [taskUuid, apiBaseUrl, fetchMarkdownFiles]);
 
   // 点击外部关闭下拉菜单 & ESC键处理
   useEffect(() => {
@@ -157,7 +157,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     };
   }, []);
 
-  const fetchMarkdownFiles = async () => {
+  const fetchMarkdownFiles = useCallback(async () => {
     if (!taskUuid || !apiBaseUrl) return;
     
     setLoadingFiles(true);
@@ -225,7 +225,7 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     } finally {
       setLoadingFiles(false);
     }
-  };
+  }, [taskUuid, apiBaseUrl]);
 
   const toggleFileSelection = (filename) => {
     const newSelected = new Set(selectedFiles);

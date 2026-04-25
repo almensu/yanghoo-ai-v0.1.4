@@ -44,7 +44,7 @@ const BlockEditor = ({
         manager.loadFromMarkdown(markdownContent);
       }
       setBlockManager(manager);
-      updateBlocks(manager);
+      setBlocks([...manager.getAllBlocks()]);
     } catch (error) {
       console.error('Failed to initialize BlockManager:', error);
     }

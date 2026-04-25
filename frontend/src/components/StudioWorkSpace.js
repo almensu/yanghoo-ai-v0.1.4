@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios'; // Needed for fetching
 import MarkdownViewer from './MarkdownViewer';
 import MarkdownWithTimestamps from './MarkdownWithTimestamps'; // Import timestamp component
@@ -106,7 +106,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
   };
 
   // Doc files API functions
-  const fetchDocFiles = async () => {
+  const fetchDocFiles = useCallback(async () => {
     if (!taskUuid || !apiBaseUrl) return;
 
     setError(null);
@@ -118,7 +118,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
       setError('Failed to load document files.');
       setDocFiles([]);
     }
-  };
+  }, [taskUuid, apiBaseUrl]);
 
   const addDocFile = async (docData) => {
     try {
@@ -214,7 +214,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
   // Effect to fetch doc_files
   useEffect(() => {
     fetchDocFiles();
-  }, [taskUuid, apiBaseUrl]);
+  }, [taskUuid, apiBaseUrl, fetchDocFiles]);
 
   // Effect to fetch the content of the selected markdown file
   useEffect(() => {
