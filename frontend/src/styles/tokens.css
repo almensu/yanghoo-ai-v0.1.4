@@ -1,0 +1,89 @@
+:root {
+  /* Colors - Neutral / Foundation */
+  --wb-bg-page: #f8fafc;
+  --wb-bg-panel: #ffffff;
+  --wb-bg-elevated: #ffffff;
+  
+  --wb-border-base: #e2e8f0;
+  --wb-border-muted: #f1f5f9;
+  --wb-border-focus: #3b82f6;
+
+  /* Text Colors */
+  --wb-text-primary: #0f172a;
+  --wb-text-secondary: #475569;
+  --wb-text-muted: #94a3b8;
+  --wb-text-on-accent: #ffffff;
+
+  /* Accent / Semantic */
+  --wb-accent: #2563eb;
+  --wb-accent-hover: #1d4ed8;
+  --wb-success: #10b981;
+  --wb-warning: #f59e0b;
+  --wb-danger: #ef4444;
+
+  /* Shadows - Low and precise */
+  --wb-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --wb-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --wb-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+
+  /* Spacing / Radius */
+  --wb-radius-sm: 0.125rem;
+  --wb-radius-base: 0.375rem;
+  --wb-radius-md: 0.5rem;
+}
+
+/* Functional Component Bases */
+
+.wb-panel {
+  background-color: var(--wb-bg-panel);
+  border: 1px solid var(--wb-border-base);
+  border-radius: var(--wb-radius-base);
+  box-shadow: var(--wb-shadow-sm);
+}
+
+.wb-card {
+  background-color: var(--wb-bg-panel);
+  border: 1px solid var(--wb-border-base);
+  border-radius: var(--wb-radius-md);
+  box-shadow: var(--wb-shadow);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.wb-card:hover {
+  box-shadow: var(--wb-shadow-md);
+  border-color: var(--wb-border-focus);
+}
+
+.wb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background-color: var(--wb-bg-panel);
+  border-bottom: 1px solid var(--wb-border-base);
+}
+
+.wb-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.375rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.wb-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem;
+  border-radius: var(--wb-radius-base);
+  color: var(--wb-text-secondary);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.wb-btn-icon:hover {
+  background-color: var(--wb-border-muted);
+  color: var(--wb-text-primary);
+}

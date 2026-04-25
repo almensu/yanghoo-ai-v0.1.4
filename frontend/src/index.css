@@ -2,156 +2,97 @@
 @tailwind components;
 @tailwind utilities;
 
+@import './styles/tokens.css';
+
+:root {
+  color-scheme: light;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  background-color: var(--wb-bg-page);
+  color: var(--wb-text-primary);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--wb-text-primary);
 }
 
-/* 改进的拖拽相关样式 */
+code, pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.9em;
+}
+
+/* Scrollbar Unification */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Custom Scrollbar Utility */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* Focus Visible */
+:focus-visible {
+  outline: 2px solid var(--wb-border-focus);
+  outline-offset: 2px;
+}
+
+/* Legacy & Transition Styles (Keep functional ones) */
 .drag-source {
   cursor: move;
   transition: all 0.2s ease;
   user-select: none;
 }
 
-.drag-source:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
 .drag-source.dragging {
   opacity: 0.4;
   transform: scale(0.95);
-  filter: blur(1px);
-}
-
-.drag-target {
-  position: relative;
 }
 
 .drag-target.drag-over {
-  background-color: rgba(59, 130, 246, 0.05);
+  background-color: rgba(37, 99, 235, 0.05);
 }
 
-.drag-overlay {
-  pointer-events: none;
-  user-select: none;
-}
-
-/* 拖拽幽灵图片样式 */
-.drag-ghost {
-  pointer-events: none;
-  user-select: none;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-}
-
-/* 防闪烁样式 */
-.drag-no-select {
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
-  -webkit-user-drag: none;
-  -khtml-user-drag: none;
-  -moz-user-drag: none;
-  -o-user-drag: none;
-  user-drag: none;
-}
-
-/* 改进的拖拽成功动画 */
 @keyframes dropSuccess {
-  0% { 
-    transform: scale(1); 
-    opacity: 0.8;
-  }
-  50% { 
-    transform: scale(1.05); 
-    opacity: 1;
-  }
-  100% { 
-    transform: scale(1); 
-    opacity: 1;
-  }
-}
-
-@keyframes dragSuccess {
-  0% {
-    opacity: 0;
-    transform: scale(0.8) translateY(10px);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.05) translateY(-2px);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+  0% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 .drop-success {
   animation: dropSuccess 0.3s ease-in-out;
 }
 
-.aichat-file-tag.drag-added {
-  animation: dragSuccess 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* AI对话界面优化 */
-.aichat-container {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-}
-
+/* AI对话样式微调 */
 .aichat-dropdown {
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(8px);
-}
-
-.aichat-file-tag {
-  transition: all 0.2s ease;
-}
-
-.aichat-file-tag:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
-}
-
-/* 自定义滚动条 */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: #f1f5f9;
-  border-radius: 3px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-/* 响应式优化 */
-@media (max-width: 768px) {
-  .aichat-dropdown {
-    width: 95vw;
-    right: 2.5vw;
-  }
-  
-  .aichat-file-tag {
-    max-width: 120px;
-  }
+  box-shadow: var(--wb-shadow-md);
+  border: 1px solid var(--wb-border-base);
+  background-color: var(--wb-bg-panel);
 }
