@@ -1,49 +1,57 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Video, FileText, Sparkles, Settings, ListVideo, List, Youtube, Camera, Blocks } from 'lucide-react'; // Added Blocks icon
+import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import navigationConfig from '../config/navigation';
 
 function Sidebar() {
-  // Use localStorage to persist sidebar state across page navigation
   const [isExpanded, setIsExpanded] = useState(() => {
-    // Get saved state from localStorage or default to false (collapsed)
     const savedState = localStorage.getItem('sidebarExpanded');
     return savedState !== null ? JSON.parse(savedState) : false;
   });
 
-  // Save sidebar state to localStorage whenever it changes
+  // Track collapsed state per collapsible group
+  const [collapsedGroups, setCollapsedGroups] = useState(() => {
+    const saved = localStorage.getItem('sidebarCollapsedGroups');
+    const savedGroups = saved !== null ? JSON.parse(saved) : {};
+    const defaultGroups = {};
+
+    navigationConfig.forEach(group => {
+      if (group.collapsible) {
+        defaultGroups[group.id] = group.defaultCollapsed !== false;
+      }
+    });
+
+    return { ...defaultGroups, ...savedGroups };
+  });
+
   useEffect(() => {
     localStorage.setItem('sidebarExpanded', JSON.stringify(isExpanded));
   }, [isExpanded]);
+
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsedGroups', JSON.stringify(collapsedGroups));
+  }, [collapsedGroups]);
 
   const toggleSidebar = () => {
     setIsExpanded(!isExpanded);
   };
 
-  // Define sidebar items
-  const menuItems = [
-    { name: '视频列表', icon: <Video size={20} />, path: '/' }, // Changed path to root for TaskListPage
-    { name: '文档列表', icon: <FileText size={20} />, path: '/docs' },   // Example path (keep or remove based on need)
-    // { name: 'Studio专区', icon: <Sparkles size={20} />, path: '/studio' }, // REMOVED - Should navigate from Task list
-    { name: 'VideoPlayer 测试', icon: <Settings size={20} />, path: '/test/video-player' }, // Updated Test Page link
-    { name: 'VTT Preview 测试', icon: <ListVideo size={20} />, path: '/test/vtt-previewer' }, // New VTT Test Page link
-    { name: 'Markdown 测试', icon: <Settings size={20} />, path: '/test/markdown' }, // Added Markdown Test Page link
-    { name: 'Markdown List 测试', icon: <List size={20} />, path: '/test/markdownlist' }, // Added MarkdownList Test Page link
-    { name: 'YouTube 时间戳 测试', icon: <Youtube size={20} />, path: '/test/youtube-timestamp' }, // Added YouTube timestamp test page
-    { name: '关键帧剪辑 测试', icon: <Camera size={20} />, path: '/test/keyframe-clip' }, // Added Keyframe Clip test page
-    { name: '块编辑器 测试', icon: <Blocks size={20} />, path: '/test/block-editor' }, // Added Block Editor test page
-  ];
+  const toggleGroup = (groupId) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [groupId]: !prev[groupId],
+    }));
+  };
 
   return (
-    <div 
+    <div
       className={`flex flex-col h-screen bg-base-300 text-base-content transition-all duration-300 ease-in-out ${isExpanded ? 'w-64' : 'w-20'}`}
     >
       {/* Header / Toggle Button */}
       <div className="flex items-center justify-between p-4 h-16 border-b border-base-content/10">
-        {/* Logo / Brand - Only show when expanded */}
         {isExpanded && (
           <span className="text-lg font-bold truncate">YangHoo AI</span>
         )}
-        {/* Toggle Button */}
         <button
           onClick={toggleSidebar}
           className="btn btn-ghost btn-sm hover:bg-base-200"
@@ -55,30 +63,76 @@ function Sidebar() {
 
       {/* Navigation Menu */}
       <nav className="flex-1 overflow-y-auto py-4">
-        <ul className="space-y-2 px-2">
-          {menuItems.map((item, index) => (
-            <li key={index}>
-              <NavLink
-                to={item.path}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 p-3 rounded-lg transition-all duration-200 ${
-                    isActive
-                      ? 'bg-primary text-primary-content shadow-md'
-                      : 'hover:bg-base-200 text-base-content/80 hover:text-base-content'
-                  }`
-                }
-              >
-                <span className="flex-shrink-0">{item.icon}</span>
-                {isExpanded && (
-                  <span className="truncate text-sm font-medium">{item.name}</span>
-                )}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
+        {navigationConfig.map(group => {
+          const isCollapsed = collapsedGroups[group.id] !== false;
+          const visibleItems = group.items.filter(item => !item.hidden);
+
+          return (
+            <div key={group.id} className="mb-2">
+              {/* Group header for collapsible groups */}
+              {group.collapsible && (
+                <button
+                  onClick={() => toggleGroup(group.id)}
+                  className="flex items-center gap-2 w-full px-4 py-2 text-xs font-semibold uppercase tracking-wider text-base-content/50 hover:text-base-content/80 transition-colors"
+                >
+                  {group.icon && <group.icon size={14} />}
+                  {isExpanded && (
+                    <>
+                      <span className="flex-1 text-left">{group.label}</span>
+                      <ChevronDown
+                        size={14}
+                        className={`transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`}
+                      />
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Group label for non-collapsible groups (only when expanded) */}
+              {!group.collapsible && isExpanded && (
+                <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-base-content/50">
+                  {group.label}
+                </div>
+              )}
+
+              {/* Items */}
+              {(!group.collapsible || !isCollapsed) && (
+                <ul className="space-y-1 px-2">
+                  {visibleItems.map(item => {
+                    const IconComponent = item.icon;
+                    return (
+                      <li key={item.id}>
+                        <NavLink
+                          to={item.path}
+                          className={({ isActive }) =>
+                            `flex items-center gap-3 p-3 rounded-lg transition-all duration-200 ${
+                              isActive
+                                ? 'bg-primary text-primary-content shadow-md'
+                                : 'hover:bg-base-200 text-base-content/80 hover:text-base-content'
+                            }`
+                          }
+                          title={isExpanded ? '' : item.label}
+                        >
+                          {IconComponent && (
+                            <span className="flex-shrink-0">
+                              <IconComponent size={20} />
+                            </span>
+                          )}
+                          {isExpanded && (
+                            <span className="truncate text-sm font-medium">{item.label}</span>
+                          )}
+                        </NavLink>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </nav>
     </div>
   );
 }
 
-export default Sidebar; 
+export default Sidebar;
