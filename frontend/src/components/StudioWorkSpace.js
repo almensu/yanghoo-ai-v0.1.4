@@ -28,6 +28,15 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
   const [isExpanded, setIsExpanded] = useState(false);
   const contentRef = useRef(null);
   const selectedFileRef = useRef(selectedFile);
+  const markdownContentRef = useRef(markdownContent);
+
+  // Keep refs in sync with latest values for use in non-subscribing effects
+  useEffect(() => {
+    selectedFileRef.current = selectedFile;
+  }, [selectedFile]);
+  useEffect(() => {
+    markdownContentRef.current = markdownContent;
+  }, [markdownContent]);
 
   // New state to track if content has timestamps
   const [hasTimestamps, setHasTimestamps] = useState(false);
@@ -174,7 +183,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
         // If markdownContent prop was NOT provided (or was empty), then try to select a default file from the list.
         // Otherwise, if markdownContent prop WAS provided, selectedFile remains null (or its current value)
         // so that the prop-derived currentMarkdownContent is displayed until the user picks a file.
-        if (!markdownContent) {
+        if (!markdownContentRef.current) {
           const defaultFileToLoad = files.find(f => f.includes('parallel_summary.md')) || files[0];
           if (defaultFileToLoad) {
             setSelectedFile(defaultFileToLoad); // This will trigger the content fetching useEffect
@@ -188,7 +197,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
           // If a file was ALREADY selected (e.g. user clicked one), we don't want to nullify it here either.
           // So, selectedFile remains as is (could be null, could be user-selected).
           // If selectedFile is null, the rendering logic will use the prop-based currentMarkdownContent.
-          if (!selectedFile) { // Only ensure it's null if it wasn't already set by user interaction somehow before this runs
+          if (!selectedFileRef.current) {
              // If no file is selected AND we are using prop content, ensure selectedFile is null.
              // This helps the rendering logic pick the prop content via the `markdownContent ?` branch.
              setSelectedFile(null);
@@ -199,7 +208,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, videoRef, task
         setError('Failed to load markdown file list.');
         setMarkdownFiles([]);
         setSelectedFile(null);
-        setCurrentMarkdownContent(markdownContent || ''); // Fallback to prop content on list fetch error
+        setCurrentMarkdownContent(markdownContentRef.current || ''); // Fallback to prop content on list fetch error
       } finally {
         setIsLoadingList(false);
       }

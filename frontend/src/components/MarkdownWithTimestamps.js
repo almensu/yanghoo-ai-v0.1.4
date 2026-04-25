@@ -332,12 +332,8 @@ const MarkdownWithTimestamps = ({
             console.log("[DEBUG] 时间戳点击处理结果:", result);
           } else {
             console.error("[DEBUG] handleTimestampClickRef.current 为空");
-            // 备用处理 - 直接调用handleTimestampClick
-            if (typeof handleTimestampClick === 'function') {
-              console.log("[DEBUG] 使用备用方法调用handleTimestampClick");
-              const result = handleTimestampClick(timeStr);
-              console.log("[DEBUG] 备用方法处理结果:", result);
-            }
+            // ref模式保证handleTimestampClickRef.current始终有值
+            // （handleTimestampClick变化时通过独立effect同步到ref）
           }
         } else {
           console.error("[DEBUG] 按钮没有data-time属性");
@@ -373,7 +369,7 @@ const MarkdownWithTimestamps = ({
         container.removeEventListener('click', handleClick);
       }
     };
-  }, [processedContent, timestampClassName, placeholderMapRef.current]);
+  }, [processedContent, timestampClassName]);
 
   if (!markdownContent) {
     return (
