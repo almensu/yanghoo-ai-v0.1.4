@@ -1168,7 +1168,8 @@ function Studio({ taskUuid, apiBaseUrl }) {
         }
     }
 
-  }, [taskUuid, apiBaseUrl]); // Remove displayLang dependency
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskUuid, apiBaseUrl]); // 有意排除 displayLang 以避免切换语言时重新触发昂贵的数据获取
 
 
   // --- NEW: Subtitle optimization function to handle short sentences ---

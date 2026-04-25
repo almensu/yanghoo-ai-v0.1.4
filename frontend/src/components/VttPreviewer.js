@@ -174,8 +174,8 @@ function VttPreviewer({ cues = [], videoRef, syncEnabled = true, onCueSelect, se
         console.error("VttPreviewer: Error removing timeupdate event listener:", error);
       }
     };
-  // Depend on the throttled handler instance and the original logic for initial call
-  }, [videoRef, videoRef?.current, handleTimeUpdateThrottled, timeUpdateLogic]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoRef, handleTimeUpdateThrottled, timeUpdateLogic]); // videoRef.current 是 mutable ref，不应作为依赖
 
   // 回调：处理字幕项点击事件（仅在非选择模式下用于跳转）
   const handleCueClickForSeek = useCallback((startTime) => {
