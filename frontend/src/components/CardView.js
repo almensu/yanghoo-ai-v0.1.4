@@ -173,14 +173,15 @@ function CardView({
             // Use card-bordered and adjust padding/shadow
             <div key={task.uuid} className="card card-bordered bg-base-100 shadow-sm border-base-300 rounded-lg overflow-hidden relative group">
               {task.archived && (
-                <span className="badge badge-neutral badge-sm absolute top-2 right-2 z-10 font-normal opacity-80">Archived</span>
+                <span className="badge badge-neutral badge-sm absolute top-2 right-2 z-10 font-normal opacity-80 uppercase tracking-tight">Archived</span>
               )}
                {/* Action buttons on hover */}
               <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-1">
-                   <div className="tooltip" data-tip="归档任务">
+                   <div className="tooltip" data-tip={task.archived ? "取消归档" : "归档任务"}>
                        <button 
                            className={cn(
                              "btn btn-square btn-xs btn-ghost text-base-content/60 hover:bg-base-200",
+                             task.archived && "text-primary"
                            )}
                            onClick={() => onArchive(task.uuid)}
                        >
@@ -219,26 +220,38 @@ function CardView({
               </div>
               
               {/* Reduced height for thumbnail */}
-              <figure className="h-40 overflow-hidden bg-base-200"> 
+              <figure className="h-32 overflow-hidden bg-base-200 relative"> 
                  <ImageWithFallback 
                    src={task.thumbnail_path}
                    alt={task.title || 'Thumbnail'} 
                    className="object-cover w-full h-full"
                   />
+                  {/* Keyframes badge overlay */}
+                  {task.keyframes_count > 0 && (
+                    <div className="absolute bottom-2 right-2 badge badge-ghost badge-sm bg-black/50 text-white border-none backdrop-blur-sm font-mono text-[10px]">
+                      {task.keyframes_count} KFs
+                    </div>
+                  )}
               </figure>
-              {/* Increased padding */}
-              <div className="card-body p-4 space-y-3"> 
-                {/* Title and URL */}
+              {/* Card content */}
+              <div className="card-body p-4 space-y-2"> 
+                {/* Title and ID */}
                 <div>
-                  <h2 className="font-medium text-sm line-clamp-2 mb-0.5" title={task.title}>
+                  <h2 className="font-bold text-sm line-clamp-2 leading-tight mb-1" title={task.title}>
                     {task.title || 'No Title'}
                   </h2>
-                  <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-xs text-base-content/60 hover:text-primary truncate block" title={task.url}>{task.url || 'No URL'}</a>
+                  <div className="flex items-center justify-between text-[10px] text-base-content/40 uppercase font-mono">
+                    <span>{task.uuid.substring(0, 8)}...</span>
+                    <span>{task.last_modified ? new Date(task.last_modified).toLocaleDateString() : ''}</span>
+                  </div>
                 </div>
                 
-                {/* Platform Badge */}
-                <div>
-                   <span className="badge badge-sm badge-outline font-normal">{task.platform || 'N/A'}</span>
+                {/* Asset Status Badges */}
+                <div className="flex flex-wrap gap-1">
+                   <span className="badge badge-xs badge-outline opacity-70 uppercase tracking-tighter text-[9px]">{task.platform || 'N/A'}</span>
+                   {!!task.sentences_json_path && <span className="badge badge-xs badge-primary text-[9px]">Refined</span>}
+                   {!!task.markdown_path && <span className="badge badge-xs badge-secondary text-[9px]">Markdown</span>}
+                   {whisperXJsonExists && <span className="badge badge-xs badge-accent text-[9px]">WhisperX</span>}
                 </div>
                 
                 <div className="space-y-3 pt-2 border-t border-base-200/60"> {/* Group sections */}

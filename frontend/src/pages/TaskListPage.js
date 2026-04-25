@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 
 import IngestForm from '../components/IngestForm';
 import TaskList from '../components/TaskList';
 
-// Helper for sorting icons (you can replace with actual icons later)
+// Helper for sorting icons
 const SortIndicator = ({ order }) => {
   if (!order) return null;
   return order === 'asc' ? ' ▲' : ' ▼';
@@ -15,64 +15,117 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
   const [tasks, setTasks] = useState([]);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
-  const [sortField, setSortField] = useState('created_at'); // Default sort field to created_at
-  const [sortOrder, setSortOrder] = useState('desc'); // Default sort order to descending
+  const [sortField, setSortField] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('desc');
+  
+  // Filtering state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [platformFilter, setPlatformFilter] = useState('all');
+  const [archiveFilter, setArchiveFilter] = useState('active'); // 'all', 'active', 'archived'
+  const [assetFilter, setAssetFilter] = useState('all'); // 'all', 'has_subtitles', 'has_markdown', 'has_keyframes'
+
   const ws = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('search')) setSearchQuery(params.get('search'));
+    if (params.get('platform')) setPlatformFilter(params.get('platform'));
+    if (params.get('archive')) setArchiveFilter(params.get('archive'));
+    if (params.get('asset')) setAssetFilter(params.get('asset'));
+    if (params.get('sort')) setSortField(params.get('sort'));
+    if (params.get('order')) setSortOrder(params.get('order'));
+  }, [location.search]); // Sync when search string changes
+
+  // Sync filters to URL
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (searchQuery) params.set('search', searchQuery);
+    if (platformFilter !== 'all') params.set('platform', platformFilter);
+    if (archiveFilter !== 'active') params.set('archive', archiveFilter);
+    if (assetFilter !== 'all') params.set('asset', assetFilter);
+    if (sortField !== 'created_at') params.set('sort', sortField);
+    if (sortOrder !== 'desc') params.set('order', sortOrder);
+    
+    const newRelativePathQuery = window.location.pathname + '?' + params.toString();
+    window.history.replaceState(null, '', newRelativePathQuery);
+  }, [searchQuery, platformFilter, archiveFilter, assetFilter, sortField, sortOrder]);
 
   const handleSort = useCallback((field, order) => {
-    if (order) { // If an explicit order is provided (e.g., from CardView dropdown)
+    if (order) {
       setSortField(field);
       setSortOrder(order);
-    } else { // Toggle order if no explicit order is given (e.g., from TableView header click)
+    } else {
       setSortOrder(currentOrder => {
         if (sortField === field) {
           return currentOrder === 'asc' ? 'desc' : 'asc';
         }
-        return 'asc'; // Default to ascending for new field
+        return 'asc';
       });
       setSortField(field);
     }
   }, [sortField]);
 
+  const filteredTasks = useMemo(() => {
+    return tasks.filter(task => {
+      // 1. Search Query
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = !query || 
+        (task.title && task.title.toLowerCase().includes(query)) ||
+        (task.url && task.url.toLowerCase().includes(query)) ||
+        (task.uuid && task.uuid.toLowerCase().includes(query));
+      
+      if (!matchesSearch) return false;
+
+      // 2. Platform Filter
+      if (platformFilter !== 'all' && task.platform !== platformFilter) return false;
+
+      // 3. Archive Filter
+      if (archiveFilter === 'active' && task.archived) return false;
+      if (archiveFilter === 'archived' && !task.archived) return false;
+
+      // 4. Asset Filter
+      if (assetFilter === 'has_subtitles') {
+        const hasVtt = task.vtt_files && Object.keys(task.vtt_files).length > 0;
+        const hasSrt = task.srt_files && Object.keys(task.srt_files).length > 0;
+        const hasSentences = !!task.sentences_json_path;
+        if (!hasVtt && !hasSrt && !hasSentences) return false;
+      }
+      if (assetFilter === 'has_markdown') {
+        const hasMd = !!task.markdown_path || !!task.parallel_vtt_md_path || (task.srt_md_files && Object.keys(task.srt_md_files).length > 0);
+        if (!hasMd) return false;
+      }
+      if (assetFilter === 'has_keyframes') {
+        if (!task.keyframes_count || task.keyframes_count <= 0) return false;
+      }
+
+      return true;
+    });
+  }, [tasks, searchQuery, platformFilter, archiveFilter, assetFilter]);
+
   const sortedTasks = useMemo(() => {
-    let sorted = [...tasks];
+    let sorted = [...filteredTasks];
     if (sortField) {
       sorted.sort((a, b) => {
         let valA, valB;
 
-        // Handle date fields (created_at and last_modified)
         if (sortField === 'created_at' || sortField === 'last_modified') {
           valA = a[sortField] ? new Date(a[sortField]).getTime() : 0;
           valB = b[sortField] ? new Date(b[sortField]).getTime() : 0;
         } else {
-          // Handle string fields (title, platform, url)
           valA = a[sortField] ? String(a[sortField]).toLowerCase() : '';
           valB = b[sortField] ? String(b[sortField]).toLowerCase() : '';
         }
         
         let comparison = 0;
-        if (valA > valB) {
-          comparison = 1;
-        } else if (valA < valB) {
-          comparison = -1;
-        }
+        if (valA > valB) comparison = 1;
+        else if (valA < valB) comparison = -1;
         return sortOrder === 'asc' ? comparison : comparison * -1;
       });
     }
-
-    // Secondary sort by archived status (archived tasks at the bottom)
-    // This should ideally run AFTER the primary sort, so we apply it here again
-    // or ensure the primary sort is stable if items have same primary sort value.
-    // For simplicity, applying it again on the already primary-sorted list.
-    sorted.sort((a, b) => {
-      if (a.archived !== b.archived) {
-        return a.archived ? 1 : -1;
-      }
-      return 0;
-    });
     return sorted;
-  }, [tasks, sortField, sortOrder]);
+  }, [filteredTasks, sortField, sortOrder]);
 
   const fetchTasks = useCallback(async () => {
     setFetchLoading(true);
@@ -527,42 +580,51 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
         API_BASE_URL={apiBaseUrl}
         onIngestComplete={fetchTasks}
       />
-      {fetchError && <div className="text-red-500 text-center my-4">{fetchError}</div>}
-      {fetchLoading ? (
-        <div className="text-center my-10">Loading tasks...</div>
-      ) : (
-        <TaskList
-          tasks={sortedTasks}
-          isLoading={fetchLoading}
-          error={fetchError}
-          onDelete={handleDeleteTask}
-          onArchive={handleArchiveTask}
-          onRestoreArchived={handleRestoreArchived}
-          onDownloadRequest={handleDownloadRequest}
-          onDownloadAudio={handleDownloadAudio}
-          onExtractAudio={handleExtractAudio}
-          onDeleteVideo={handleDeleteVideo}
-          onDeleteAudio={handleDeleteAudio}
-          onDownloadVtt={handleDownloadVtt}
-          onDeleteVtt={handleDeleteVtt}
-          onNaturalSegmentVtt={handleNaturalSegmentVtt}
-          onMergeVtt={handleMergeVtt}
-          onProcessSrt={handleProcessSrt}
-          onMergeSrt={handleMergeSrt}
-          onDeleteSrt={handleDeleteSrt}
-          onDeleteAss={handleDeleteAss}
-          onTranscribeWhisperX={handleTranscribeWhisperX}
-          onDeleteWhisperX={handleDeleteWhisperX}
-          onSplitTranscribeWhisperX={handleSplitTranscribeWhisperX}
-          onCreateVideo={handleCreateVideo}
-          onOpenFolder={handleOpenFolder}
-          onGoToStudio={handleGoToStudio}
-          sortField={sortField}
-          sortOrder={sortOrder}
-          handleSort={handleSort}
-          SortIndicator={SortIndicator}
-        />
-      )}
+      
+      <TaskList
+        tasks={sortedTasks}
+        totalTasksCount={tasks.length}
+        isLoading={fetchLoading}
+        error={fetchError}
+        onDelete={handleDeleteTask}
+        onArchive={handleArchiveTask}
+        onRestoreArchived={handleRestoreArchived}
+        onDownloadRequest={handleDownloadRequest}
+        onDownloadAudio={handleDownloadAudio}
+        onExtractAudio={handleExtractAudio}
+        onDeleteVideo={handleDeleteVideo}
+        onDeleteAudio={handleDeleteAudio}
+        onDownloadVtt={handleDownloadVtt}
+        onDeleteVtt={handleDeleteVtt}
+        onNaturalSegmentVtt={handleNaturalSegmentVtt}
+        onMergeVtt={handleMergeVtt}
+        onProcessSrt={handleProcessSrt}
+        onMergeSrt={handleMergeSrt}
+        onDeleteSrt={handleDeleteSrt}
+        onDeleteAss={handleDeleteAss}
+        onTranscribeWhisperX={handleTranscribeWhisperX}
+        onDeleteWhisperX={handleDeleteWhisperX}
+        onSplitTranscribeWhisperX={handleSplitTranscribeWhisperX}
+        onCreateVideo={handleCreateVideo}
+        onOpenFolder={handleOpenFolder}
+        onGoToStudio={handleGoToStudio}
+        
+        // Sorting
+        sortField={sortField}
+        sortOrder={sortOrder}
+        handleSort={handleSort}
+        SortIndicator={SortIndicator}
+
+        // Filtering
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        platformFilter={platformFilter}
+        setPlatformFilter={setPlatformFilter}
+        archiveFilter={archiveFilter}
+        setArchiveFilter={setArchiveFilter}
+        assetFilter={assetFilter}
+        setAssetFilter={setAssetFilter}
+      />
     </div>
   );
 }

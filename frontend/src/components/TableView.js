@@ -176,6 +176,11 @@ function TableView({
             const canDirectDownloadAudio = isAudioPlatform(task.platform);
             const canMerge = canMergeVtt(task);
             const isMerged = !!task.merged_vtt_md_path;
+            
+            // Stage 6 Assets
+            const hasRefinedSentences = !!task.sentences_json_path;
+            const hasRefinedMarkdown = !!task.markdown_path;
+            
             const canCreatePodcastVideo = 
                 (task.platform === 'xiaoyuzhou' || task.platform === 'podcast') && 
                 !!task.thumbnail_path && 
@@ -188,31 +193,48 @@ function TableView({
 
             return (
               // Ensure hover effect
-              <tr key={task.uuid} className={`hover:bg-base-200/50 align-middle`}>
-                <td className="p-3 text-xs text-base-content/70">{index + 1}</td>
+              <tr key={task.uuid} className={`hover:bg-base-200/50 align-middle text-xs`}>
+                <td className="p-3 text-base-content/70">{index + 1}</td>
                 <td className="p-2">
-                  <div className="avatar w-10 h-10 min-w-[2.5rem]"> {/* Ensure fixed size */}
-                    <div className="w-10 h-10 rounded overflow-hidden">
+                  <div className="avatar w-12 h-8 relative">
+                    <div className="rounded overflow-hidden">
                       <ImageWithFallback 
                         src={task.thumbnail_path}
                         alt="Thumb"
                         className="object-cover w-full h-full"
                       />
                     </div>
+                    {task.keyframes_count > 0 && (
+                      <div className="absolute -bottom-1 -right-1 badge badge-xs badge-neutral border-none scale-75">
+                        {task.keyframes_count}
+                      </div>
+                    )}
                   </div>
                 </td>
-                <td className="p-3 text-sm">
-                  <div className="font-medium line-clamp-2" title={task.title}>
+                <td className="p-3 max-w-xs">
+                  <div className="font-bold line-clamp-1 mb-0.5" title={task.title}>
                     {task.title || 'N/A'}
-                    {task.archived && <span className="badge badge-neutral badge-xs ml-2 font-normal">Archived</span>}
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-base-content/40 font-mono">
+                    <span className="uppercase">{task.uuid.substring(0, 8)}...</span>
+                    {task.archived && <span className="badge badge-neutral badge-xs scale-75 origin-left">ARCHIVED</span>}
                   </div>
                 </td>
-                <td className="p-3 text-xs"><span className="badge badge-sm badge-outline font-normal">{task.platform || 'N/A'}</span></td>
-                <td className="p-3 text-xs"><a href={task.url} target="_blank" rel="noopener noreferrer" className="link link-hover text-base-content/70 hover:text-primary truncate block max-w-[150px]" title={task.url}>{task.url || 'N/A'}</a></td>
-                <td className="p-3 text-xs">
-                  {task.created_at ? new Date(task.created_at).toLocaleDateString() : 'N/A'}
+                <td className="p-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="badge badge-xs badge-outline opacity-70 uppercase font-bold tracking-tight">{task.platform || 'N/A'}</span>
+                    <div className="flex gap-1">
+                       {hasRefinedSentences && <span className="badge badge-[8px] badge-primary p-1 scale-90 origin-left">Refined</span>}
+                       {hasRefinedMarkdown && <span className="badge badge-[8px] badge-secondary p-1 scale-90 origin-left">MD</span>}
+                    </div>
+                  </div>
                 </td>
-                <td className="p-3 text-xs">
+                <td className="p-3">
+                  <a href={task.url} target="_blank" rel="noopener noreferrer" className="link link-hover text-base-content/50 truncate block max-w-[120px]" title={task.url}>
+                    {task.url || 'N/A'}
+                  </a>
+                </td>
+                <td className="p-3 whitespace-nowrap opacity-60">
                   {task.last_modified ? new Date(task.last_modified).toLocaleDateString() : 'N/A'}
                 </td>
                 {/* Video Column */} 
