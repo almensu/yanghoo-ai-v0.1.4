@@ -65,8 +65,8 @@ function TaskList({
          
         {/* View Mode Toggle */}
         <div className="tabs tabs-boxed">
-          <a className={`tab ${viewMode === 'card' ? 'tab-active' : ''}`} onClick={() => setViewMode('card')}>Card View</a> 
-          <a className={`tab ${viewMode === 'table' ? 'tab-active' : ''}`} onClick={() => setViewMode('table')}>Table View</a>
+          <button type="button" className={`tab ${viewMode === 'card' ? 'tab-active' : ''}`} onClick={() => setViewMode('card')}>Card View</button>
+          <button type="button" className={`tab ${viewMode === 'table' ? 'tab-active' : ''}`} onClick={() => setViewMode('table')}>Table View</button>
         </div>
       </div>
 

@@ -233,7 +233,7 @@ function TableView({
                          </button>
                          <ul tabIndex={0} className="dropdown-content menu p-1 shadow bg-base-200 rounded-box w-24 z-[1]">
                            {videoQualities.map(quality => (
-                             <li key={quality}><a className="text-xs" onClick={() => onDownloadRequest(task.uuid, quality)}>{quality}</a></li>
+                             <li key={quality}><button type="button" className="text-xs" onClick={() => onDownloadRequest(task.uuid, quality)}>{quality}</button></li>
                            ))}
                          </ul>
                        </div>

@@ -133,9 +133,9 @@ function CardView({
           <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-52 z-[1]">
             {sortOptions.map(opt => (
               <li key={opt.label}>
-                <a onClick={() => handleSort(opt.field, opt.order)} className={cn(sortField === opt.field && sortOrder === opt.order && "bg-base-300")}>
+                <button type="button" onClick={() => handleSort(opt.field, opt.order)} className={cn(sortField === opt.field && sortOrder === opt.order && "bg-base-300")}>
                   {opt.label}
-                </a>
+                </button>
               </li>
             ))}
           </ul>
@@ -261,7 +261,7 @@ function CardView({
                           </button>
                           <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-32 z-[1]">
                             {videoQualities.map(quality => (
-                              <li key={quality}><a className="text-xs" onClick={() => onDownloadRequest(task.uuid, quality)}>{quality}</a></li>
+                              <li key={quality}><button type="button" className="text-xs" onClick={() => onDownloadRequest(task.uuid, quality)}>{quality}</button></li>
                             ))}
                           </ul>
                         </div>
