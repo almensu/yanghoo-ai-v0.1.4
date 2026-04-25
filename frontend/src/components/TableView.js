@@ -1,11 +1,11 @@
 import React from 'react';
 // Replace react-icons imports with lucide-react
-import { 
-  FileVideo, VideoOff, FileAudio, VolumeX, 
-  Download, AudioWaveform, Captions, Languages, Trash2, 
+import {
+  FileVideo, VideoOff, FileAudio, VolumeX,
+  Download, AudioWaveform, Captions, Languages, Trash2,
   Headphones, Combine, Tv, Mic, Archive, Trash, Scissors,
-  ListVideo, ServerCrash, DownloadCloud, CheckCircle2, AlertCircle, XCircle, HelpCircle, MoreVertical,
-  ChevronDown, Settings, FileText, ImageOff
+  DownloadCloud,
+  Settings, FileText, ImageOff
 } from 'lucide-react'; 
 
 // Utility for conditional class names
@@ -99,11 +99,6 @@ function TableView({
     return task.srt_md_files && Object.keys(task.srt_md_files).length > 0;
   };
 
-  const hasRawSrtFiles = (task) => {
-    // Check if there are any raw SRT files in the directory (before processing)
-    return task.raw_srt_files && task.raw_srt_files.length > 0;
-  };
-
   const getSelectedWhisperXModel = (uuid) => whisperxModels[uuid] || 'medium.en';
   const handleWhisperXModelChange = (uuid, model) => setWhisperxModels(prev => ({ ...prev, [uuid]: model }));
 
@@ -174,7 +169,6 @@ function TableView({
             const srtZhExists = hasSrt(task.srt_files, 'zh-Hans');
             const transcriptSrtExists = hasTranscriptSrt(task);
             const srtMdFilesExist = hasSrtMdFiles(task);
-            const rawSrtFilesExist = hasRawSrtFiles(task);
             const assEnExists = hasAss(task.ass_files, 'en');
             const assZhExists = hasAss(task.ass_files, 'zh-Hans');
             const assMainExists = hasAss(task.ass_files, 'main');

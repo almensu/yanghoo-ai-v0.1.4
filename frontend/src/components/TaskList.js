@@ -37,7 +37,7 @@ function TaskList({
   SortIndicator 
 }) {
   const [viewMode, setViewMode] = useState('card'); // 'card' or 'table'
-  const [searchTerm, setSearchTerm] = useState(''); // State for search term (if you add search input later)
+  const [searchTerm] = useState(''); // State for search term (if you add search input later)
 
   // Filter tasks based on search term. Archive filtering is now handled by the parent.
   const processedTasks = tasks.filter(task => {

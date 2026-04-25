@@ -10,7 +10,6 @@ const QuickCollector = ({
   onCollected,
   className = '' 
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
   const [isCollecting, setIsCollecting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [projects, setProjects] = useState([]);
@@ -123,8 +122,6 @@ const QuickCollector = ({
       <button
         ref={buttonRef}
         onClick={handleQuickAdd}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
         disabled={isCollecting}
         className={`
           inline-flex items-center gap-1 px-2 py-1 rounded text-xs transition-all

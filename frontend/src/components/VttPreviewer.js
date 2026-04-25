@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // Use the installed webvtt-parser
-// import { WebVTT } from 'vtt.js'; 
-import { WebVTTParser } from 'webvtt-parser';
-import { formatTime } from '../utils/formatTime'; // Import the utility function
+// import { WebVTT } from 'vtt.js';
 import MonoCueItem from './MonoCueItem';
 import BilingualCueItem from './BilingualCueItem';
 

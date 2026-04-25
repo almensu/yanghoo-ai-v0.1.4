@@ -394,7 +394,7 @@ function TaskListPage({ apiBaseUrl, wsBaseUrl }) {
         body: JSON.stringify({ model })
       });
       if (res.ok) {
-        const data = await res.json();
+        await res.json();
         alert(`Started split-transcribe job for ${taskUuid} using model ${model}`);
         setTasks(ts => ts.map(t => t.uuid === taskUuid ? { ...t, transcription_status: "processing", transcription_model: model } : t));
       } else {

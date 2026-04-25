@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useCallback } from "react";
 import MarkdownWithTimestamps from "./MarkdownWithTimestamps";
-import { estimateTokenCount, formatTokenCount, getTokenCountColorClass } from "../utils/tokenUtils";
 import { timeToSeconds } from "../utils/timestampUtils";
 import "./markdown.css"; // 保留自定义 markdown 样式
 
