@@ -38,7 +38,6 @@ from pydantic import ValidationError, BaseModel
 from pydantic.json import pydantic_encoder
 from fastapi.responses import FileResponse # Import FileResponse
 
-# --- Schemas Import --- 
 from .schemas import (
     IngestRequest, IngestResponse, TaskMetadata, 
     FetchInfoJsonResponse, 
@@ -51,6 +50,12 @@ from .schemas import (
     ExtractKeyframesRequest, ExtractKeyframesResponse, 
     KeyframesData, KeyframesStatsResponse
 )
+
+# --- Stage 6: YouTube Refined Engine Imports ---
+from .utils.transcript_refiner import TranscriptRefiner
+from .tasks.youtube_api import YouTubeAPI
+from .tasks.generators import Generators
+# -----------------------------------------------
 # --- Tasks Import --- 
 from .tasks.ingest import create_ingest_task
 from .tasks.fetch_info_json import run_fetch_info_json
@@ -404,6 +409,73 @@ async def ingest_url(request: IngestRequest, background_tasks: BackgroundTasks):
             # Continue with partial metadata if fetching info fails, or raise error depending on desired behavior
 
         new_task_metadata = _populate_embed_url(new_task_metadata)
+
+        # --- Stage 6: YouTube Refined Transcript Engine ---
+        if platform == Platform.YOUTUBE:
+            try:
+                logger.info(f"YouTube Refined Engine: Starting processing for {request_url_str}")
+                
+                # 1. Fetch raw data
+                raw_snippets = YouTubeAPI.get_raw_transcript(request_url_str)
+                
+                # 2. Refine into sentences
+                refiner = TranscriptRefiner()
+                sentences = refiner.refine(raw_snippets)
+                
+                # 3. Extract chapters from info.json (already downloaded)
+                chapters = []
+                info_json_abs_path = DATA_DIR / new_task_metadata.info_json_path
+                if info_json_abs_path.exists():
+                    async with aiofiles.open(info_json_abs_path, 'r') as f_info:
+                        info_data = json.loads(await f_info.read())
+                        chapters = YouTubeAPI.extract_chapters(info_data.get('description', ''))
+                
+                # 4. Save data assets
+                # transcript-raw.json
+                raw_json_path = task_data_dir / "transcript-raw.json"
+                async with aiofiles.open(raw_json_path, 'w', encoding='utf-8') as f:
+                    await f.write(json.dumps(raw_snippets, indent=2, ensure_ascii=False))
+                
+                # transcript-sentences.json
+                sentences_json_path = task_data_dir / "transcript-sentences.json"
+                async with aiofiles.open(sentences_json_path, 'w', encoding='utf-8') as f:
+                    await f.write(json.dumps(sentences, indent=2, ensure_ascii=False))
+                
+                # 5. Generate and save presentation assets
+                # Create the target directory for presentation assets
+                refined_assets_dir = task_data_dir / "transcripts" / "youtube"
+                refined_assets_dir.mkdir(parents=True, exist_ok=True)
+                
+                # transcript.md
+                markdown_content = Generators.to_markdown(sentences, info_data, chapters)
+                md_filename = "transcript.md"
+                md_path = refined_assets_dir / md_filename
+                async with aiofiles.open(md_path, 'w', encoding='utf-8') as f:
+                    await f.write(markdown_content)
+                
+                # transcript.vtt
+                vtt_content = Generators.to_vtt(sentences)
+                vtt_filename = "transcript.vtt"
+                vtt_path = refined_assets_dir / vtt_filename
+                async with aiofiles.open(vtt_path, 'w', encoding='utf-8') as f:
+                    await f.write(vtt_content)
+                
+                # 6. Update metadata
+                # Relative paths from DATA_DIR
+                rel_prefix = f"{task_uuid_str}/transcripts/youtube"
+                new_task_metadata.vtt_files = {"en": f"{rel_prefix}/{vtt_filename}"}
+                
+                # Register the new schema fields from Stage 6
+                new_task_metadata.raw_transcript_json_path = f"{task_uuid_str}/transcript-raw.json"
+                new_task_metadata.sentences_json_path = f"{task_uuid_str}/transcript-sentences.json"
+                new_task_metadata.markdown_path = f"{rel_prefix}/{md_filename}"
+                
+                logger.info(f"YouTube Refined Engine: Successfully generated assets for task {new_uuid}")
+                
+            except Exception as e_refined:
+                logger.error(f"YouTube Refined Engine failed for {request_url_str}: {e_refined}", exc_info=True)
+                # We don't fail the whole ingest if refinement fails, we keep the basic task
+        # ---------------------------------------------------
 
         all_metadata[task_uuid_str] = new_task_metadata
         await save_metadata(all_metadata)

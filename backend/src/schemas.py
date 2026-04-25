@@ -39,6 +39,9 @@ class TaskMetadata(BaseModel):
     en_only_vtt_timestamp_md_path: Optional[str] = None
     zh_only_vtt_timestamp_md_path: Optional[str] = None
     merged_whisperx_md_path: Optional[str] = None
+    markdown_path: Optional[str] = None # Added for Stage 6 Refined Markdown
+    sentences_json_path: Optional[str] = None # Added for Stage 6 Refined sentences
+    raw_transcript_json_path: Optional[str] = None # Added for Stage 6 Raw snippets
     archived: bool = False
     downloaded_audio_path: Optional[str] = None
     embed_url: Optional[str] = None
