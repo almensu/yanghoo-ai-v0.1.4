@@ -823,16 +823,17 @@ const VideoPlayer = forwardRef(({
     };
 
     // Add event listeners
-    if (shouldShowLocal && videoRef.current) {
+    const videoEl = videoRef.current;
+    if (shouldShowLocal && videoEl) {
       console.log('VideoPlayer: Adding time update and keyboard event listeners');
-      videoRef.current.addEventListener('timeupdate', handleTimeUpdate);
+      videoEl.addEventListener('timeupdate', handleTimeUpdate);
       document.addEventListener('keydown', handleKeyDown);
     }
 
     // Cleanup function
     return () => {
-      if (videoRef.current) {
-        videoRef.current.removeEventListener('timeupdate', handleTimeUpdate);
+      if (videoEl) {
+        videoEl.removeEventListener('timeupdate', handleTimeUpdate);
       }
       document.removeEventListener('keydown', handleKeyDown);
     };

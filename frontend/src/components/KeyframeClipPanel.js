@@ -38,50 +38,75 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments, videoRef }) => {
   const frameRefs = useRef(new Map());
 
   useEffect(() => {
-    loadKeyframes();
-    loadStats();
+    const loadInitial = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(`http://127.0.0.1:8000/api/tasks/${taskUuid}/keyframes`);
+        if (response.ok) {
+          const data = await response.json();
+          setKeyframes(data.keyframes || []);
+        } else if (response.status === 404) {
+          setKeyframes([]);
+        } else {
+          throw new Error('Failed to load keyframes');
+        }
+      } catch (err) {
+        console.error('Error loading keyframes:', err);
+        setError('加载关键帧失败');
+      } finally {
+        setLoading(false);
+      }
+
+      try {
+        const response = await fetch(`http://127.0.0.1:8000/api/tasks/${taskUuid}/keyframes/stats`);
+        if (response.ok) {
+          const data = await response.json();
+          setStats(data.stats);
+        }
+      } catch (err) {
+        console.error('Error loading stats:', err);
+      }
+    };
+    loadInitial();
   }, [taskUuid]);
 
   // 监听选中关键帧变化，自动更新循环播放片段
   useEffect(() => {
-    // 只在非剪辑模式下且正在循环播放时才处理
     if (!clipMode && isLoopPlaying) {
-      // 如果选中的关键帧少于2个，停止循环播放
       if (selectedFrames.length < 2) {
         console.log('选中关键帧少于2个，停止循环播放');
         stopLoopPlaying();
         return;
       }
-      
-      // 如果有多个关键帧被选中，更新循环播放片段
+
       const sortedFrames = [...selectedFrames].sort((a, b) => a - b);
       const firstFrame = keyframes.find(f => f.index === sortedFrames[0]);
       const lastFrame = keyframes.find(f => f.index === sortedFrames[sortedFrames.length - 1]);
-      
+
       if (firstFrame && lastFrame) {
         const newSegment = {
           start: firstFrame.timestamp,
           end: lastFrame.timestamp
         };
-        
-        // 检查新片段是否与当前循环片段不同
-        if (!currentLoopSegment || 
-            newSegment.start !== currentLoopSegment.start || 
+
+        if (!currentLoopSegment ||
+            newSegment.start !== currentLoopSegment.start ||
             newSegment.end !== currentLoopSegment.end) {
-          
+
           console.log(`选中关键帧变化，更新循环播放片段: ${formatTime(newSegment.start)} → ${formatTime(newSegment.end)}`);
-          
-          // 停止当前循环播放
+
           if (loopIntervalRef.current) {
             clearInterval(loopIntervalRef.current);
             loopIntervalRef.current = null;
           }
-          
-          // 开始新的循环播放
+
           startLoopPlayingSegment(newSegment);
         }
       }
     }
+    // stopLoopPlaying and startLoopPlayingSegment access only refs and setters (stable references)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFrames, clipMode, isLoopPlaying, keyframes, currentLoopSegment]);
 
   // 组件卸载时清理循环播放
@@ -92,27 +117,6 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments, videoRef }) => {
       }
     };
   }, []);
-
-  const loadKeyframes = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`http://127.0.0.1:8000/api/tasks/${taskUuid}/keyframes`);
-      if (response.ok) {
-        const data = await response.json();
-        setKeyframes(data.keyframes || []);
-      } else if (response.status === 404) {
-        setKeyframes([]);
-      } else {
-        throw new Error('Failed to load keyframes');
-      }
-    } catch (err) {
-      console.error('Error loading keyframes:', err);
-      setError('加载关键帧失败');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadStats = async () => {
     try {
@@ -393,6 +397,8 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments, videoRef }) => {
     setDragSelection(new Set());
     
     e.preventDefault();
+    // handleFrameClick reads keyframes/state via closure; only re-bind when clipMode changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clipMode]);
 
   const handleMouseMove = useCallback((e) => {
@@ -508,6 +514,8 @@ const KeyframeClipPanel = ({ taskUuid, onClipSegments, videoRef }) => {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
+    // stopLoopPlaying and togglePlayPause access only refs and setters (stable)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clipMode, keyframes, selectedFrames, isLoopPlaying]);
 
   const renderKeyframeGrid = () => {

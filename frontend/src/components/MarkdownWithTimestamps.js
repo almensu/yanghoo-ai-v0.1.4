@@ -277,7 +277,7 @@ const MarkdownWithTimestamps = ({
     
     const textNodes = [];
     let node;
-    while (node = walker.nextNode()) {
+    while ((node = walker.nextNode()) !== null) {
       if (node.textContent.includes('{{TIMESTAMP_')) {
         textNodes.push(node);
       }
@@ -371,11 +371,14 @@ const MarkdownWithTimestamps = ({
       }
     };
     
-    containerRef.current.addEventListener('click', handleClick);
-    
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('click', handleClick);
+    }
+
     return () => {
-      if (containerRef.current) {
-        containerRef.current.removeEventListener('click', handleClick);
+      if (container) {
+        container.removeEventListener('click', handleClick);
       }
     };
   }, [processedContent, timestampClassName, placeholderMapRef.current]);
