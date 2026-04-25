@@ -39,9 +39,10 @@ def create_embed_url(url: str, platform: str) -> str:
 def restore_orphaned_tasks():
     """Main function to restore orphaned tasks"""
     
-    # Get the script directory and data directory
-    script_dir = Path(__file__).parent
-    data_dir = script_dir / "data"
+    # Get the backend directory and data directory
+    script_dir = Path(__file__).resolve().parent
+    backend_dir = script_dir.parent
+    data_dir = backend_dir / "data"
     metadata_file = data_dir / "metadata.json"
     
     print(f"Script directory: {script_dir}")

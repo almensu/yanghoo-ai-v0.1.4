@@ -53,6 +53,7 @@ yarn-error.log*
 
 # Backend generated data
 # Ignores the entire directory where task data (UUID folders, metadata.json) is stored
+/backend/data
 /backend/data/
 
 # Operating System generated files
@@ -64,4 +65,3 @@ cursor/rules/
 
 # Project specific files
 启动.md
-docs/

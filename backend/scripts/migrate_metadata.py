@@ -5,9 +5,13 @@ Migration script to add ass_files field to all tasks in metadata.json
 
 import json
 import os
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+METADATA_FILE = BACKEND_DIR / "data" / "metadata.json"
 
 def migrate_metadata():
-    metadata_file = "data/metadata.json"
+    metadata_file = METADATA_FILE
     
     if not os.path.exists(metadata_file):
         print(f"Metadata file {metadata_file} not found!")

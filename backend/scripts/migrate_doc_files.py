@@ -9,8 +9,10 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-METADATA_FILE = 'backend/data/metadata.json'
-BACKUP_FILE = 'backend/data/metadata_backup_before_doc_files_migration.json'
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = BACKEND_DIR / "data"
+METADATA_FILE = DATA_DIR / "metadata.json"
+BACKUP_FILE = DATA_DIR / "metadata_backup_before_doc_files_migration.json"
 
 def load_metadata():
     """加载metadata.json文件"""
@@ -47,7 +49,7 @@ def backup_metadata(metadata):
 
 def get_file_info(file_path):
     """获取文件信息"""
-    full_path = f"backend/data/{file_path}"
+    full_path = DATA_DIR / file_path
     try:
         if os.path.exists(full_path):
             stat = os.stat(full_path)

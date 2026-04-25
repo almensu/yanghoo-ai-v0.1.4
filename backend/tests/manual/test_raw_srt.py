@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import asyncio
 import sys
-import os
-sys.path.append('src')
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(BACKEND_DIR))
 
 from src.main import load_metadata
 
