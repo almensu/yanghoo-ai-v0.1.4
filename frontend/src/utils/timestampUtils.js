@@ -77,7 +77,7 @@ export const timeToSeconds = (timeStr) => {
     }
     
     // 处理连续的冒号或点
-    cleanTimeStr = cleanTimeStr.replace(/[:\.]{2,}/g, ':');
+    cleanTimeStr = cleanTimeStr.replace(/[:.]{2,}/g, ':');
     cleanTimeStr = cleanTimeStr.replace(/^:+|:+$/g, ''); // 移除开头和结尾的冒号
     
     // 分割时间部分
@@ -358,11 +358,13 @@ export const validateTimestamps = (timestamps) => {
   return { valid, invalid };
 };
 
-export default {
+const timestampUtils = {
   timeToSeconds,
   secondsToTimeString,
   isTimestamp,
   normalizeTimestamp,
   extractTimestamps,
   validateTimestamps
-}; 
+};
+
+export default timestampUtils; 

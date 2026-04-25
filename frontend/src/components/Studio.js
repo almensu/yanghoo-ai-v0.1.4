@@ -655,7 +655,7 @@ const detectAndParseSrt = (srtString, lang) => {
         Math.abs(current.endTime - next.endTime) < 0.1) {
       
       // Check language of each
-      const currentIsEnglish = /^[a-zA-Z0-9\s\[\].,!?'"()-]+$/.test(current.text.replace(/[^\w\s\[\].,!?'"()-]/g, ''));
+      const currentIsEnglish = /^[a-zA-Z0-9\s[\].,!?'")(-]+$/.test(current.text.replace(/[^\w\s[\].,!?'")(-]/g, ''));
       const nextIsChinese = /[\u4e00-\u9fff]/.test(next.text);
       
       if (currentIsEnglish && nextIsChinese) {
@@ -664,7 +664,7 @@ const detectAndParseSrt = (srtString, lang) => {
     }
     
     // Count language types
-    if (/^[a-zA-Z0-9\s\[\].,!?'"()-]+$/.test(current.text.replace(/[^\w\s\[\].,!?'"()-]/g, ''))) {
+    if (/^[a-zA-Z0-9\s[\].,!?'")(-]+$/.test(current.text.replace(/[^\w\s[\].,!?'")(-]/g, ''))) {
       englishCount++;
     }
     if (/[\u4e00-\u9fff]/.test(current.text)) {

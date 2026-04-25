@@ -329,10 +329,10 @@ function TableView({
                          <button 
                             className={cn(
                                 "btn btn-ghost btn-xs btn-square tooltip hover:bg-base-200", 
-                                (!vttEnExists && !vttZhExists || task.archived) && "btn-disabled"
+                                ((!vttEnExists && !vttZhExists) || task.archived) && "btn-disabled"
                             )} 
                             onClick={() => onNaturalSegmentVtt(task.uuid)}
-                            disabled={!vttEnExists && !vttZhExists || task.archived}
+                            disabled={(!vttEnExists && !vttZhExists) || task.archived}
                             data-tip="自然断句处理"
                          >
                             <IconWrapper icon={Scissors} className={cn(!vttEnExists && !vttZhExists ? 'text-base-content/40' : 'text-warning')} />
