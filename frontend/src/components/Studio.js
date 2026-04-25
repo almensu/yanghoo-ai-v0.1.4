@@ -4,11 +4,8 @@ import { WebVTTParser } from 'webvtt-parser';
 import { useNavigate } from 'react-router-dom';
 import VideoPlayer from './VideoPlayer';
 import VttPreviewer from './VttPreviewer';
-import MarkdownViewer from './MarkdownViewer';
-import MarkdownWithTimestamps from './MarkdownWithTimestamps';
 import StudioWorkSpace from './StudioWorkSpace';
 import AIChat from './AIChat';
-import TimestampFormatTest from './TimestampFormatTest';
 import KeyframeClipPanel from './KeyframeClipPanel';
 
 // 视频任务选择器组件
@@ -820,9 +817,6 @@ const logger = {
 // - apiBaseUrl: The base URL for the API.
 
 function Studio({ taskUuid, apiBaseUrl }) {
-  // 添加 navigate hook
-  const navigate = useNavigate();
-  
   // Refs
   const videoElementRef = useRef(null);
 
@@ -837,7 +831,7 @@ function Studio({ taskUuid, apiBaseUrl }) {
   // --- NEW: State for multiple VTTs ---
   const [availableLangs, setAvailableLangs] = useState([]); // e.g., ['en', 'zh-Hans']
   const [parsedCuesByLang, setParsedCuesByLang] = useState({}); // e.g., { en: [...], 'zh-Hans': [...] }
-  const [vttErrors, setVttErrors] = useState({}); // Store errors per language
+  const [, setVttErrors] = useState({}); // Store errors per language
   const [displayLang, setDisplayLang] = useState('zh-Hans'); // Default display mode
 
   // State for video source preference
@@ -958,8 +952,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
             const vttLangCodes = Object.keys(vttFilesToFetch).filter(lang => vttFilesToFetch[lang]);
             
             // Detect SRT files - simplified approach: just look for any .srt file
-            const srtFilesToFetch = {};
-            
             // Try to find any SRT file using common patterns
             const possibleSrtNames = [
                 // Try the specific pattern from your example first
@@ -1487,20 +1479,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
   }, []);
 
   // --- NEW: Select range of cues (by time) ---
-  const handleSelectTimeRange = useCallback((startSeconds, endSeconds) => {
-    if (startSeconds >= endSeconds) return;
-    
-    const cuesInRange = displayedCues.filter(
-      cue => cue.startTime >= startSeconds && cue.endTime <= endSeconds
-    );
-    
-    setSelectedCueIds(prevSelected => {
-      const newSelection = new Set(prevSelected);
-      cuesInRange.forEach(cue => newSelection.add(cue.id));
-      return newSelection;
-    });
-  }, [displayedCues]);
-
   // --- Function to poll cut job status ---
   const pollCutStatus = useCallback((jobId, currentTaskUuid) => {
     if (pollingIntervalRef.current) {
@@ -1856,10 +1834,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
       setPreferLocalVideo(!preferLocalVideo);
     }
   };
-
-  const localVideoSrc = videoRelativePath
-    ? `${apiBaseUrl}/api/tasks/${taskUuid}/files/${videoRelativePath}`
-    : null;
 
   // Determine language code for the track element (为 track 元素确定语言代码)
   let actualTrackLang = displayLang;

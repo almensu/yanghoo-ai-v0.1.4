@@ -271,10 +271,9 @@ const VideoPlayer = forwardRef(({
   const isSeekingToTimestamp = useRef(false);
   // 添加ASS字幕相关状态
   const [assContent, setAssContent] = useState('');
-  const [useAssRenderer, setUseAssRenderer] = useState(false);
+  const [useAssRenderer] = useState(false);
   // 添加状态存储格式化后的YouTube嵌入URL
   const [formattedEmbedUrl, setFormattedEmbedUrl] = useState(null);
-  const [youtubePlayer, setYoutubePlayer] = useState(null); // Store YouTube player instance
   const youtubePlayerRef = useRef(null); // 使用ref存储YouTube player实例，确保在整个组件生命周期中稳定
 
   // 提取YouTube视频ID的辅助函数
@@ -324,8 +323,7 @@ const VideoPlayer = forwardRef(({
         console.log(`VideoPlayer: Using global YT API to seek`);
         try {
           // 如果没有初始化过播放器，尝试创建一个新的播放器实例
-          const iframe = document.getElementById('youtube-player-iframe');
-          const player = new window.YT.Player('youtube-player-iframe', {
+          new window.YT.Player('youtube-player-iframe', {
             events: {
               'onReady': (event) => {
                 console.log('YouTube player ready, seeking immediately');
@@ -379,7 +377,7 @@ const VideoPlayer = forwardRef(({
           setTimeout(() => {
             if (window.YT && window.YT.Player) {
               try {
-                const player = new window.YT.Player('youtube-player-iframe', {
+                new window.YT.Player('youtube-player-iframe', {
                   events: {
                     'onReady': (event) => {
                       console.log('YouTube player ready after iframe reload');
@@ -1162,7 +1160,7 @@ const VideoPlayer = forwardRef(({
       console.log(`VideoPlayer: Initializing YouTube player for video ID: ${videoId}`);
       
       // 创建新的播放器实例
-      const player = new window.YT.Player('youtube-player-iframe', {
+      new window.YT.Player('youtube-player-iframe', {
         events: {
           'onReady': (event) => {
             console.log('VideoPlayer: YouTube player ready via API');
