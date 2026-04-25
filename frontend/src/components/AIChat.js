@@ -127,36 +127,6 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
     ]);
   }, []);
 
-  // 获取文件列表和token计数
-  useEffect(() => {
-    if (taskUuid && apiBaseUrl) {
-      fetchMarkdownFiles();
-    }
-  }, [taskUuid, apiBaseUrl, fetchMarkdownFiles]);
-
-  // 点击外部关闭下拉菜单 & ESC键处理
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setShowFileDropdown(false);
-      }
-    };
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        setShowFileDropdown(false);
-        setIsDragOver(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
-
   const fetchMarkdownFiles = useCallback(async () => {
     if (!taskUuid || !apiBaseUrl) return;
     
@@ -226,6 +196,36 @@ function AIChat({ markdownContent, apiBaseUrl, taskUuid }) {
       setLoadingFiles(false);
     }
   }, [taskUuid, apiBaseUrl]);
+
+  // 获取文件列表和token计数
+  useEffect(() => {
+    if (taskUuid && apiBaseUrl) {
+      fetchMarkdownFiles();
+    }
+  }, [taskUuid, apiBaseUrl, fetchMarkdownFiles]);
+
+  // 点击外部关闭下拉菜单 & ESC键处理
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowFileDropdown(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setShowFileDropdown(false);
+        setIsDragOver(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const toggleFileSelection = (filename) => {
     const newSelected = new Set(selectedFiles);

@@ -16,12 +16,6 @@ function VideoTaskSelector({ apiBaseUrl, currentTaskUuid }) {
   const [searchTerm, setSearchTerm] = useState('');
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchTasks();
-    }
-  }, [isOpen, fetchTasks]);
-
   const fetchTasks = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -36,6 +30,12 @@ function VideoTaskSelector({ apiBaseUrl, currentTaskUuid }) {
       setIsLoading(false);
     }
   }, [apiBaseUrl]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchTasks();
+    }
+  }, [isOpen, fetchTasks]);
 
   const handleSelectTask = (taskUuid) => {
     navigate(`/studio/${taskUuid}`);
