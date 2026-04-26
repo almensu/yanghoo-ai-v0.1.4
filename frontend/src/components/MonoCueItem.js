@@ -28,18 +28,16 @@ const MonoCueItem = ({ cue, isActive, onClick, onCueSelect, selectedCues }) => {
 
   return (
     <li 
-      // Combine styles: active, selected, and hover
       className={`
         px-3 py-2 rounded cursor-pointer flex items-start 
-        transition-all duration-150 ease-in-out
-        ${isActive ? 'bg-primary text-primary-content font-medium' : ''} 
+        transition-all duration-150 ease-in-out border-l-2
+        ${isActive ? 'bg-primary/10 border-primary text-primary font-bold' : 'border-transparent'} 
         ${isSelected ? 
-          (isActive ? 'border-2 border-accent shadow-sm' : 'border border-accent bg-accent bg-opacity-5 shadow-sm') : 
-          (isActive ? '' : 'hover:bg-base-300')
+          'bg-accent/5 border-accent shadow-sm' : 
+          (isActive ? '' : 'hover:bg-base-200 hover:border-base-300')
         }
-        ${!isActive && !isSelected ? 'bg-base-100' : ''} // Default background if not active/selected
       `}
-      onClick={handleClick} // Use the new handler
+      onClick={handleClick}
     >
       {/* 选择指示器 (仅在选择模式下显示) */}
       {selectionModeActive && (

@@ -7,6 +7,62 @@ import VttPreviewer from './VttPreviewer';
 import StudioWorkSpace from './StudioWorkSpace';
 import AIChat from './AIChat';
 import KeyframeClipPanel from './KeyframeClipPanel';
+import { 
+  FileVideo, Captions, FileText, Layout, 
+  Settings, ChevronLeft, Database,
+  Activity, Layers, PlayCircle
+} from 'lucide-react';
+
+// Studio Header Component
+function StudioHeader({ taskDetails, onBack, apiBaseUrl }) {
+  if (!taskDetails) return null;
+
+  const hasVideo = !!taskDetails.media_files && Object.keys(taskDetails.media_files).length > 0;
+  const hasSubtitles = (taskDetails.vtt_files && Object.keys(taskDetails.vtt_files).length > 0) || 
+                       (taskDetails.srt_files && Object.keys(taskDetails.srt_files).length > 0);
+  const hasMarkdown = !!taskDetails.markdown_path || !!taskDetails.parallel_vtt_md_path;
+  const hasRefined = !!taskDetails.sentences_json_path;
+  const hasKeyframes = (taskDetails.keyframes_count || 0) > 0;
+
+  return (
+    <header className="wb-toolbar bg-base-100 border-b border-base-300 h-14 flex-shrink-0 px-4 justify-between sticky top-0 z-[60]">
+      <div className="flex items-center gap-3 overflow-hidden">
+        <button onClick={onBack} className="wb-btn-icon hover:bg-base-200" title="返回列表">
+          <ChevronLeft size={18} />
+        </button>
+        <div className="flex flex-col min-w-0">
+          <h1 className="text-sm font-bold truncate max-w-[400px] leading-tight" title={taskDetails.title}>
+            {taskDetails.title || 'Loading...'}
+          </h1>
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-base-content/40 font-mono">
+            <span className="flex items-center gap-0.5"><Database size={10} /> {taskDetails.uuid.substring(0, 8)}</span>
+            <span className="opacity-30">|</span>
+            <span>{taskDetails.platform}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1">
+          <StatusBadge icon={FileVideo} active={hasVideo} label="Video" />
+          <StatusBadge icon={Captions} active={hasSubtitles} label="Subs" />
+          <StatusBadge icon={FileText} active={hasMarkdown} label="Doc" />
+          <StatusBadge icon={Activity} active={hasRefined} label="Refined" />
+          <StatusBadge icon={Layers} active={hasKeyframes} label={`KF (${taskDetails.keyframes_count || 0})`} />
+        </div>
+        <div className="divider divider-horizontal mx-0 h-6"></div>
+        <VideoTaskSelector apiBaseUrl={apiBaseUrl} currentTaskUuid={taskDetails.uuid} />
+      </div>
+    </header>
+  );
+}
+
+const StatusBadge = ({ icon: Icon, active, label }) => (
+  <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${active ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-base-200 border-transparent text-base-content/30'} transition-colors`}>
+    <Icon size={12} />
+    <span className="text-[10px] font-bold uppercase">{label}</span>
+  </div>
+);
 
 // 视频任务选择器组件
 function VideoTaskSelector({ apiBaseUrl, currentTaskUuid }) {
@@ -817,6 +873,7 @@ const logger = {
 // - apiBaseUrl: The base URL for the API.
 
 function Studio({ taskUuid, apiBaseUrl }) {
+  const navigate = useNavigate();
   // Refs
   const videoElementRef = useRef(null);
 
@@ -835,15 +892,10 @@ function Studio({ taskUuid, apiBaseUrl }) {
   const [, setVttErrors] = useState({}); // Store errors per language
   const [displayLang, setDisplayLang] = useState('zh-Hans'); // Default display mode
 
-  // State for video source preference
-  const [preferLocalVideo, setPreferLocalVideo] = useState(true); 
-
   // State for loading and errors
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // --- NEW State for the VTT Blob URL (用于原生字幕轨的 Blob URL 状态) ---
-  const [vttBlobUrl, setVttBlobUrl] = useState(null);
   const currentBlobUrlRef = useRef(null); // 用于管理清理
 
   // --- NEW: State for selected cues --- 
@@ -863,9 +915,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
   // --- NEW: State for clip mode type ---
   const [clipModeType, setClipModeType] = useState('subtitle'); // 'subtitle' or 'keyframe'
 
-  // Define subtitleLangToEmbed at the component scope level
-  const [embeddingSubtitleLang, setEmbeddingSubtitleLang] = useState('none');
-  
   // --- NEW: State for output format ---
   const [outputFormat, setOutputFormat] = useState('video'); // 'video' or 'wav'
 
@@ -897,7 +946,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
     if (currentBlobUrlRef.current) {
         URL.revokeObjectURL(currentBlobUrlRef.current);
         currentBlobUrlRef.current = null;
-        setVttBlobUrl(null);
         console.log("Studio: Revoked previous VTT Blob URL on task change (任务切换, 已撤销旧 Blob URL).");
     }
     // ----------------------------------------------------------------------
@@ -1324,16 +1372,13 @@ function Studio({ taskUuid, apiBaseUrl }) {
         const blob = new Blob([vttString], { type: 'text/vtt' });
         const newBlobUrl = URL.createObjectURL(blob);
         currentBlobUrlRef.current = newBlobUrl; // Store for cleanup
-        setVttBlobUrl(newBlobUrl); // Update state
         console.log(`Studio: Created VTT Blob URL for ${langForTrack}: ${newBlobUrl}`);
       } catch (e) {
         console.error("Studio: Error creating VTT Blob (创建 VTT Blob 出错):", e);
-        setVttBlobUrl(null);
       }
     } else {
          console.log(`Studio: No cues available for native track language (原生字幕轨无可用 cues): ${langForTrack}`);
-         setVttBlobUrl(null);
-    }
+     }
 
   }, [parsedCuesByLang, displayLang, availableLangs, subtitleOptimization, optimizeSubtitleTiming]);
 
@@ -1621,7 +1666,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
     }
     
     // Update state for the UI indicator
-    setEmbeddingSubtitleLang(subtitleLangToEmbed);
     
     logger.info("--- Initiating Video Cut ---");
     logger.info("Task UUID:", taskUuid);
@@ -1657,54 +1701,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
       setCutOutputPath(null);
     }
   }, [selectedCueIds, displayedCues, taskUuid, videoRelativePath, apiBaseUrl, cuttingStatus, pollCutStatus, vttMode, displayLang, parsedCuesByLang, outputFormat, taskDetails?.ass_files]);
-
-  // --- Handler to toggle VTT mode ---
-  const toggleVttMode = (newMode) => {
-    if (vttMode === newMode) return; // No change
-    setVttMode(newMode);
-    if (newMode === 'preview') {
-      // Optionally reset selection and cutting status when switching to preview
-      setSelectedCueIds(new Set());
-      // If a cut job is active and user switches mode, what should happen?
-      // For now, let's not reset cuttingJobId/Status, user might want to see it.
-      // setCuttingJobId(null);
-      // setCuttingStatus('idle');
-      // setCuttingMessage('');
-      // setCutOutputPath(null);
-      // if (pollingIntervalRef.current) {
-      //   clearInterval(pollingIntervalRef.current);
-      //   pollingIntervalRef.current = null;
-      // }
-      logger.info("Switched to VTT Preview mode.");
-    } else {
-      logger.info("Switched to VTT Cut/Selection mode.");
-    }
-  };
-
-  // --- Handler to toggle clip mode type ---
-  const toggleClipModeType = (newType) => {
-    if (clipModeType === newType) return; // No change
-    setClipModeType(newType);
-    // Reset any existing selections when switching between subtitle and keyframe clipping
-    setSelectedCueIds(new Set());
-    
-    // Reset cutting status when switching modes
-    if (newType === 'keyframe') {
-      // Keep cutting status if switching to keyframe mode
-    } else {
-      // Reset cutting status if switching to subtitle mode
-      setCuttingJobId(null);
-      setCuttingStatus('idle');
-      setCuttingMessage('');
-      setCutOutputPath(null);
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    }
-    
-    logger.info(`Switched to ${newType} clipping mode.`);
-  };
 
   // --- Handler for keyframe-based video clipping ---
   const handleKeyframeClipSegments = async (segments) => {
@@ -1804,55 +1800,6 @@ function Studio({ taskUuid, apiBaseUrl }) {
     };
   }, []);
 
-  // Add this in the UI section where the cut button is
-  const getSubtitleLangLabel = (lang) => {
-    switch(lang) {
-      case 'bilingual': return '中英双语';
-      case 'en': return 'English';
-      case 'zh-Hans': return '中文';
-      case 'ass': return 'ASS字幕';
-      case 'srt': return 'SRT字幕';
-      default: return '无字幕';
-    }
-  };
-
-  // --- Render Logic ---
-  if (isLoading) {
-      return <div className="p-4 text-center flex-grow flex items-center justify-center">Loading Studio...</div>;
-  }
-  if (!taskUuid) {
-      return <div className="p-4 text-center text-gray-500 flex-grow flex items-center justify-center">Please select a task to view in Studio.</div>;
-  }
-  if (error && !taskDetails) {
-      return <div className="p-4 text-center text-red-500 flex-grow flex items-center justify-center">Error: {error}</div>;
-  }
-  if (!taskDetails) {
-      return <div className="p-4 text-center text-gray-500 flex-grow flex items-center justify-center">No task details could be loaded.</div>;
-  }
-
-  const localVideoAvailable = Boolean(videoRelativePath);
-  const embedVideoAvailable = Boolean(embedUrl);
-  const allowToggle = true;
-  const canToggleVideo = localVideoAvailable && embedVideoAvailable && allowToggle;
-
-  const handleToggleVideo = () => {
-    if (canToggleVideo) {
-      setPreferLocalVideo(!preferLocalVideo);
-    }
-  };
-
-  // Determine language code for the track element (为 track 元素确定语言代码)
-  let actualTrackLang = displayLang;
-  if (displayLang === 'bilingual') {
-    if (parsedCuesByLang['zh-Hans']?.length > 0) actualTrackLang = 'zh-Hans';
-    else if (parsedCuesByLang['en']?.length > 0) actualTrackLang = 'en';
-    else if (availableLangs.length > 0 && parsedCuesByLang[availableLangs[0]]?.length > 0) actualTrackLang = availableLangs[0];
-    else actualTrackLang = 'none'; // No track available
-  }
-  // 为SRT字幕保留'srt'作为语言代码，否则映射'zh-Hans'到'zh'
-  const trackLangCode = actualTrackLang === 'srt' ? 'srt' : 
-                        (actualTrackLang === 'zh-Hans' ? 'zh' : actualTrackLang); // Map to 'zh' if needed
-
   const langOptions = [...availableLangs];
   // Only add bilingual option for VTT files, not for SRT
   if (availableLangs.includes('en') && availableLangs.includes('zh-Hans') && !availableLangs.includes('srt')) {
@@ -1901,475 +1848,286 @@ function Studio({ taskUuid, apiBaseUrl }) {
 
   return (
     <>
-      <div className="flex flex-row flex-1 h-full p-4 gap-4 overflow-hidden bg-gray-100">
+      <style>{scrollbarStyles}</style>
+      <div className="flex flex-col h-screen bg-base-200 overflow-hidden">
+        {/* Step 1: Integrated Header */}
+        <StudioHeader 
+          taskDetails={taskDetails} 
+          onBack={() => navigate('/')} 
+          apiBaseUrl={apiBaseUrl} 
+        />
 
-        {/* --- Left Column (Video + Subtitles) --- */}
-        <div className="flex flex-col w-2/5 flex-shrink-0 gap-4 overflow-hidden">
-          {/* Video Player Section */}
-          <div className="flex flex-col flex-shrink-0">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-xl font-semibold text-gray-800">Video / Preview</h2>
-              <VideoTaskSelector apiBaseUrl={apiBaseUrl} currentTaskUuid={taskUuid} />
-            </div>
-            <div className="relative bg-black rounded shadow-md aspect-video">
-              <div className="absolute top-0 left-0 w-full h-full">
-                {(localVideoAvailable || embedVideoAvailable) ? (
-                  <VideoPlayer
-                    ref={videoElementRef}
-                    localVideoPath={videoRelativePath}
-                    apiBaseUrl={apiBaseUrl}
-                    taskUuid={taskUuid}
-                    embedUrl={embedUrl}
-                    preferLocalVideo={preferLocalVideo}
-                    // --- ADDED Props for Native Track (为原生字幕轨添加 Props) ---
-                    vttUrl={preferLocalVideo ? vttBlobUrl : null} // Only pass URL if local video is preferred
-                    vttLang={trackLangCode !== 'none' ? trackLangCode : null} // Pass language code (e.g., 'en', 'zh'), null if none
-                    // -----------------------------------------------------------
-                    // --- Pass cues array for timestamp navigation ---
-                    cues={displayedCues}
-                    // -----------------------------------------------------------
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gray-800">
-                    No video preview available.
-                  </div>
-                )}
+        {isLoading ? (
+          <div className="flex-grow flex flex-col items-center justify-center gap-4">
+             <span className="loading loading-spinner loading-lg text-primary"></span>
+             <p className="text-sm font-bold uppercase tracking-widest opacity-40">Initializing Studio...</p>
+          </div>
+        ) : error ? (
+          <div className="flex-grow flex flex-col items-center justify-center gap-4">
+             <div className="alert alert-error max-w-md shadow-lg">
+                <span>{error}</span>
+             </div>
+             <button onClick={() => window.location.reload()} className="btn btn-ghost btn-sm underline">Retry</button>
+          </div>
+        ) : (
+          /* Step 2: Unified Three-Column Layout */
+          <div className="flex flex-row flex-grow overflow-hidden p-3 gap-3 animate-in fade-in duration-500">
+          
+          {/* --- Left Column: Video & Controls --- */}
+          <div className="flex flex-col w-[30%] min-w-[350px] flex-shrink-0 gap-3">
+            {/* Video Section */}
+            <div className="wb-panel flex flex-col flex-shrink-0 overflow-hidden bg-black">
+              <div className="aspect-video relative group">
+                <VideoPlayer
+                  ref={videoElementRef}
+                  videoRelativePath={videoRelativePath}
+                  embedUrl={embedUrl}
+                  apiBaseUrl={apiBaseUrl}
+                  taskUuid={taskUuid}
+                />
               </div>
             </div>
-            <p className="mt-2 text-sm text-gray-600 truncate" title={taskDetails?.title}>
-                {taskDetails?.title || 'Untitled Task'}
-            </p>
-            {canToggleVideo && (
-                <button
-                    onClick={handleToggleVideo}
-                    className="mt-1 btn btn-xs btn-outline self-start"
-                >
-                    {preferLocalVideo ? "切换到在线视频" : "切换到本地视频"}
-                </button>
-            )}
-          </div>
 
-          {/* VTT Previewer Section or Clipping Mode Placeholder */}
-          <div className="flex flex-col flex-grow min-h-0"> {/* Ensure this div can grow and shrink */}
-            <div className="flex justify-between items-center p-4 pb-2 border-b border-gray-200 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                  <h3 className="font-semibold">
-                      {vttMode === 'cut' 
-                        ? (clipModeType === 'subtitle' ? '字幕选择 (剪辑模式)' : '截图选择 (剪辑模式)')
-                        : '字幕预览'} {/* Title changes */} 
-                  </h3>
-                   {/* Mode Toggle Buttons - RETAIN THESE */}
-                  <div className="btn-group">
-                      <button 
-                          className={`btn btn-xs ${vttMode === 'preview' ? 'btn-active btn-ghost' : 'btn-ghost'}`}
-                          onClick={() => toggleVttMode('preview')}
-                      >
-                          预览
-                      </button>
-                      <button 
-                          className={`btn btn-xs ${vttMode === 'cut' ? 'btn-active btn-ghost' : 'btn-ghost'}`}
-                          onClick={() => toggleVttMode('cut')}
-                      >
-                          剪辑
-                      </button>
+            {/* Subtitle / Mode Selection Toolbar */}
+            <div className="wb-panel bg-base-100 flex flex-col flex-grow min-h-0 overflow-hidden">
+              <div className="wb-toolbar px-3 py-2 justify-between flex-shrink-0">
+                <div className="flex items-center gap-1.5">
+                  <div className="tabs tabs-boxed bg-base-200 p-0.5 h-8">
+                    <button 
+                      className={`tab tab-xs h-7 px-3 ${vttMode === 'preview' ? 'tab-active' : ''}`}
+                      onClick={() => setVttMode('preview')}
+                    >
+                      <Layout size={12} className="mr-1" /> 预览
+                    </button>
+                    <button 
+                      className={`tab tab-xs h-7 px-3 ${vttMode === 'cut' ? 'tab-active' : ''}`}
+                      onClick={() => setVttMode('cut')}
+                    >
+                      <Activity size={12} className="mr-1" /> 剪辑
+                    </button>
                   </div>
-
-                  {/* Clip Mode Type Toggle - NEW */}
+                  
                   {vttMode === 'cut' && (
-                    <div className="btn-group ml-2">
+                    <div className="tabs tabs-boxed bg-base-200 p-0.5 h-8 ml-2">
                       <button 
-                        className={`btn btn-xs ${clipModeType === 'subtitle' ? 'btn-active btn-primary' : 'btn-outline btn-primary'}`}
-                        onClick={() => toggleClipModeType('subtitle')}
+                        className={`tab tab-xs h-7 px-3 ${clipModeType === 'subtitle' ? 'tab-active' : ''}`}
+                        onClick={() => setClipModeType('subtitle')}
                       >
-                        字幕剪辑
+                        字幕
                       </button>
                       <button 
-                        className={`btn btn-xs ${clipModeType === 'keyframe' ? 'btn-active btn-primary' : 'btn-outline btn-primary'}`}
-                        onClick={() => toggleClipModeType('keyframe')}
+                        className={`tab tab-xs h-7 px-3 ${clipModeType === 'keyframe' ? 'tab-active' : ''}`}
+                        onClick={() => setClipModeType('keyframe')}
                       >
-                        截图剪辑
+                        截图
                       </button>
                     </div>
                   )}
-                  
-                  {/* Subtitle Optimization Settings Toggle - NEW */}
+
+                  {/* Language Selector in Toolbar for better visibility */}
+                  <div className="flex gap-1 ml-2">
+                    {langOptions.filter(l => parsedCuesByLang[l] || l === 'bilingual').map(lang => (
+                      <button
+                        key={lang}
+                        onClick={() => handleLanguageChange(lang)}
+                        className={`btn btn-xs h-7 min-h-0 ${displayLang === lang ? 'btn-primary' : 'btn-ghost'}`}
+                      >
+                        {getLangButtonLabel(lang)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1">
                   {vttMode === 'preview' && (
-                    <button
-                      className={`btn btn-xs btn-ghost ${showOptimizationSettings ? 'btn-active' : ''}`}
+                    <button 
+                      className={`wb-btn-icon h-8 w-8 ${showOptimizationSettings ? 'bg-primary/10 text-primary' : ''}`}
                       onClick={() => setShowOptimizationSettings(!showOptimizationSettings)}
                       title="字幕优化设置"
                     >
-                      ⚙️
+                      <Settings size={16} />
                     </button>
                   )}
-                  
-                  {/* Cutting Mode Indicator - RETAIN THIS */}
-                  {vttMode === 'cut' && (
-                    <div className="ml-2 px-2 py-1 text-xs rounded-full bg-blue-500 text-white">
-                      剪辑模式
+                </div>
+              </div>
+
+              {/* Subtitle Content Area */}
+              <div className="flex-grow overflow-hidden flex flex-col relative">
+                {showOptimizationSettings && (
+                  <div className="absolute inset-0 z-20 bg-base-100/95 backdrop-blur-sm p-4 border-b border-base-300 overflow-y-auto animate-in fade-in duration-200">
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="text-xs font-bold uppercase tracking-widest text-base-content/50">字幕显示优化</h4>
+                      <button onClick={() => setShowOptimizationSettings(false)} className="btn btn-ghost btn-xs btn-circle">✕</button>
+                    </div>
+                    
+                    <div className="space-y-5">
+                      <div className="form-control">
+                        <label className="label cursor-pointer justify-start gap-3 p-0">
+                          <input 
+                            type="checkbox" 
+                            className="checkbox checkbox-primary checkbox-sm" 
+                            checked={subtitleOptimization.enabled}
+                            onChange={(e) => setSubtitleOptimization(prev => ({...prev, enabled: e.target.checked}))}
+                          />
+                          <span className="label-text text-sm font-medium">启用智能对齐</span>
+                        </label>
+                      </div>
+
+                      {subtitleOptimization.enabled && (
+                        <div className="space-y-4 animate-in slide-in-from-top-1 duration-200">
+                          <div className="space-y-2">
+                            <label className="text-[11px] font-bold uppercase text-base-content/40">最大合并间隔 ({subtitleOptimization.maxGapForMerge}s)</label>
+                            <input
+                              type="range" min="0.1" max="5.0" step="0.1"
+                              className="range range-primary range-xs"
+                              value={subtitleOptimization.maxGapForMerge}
+                              onChange={(e) => setSubtitleOptimization(prev => ({...prev, maxGapForMerge: parseFloat(e.target.value)}))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[11px] font-bold uppercase text-base-content/40">短句阈值 ({subtitleOptimization.minTextLengthForShort} 字符)</label>
+                            <input
+                              type="range" min="5" max="30" step="1"
+                              className="range range-primary range-xs"
+                              value={subtitleOptimization.minTextLengthForShort}
+                              onChange={(e) => setSubtitleOptimization(prev => ({...prev, minTextLengthForShort: parseInt(e.target.value)}))}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex-grow overflow-y-auto custom-scrollbar bg-base-50">
+                  {vttMode === 'preview' ? (
+                    displayedCues.length > 0 ? (
+                      <VttPreviewer
+                        cues={displayedCues}
+                        videoRef={videoElementRef}
+                        syncEnabled={true} 
+                        onCueSelect={undefined}
+                        selectedCues={undefined}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-base-content/30 italic px-10 text-center gap-2">
+                        <Captions size={32} strokeWidth={1} />
+                        <span className="text-xs">{availableLangs.length === 0 ? '未发现字幕资产' : '请选择显示语言'}</span>
+                      </div>
+                    )
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-base-content/30 italic px-10 text-center gap-2">
+                       <PlayCircle size={32} strokeWidth={1} />
+                       <span className="text-xs">
+                         {clipModeType === 'subtitle' ? '请在中间面板选择字幕片段' : '请在中间面板进行关键帧剪辑'}
+                       </span>
                     </div>
                   )}
-              </div>
-              <div className="flex gap-2">
-                {/* Language Selection Buttons - RETAIN THESE */}
-                {langOptions.map(lang => (
-                  <button
-                    key={lang}
-                    onClick={() => handleLanguageChange(lang)}
-                    className={`btn btn-xs ${displayLang === lang ? 'btn-active btn-primary' : 'btn-outline'}`}
-                    disabled={!parsedCuesByLang[lang] && lang !== 'bilingual' && !(lang === 'en' && parsedCuesByLang['en']) && !(lang === 'zh-Hans' && parsedCuesByLang['zh-Hans'])}
-                  >
-                    {getLangButtonLabel(lang)}
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            {/* Batch Selection Controls (only in subtitle cut mode AND if VttPreviewer is in Left Column) - RETAIN & ADJUST LOGIC IF NEEDED */}
-            {vttMode === 'cut' && clipModeType === 'subtitle' && preferLocalVideo && displayedCues.length > 0 && (
-              <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-base-200/50">
-                <span className="text-xs text-gray-600">批量操作:</span>
-                <button 
-                  className="btn btn-xs btn-ghost" 
-                  onClick={handleSelectAll}>
-                  全选
-                </button>
-                <button 
-                  className="btn btn-xs btn-ghost" 
-                  onClick={handleSelectNone}>
-                  取消全选
-                </button>
-                <div className="ml-auto text-xs text-gray-600">
-                  已选择: <span className="font-semibold text-accent">{selectedCueIds.size}</span> / {displayedCues.length}
                 </div>
               </div>
-            )}
 
-            {/* Subtitle Optimization Settings Panel - Collapsible */}
-            {vttMode === 'preview' && showOptimizationSettings && (
-              <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                <div className="space-y-3">
-                  {/* Enable/Disable Toggle */}
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs text-gray-600">启用优化</label>
-                    <input
-                      type="checkbox"
-                      className="toggle toggle-sm toggle-primary"
-                      checked={subtitleOptimization.enabled}
-                      onChange={(e) => setSubtitleOptimization(prev => ({
-                        ...prev,
-                        enabled: e.target.checked
-                      }))}
-                    />
+              {/* Cutting Controls (Only in Left Col in Cut Mode) */}
+              {vttMode === 'cut' && clipModeType === 'subtitle' && displayedCues.length > 0 && (
+                <div className="p-3 border-t border-base-300 bg-base-200/50 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <select 
+                      className="select select-bordered select-xs flex-grow h-8"
+                      value={outputFormat}
+                      onChange={(e) => setOutputFormat(e.target.value)}
+                    >
+                      <option value="video">导出视频片段</option>
+                      <option value="wav">导出音频片段</option>
+                    </select>
+                    <button
+                      className={`btn btn-primary btn-sm h-8 px-4 ${cuttingStatus === 'processing' ? 'loading' : ''}`}
+                      onClick={handleCutVideoClick}
+                      disabled={selectedCueIds.size === 0 || cuttingStatus === 'processing'}
+                    >
+                      剪辑 ({selectedCueIds.size})
+                    </button>
                   </div>
-
-                  {subtitleOptimization.enabled && (
-                    <>
-                      {/* Min Display Time */}
-                      <div className="space-y-1">
-                        <label className="text-xs text-gray-600">最小显示时间 (秒)</label>
-                        <input
-                          type="range"
-                          min="0.5"
-                          max="3"
-                          step="0.1"
-                          className="range range-primary range-xs"
-                          value={subtitleOptimization.minDisplayTime}
-                          onChange={(e) => setSubtitleOptimization(prev => ({
-                            ...prev,
-                            minDisplayTime: parseFloat(e.target.value)
-                          }))}
-                        />
-                        <div className="text-xs text-gray-500 text-center">
-                          {subtitleOptimization.minDisplayTime}s
-                        </div>
+                  {cuttingJobId && (
+                    <div className="p-2 rounded bg-base-100 border border-base-300 text-[11px] animate-in fade-in duration-300">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold uppercase opacity-50">状态: {cuttingStatus}</span>
+                        {cuttingStatus === 'completed' && cutOutputPath && (
+                           <a href={`${apiBaseUrl}/files/${cutOutputPath}`} className="link link-primary font-bold" download>下载文件</a>
+                        )}
                       </div>
-
-                      {/* Max Gap for Merge */}
-                      <div className="space-y-1">
-                        <label className="text-xs text-gray-600">最大合并间隔 (秒)</label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="2"
-                          step="0.1"
-                          className="range range-primary range-xs"
-                          value={subtitleOptimization.maxGapForMerge}
-                          onChange={(e) => setSubtitleOptimization(prev => ({
-                            ...prev,
-                            maxGapForMerge: parseFloat(e.target.value)
-                          }))}
-                        />
-                        <div className="text-xs text-gray-500 text-center">
-                          {subtitleOptimization.maxGapForMerge}s
-                        </div>
-                      </div>
-
-                      {/* Min Text Length for Short */}
-                      <div className="space-y-1">
-                        <label className="text-xs text-gray-600">短句字符数阈值</label>
-                        <input
-                          type="range"
-                          min="5"
-                          max="30"
-                          step="1"
-                          className="range range-primary range-xs"
-                          value={subtitleOptimization.minTextLengthForShort}
-                          onChange={(e) => setSubtitleOptimization(prev => ({
-                            ...prev,
-                            minTextLengthForShort: parseInt(e.target.value)
-                          }))}
-                        />
-                        <div className="text-xs text-gray-500 text-center">
-                          {subtitleOptimization.minTextLengthForShort} 字符
-                        </div>
-                      </div>
-
-                      <div className="text-xs text-gray-500 p-2 bg-white rounded border">
-                        💡 短于阈值的句子会被延长显示时间或与相邻句子合并
-                      </div>
-                    </>
+                      <div className="truncate opacity-70">{cuttingMessage}</div>
+                    </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+          </div>
 
-            {/* Conditional Rendering: Placeholder or VTT Previewer */}
-            {vttMode === 'preview' ? (
-              <div className="flex-grow overflow-y-auto p-4 pt-2 custom-scrollbar">
-                {preferLocalVideo ? (
-                  displayedCues.length > 0 ? (
+            <div className="flex flex-col flex-1 min-w-[400px] wb-panel bg-base-100 overflow-hidden">
+
+            <div className="wb-toolbar px-4 h-11 flex-shrink-0">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-base-content/40">
+                {vttMode === 'cut' && clipModeType === 'subtitle' ? "Subtitle Segments Selector" :
+                 vttMode === 'cut' && clipModeType === 'keyframe' ? "Keyframe Timeline Editor" : 
+                 "AI Editorial Assistant"}
+              </h3>
+            </div>
+            
+            <div className="flex-grow overflow-hidden relative">
+              {vttMode === 'cut' && clipModeType === 'subtitle' ? (
+                <div className="h-full custom-scrollbar flex flex-col">
+                   <div className="px-4 py-2 border-b border-base-300 flex items-center justify-between bg-base-50/50">
+                      <div className="flex gap-1.5">
+                        <button className="btn btn-xs btn-ghost" onClick={handleSelectAll}>全选</button>
+                        <button className="btn btn-xs btn-ghost" onClick={handleSelectNone}>清空</button>
+                      </div>
+                      <span className="text-[10px] font-bold text-primary">已选 {selectedCueIds.size} 片段</span>
+                   </div>
+                   <div className="flex-grow overflow-y-auto">
                     <VttPreviewer
                       cues={displayedCues}
                       videoRef={videoElementRef}
                       syncEnabled={true} 
-                      onCueSelect={undefined} // No selection in preview mode
-                      selectedCues={undefined}
+                      onCueSelect={handleCueSelect}
+                      selectedCues={selectedCueIds}
                     />
-                  ) : (
-                    <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
-                      {availableLangs.length === 0
-                        ? 'No VTT files found for this task.'
-                        : `No subtitles loaded or available for ${getLangButtonLabel(displayLang)}.`}
-                    </p>
-                  )
-                ) : (
-                  displayedCues.length > 0 ? (
-                    <VttPreviewer
-                      cues={displayedCues}
-                      videoRef={videoElementRef}
-                      syncEnabled={false}
-                      onCueSelect={undefined} // No selection in preview mode
-                      selectedCues={undefined}
-                    />
-                  ) : (
-                    <p className="text-gray-500 text-sm italic flex items-center justify-center h-full">
-                      No subtitles loaded or available for {getLangButtonLabel(displayLang)}.
-                    </p>
-                  )
-                )}
-              </div>
-            ) : ( /* vttMode === 'cut' */
-              <div className="flex-grow flex items-center justify-center bg-base-200 p-4 rounded-lg shadow text-gray-500 italic">
-                {clipModeType === 'subtitle' 
-                  ? '字幕剪辑模式 - 请在中间面板选择字幕进行剪辑'
-                  : '截图剪辑模式 - 请在中间面板进行关键帧剪辑'}
-              </div>
-            )}
-            
-            {/* Cutting Controls Section (Only in Subtitle Cut Mode) - RETAIN & ADJUST LOGIC IF NEEDED */}
-            {vttMode === 'cut' && clipModeType === 'subtitle' && preferLocalVideo && displayedCues.length > 0 && (
-              <div className="p-4 border-t border-gray-200 flex-shrink-0 space-y-3">
-                {/* 连续片段检测提示 */}
-                {selectedCueIds.size > 1 && (() => {
-                  const segments = Array.from(selectedCueIds)
-                    .map(id => displayedCues.find(cue => cue.id === id))
-                    .filter(Boolean)
-                    .map(cue => ({ start: cue.startTime, end: cue.endTime }))
-                    .sort((a, b) => a.start - b.start);
-                  
-                  const gaps = [];
-                  for (let i = 1; i < segments.length; i++) {
-                    gaps.push(segments[i].start - segments[i-1].end);
-                  }
-                  const maxGap = Math.max(...gaps);
-                  const isContinuous = maxGap <= 2.0;
-                  
-                  return (
-                    <div className={`text-xs p-2 rounded-md ${isContinuous ? 'bg-success/20 text-success' : 'bg-warning/20 text-warning'}`}>
-                      {isContinuous ? 
-                        `✓ 检测到连续片段，将自动合并 (最大间隔: ${maxGap.toFixed(2)}s)` :
-                        `⚠ 片段不连续，将分别截取后拼接 (最大间隔: ${maxGap.toFixed(2)}s)`
-                      }
-                    </div>
-                  );
-                })()}
-
-                <div className="flex items-center gap-3">
-                  <select 
-                    className="select select-bordered select-sm"
-                    value={outputFormat}
-                    onChange={(e) => setOutputFormat(e.target.value)}
-                  >
-                    <option value="video">视频片段</option>
-                    <option value="wav">WAV 音频</option>
-                  </select>
-                  
-                  <button
-                    className={`btn btn-primary flex-grow ${cuttingStatus === 'processing' ? 'loading' : ''}`}
-                    onClick={handleCutVideoClick}
-                    disabled={selectedCueIds.size === 0 || cuttingStatus === 'processing'}
-                  >
-                    {cuttingStatus === 'processing' ? '正在处理...' : 
-                      outputFormat === 'video' ? 
-                        `剪辑选中的 ${selectedCueIds.size} 个片段` : 
-                        `提取选中的 ${selectedCueIds.size} 个片段的音频`}
-                  </button>
+                  </div>
                 </div>
-
-                {cuttingJobId && cuttingStatus === 'completed' && cutOutputPath && (
-                  <div className="mt-2">
-                    <a 
-                      href={`${apiBaseUrl}/files/${cutOutputPath}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-sm btn-success w-full"
-                      download
-                    >
-                      下载{outputFormat === 'video' ? '视频' : '音频'}片段
-                    </a>
-                  </div>
-                )}
-                
-                {cuttingJobId && cuttingStatus === 'failed' && (
-                  <div className="text-sm p-2 rounded-md bg-error/20 text-error mt-2">
-                    {cuttingMessage || '剪辑失败'}
-                  </div>
-                )}
-              </div>
-            )}
+              ) : vttMode === 'cut' && clipModeType === 'keyframe' ? (
+                <div className="h-full custom-scrollbar">
+                  <KeyframeClipPanel 
+                    taskUuid={taskUuid}
+                    onClipSegments={handleKeyframeClipSegments}
+                    videoRef={videoElementRef}
+                  />
+                </div>
+              ) : (
+                <div className="h-full">
+                  <AIChat 
+                    markdownContent={markdownContent}
+                    apiBaseUrl={apiBaseUrl}
+                    taskUuid={taskUuid}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* 剪辑状态和控制面板 */}
-          {vttMode === 'cut' && (
-            <div className="flex flex-col w-full mt-4 space-y-4">
-              
-              {/* 字幕剪辑状态 */}
-              {clipModeType === 'subtitle' && selectedCueIds.size > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">将嵌入字幕:</span>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                    embeddingSubtitleLang !== 'none' 
-                      ? 'bg-success text-success-content' 
-                      : 'bg-error text-error-content'
-                  }`}>
-                    {getSubtitleLangLabel(embeddingSubtitleLang)}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    (取决于当前选择的字幕语言)
-                  </span>
-                </div>
-              )}
-
-              {/* 统一的剪辑状态面板 */}
-              {cuttingJobId && (
-                <div className="p-4 border border-gray-200 rounded-lg bg-gray-50">
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">
-                        {clipModeType === 'subtitle' ? '字幕剪辑状态:' : '关键帧剪辑状态:'}
-                      </span>
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                        cuttingStatus === 'processing' ? 'bg-yellow-100 text-yellow-700' :
-                        cuttingStatus === 'completed' ? 'bg-green-100 text-green-700' :
-                        cuttingStatus === 'failed' ? 'bg-red-100 text-red-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>
-                        {cuttingStatus === 'processing' ? '处理中...' :
-                         cuttingStatus === 'completed' ? '完成' :
-                         cuttingStatus === 'failed' ? '失败' : '待处理'}
-                      </span>
-                    </div>
-                    
-                    {cuttingMessage && (
-                      <div className="text-sm text-gray-600">
-                        {cuttingMessage}
-                      </div>
-                    )}
-
-                    {cuttingJobId && cuttingStatus === 'completed' && cutOutputPath && (
-                      <div>
-                        <a 
-                          href={`${apiBaseUrl}/files/${cutOutputPath}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-sm btn-success"
-                          download
-                        >
-                          下载{outputFormat === 'video' ? '视频' : '音频'}片段
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-
+          {/* --- Right Column: StudioWorkSpace --- */}
+          <div className="flex flex-col w-1/4 min-w-[300px] flex-shrink-0 wb-panel bg-base-100 overflow-hidden relative">
+            <StudioWorkSpace 
+              taskUuid={taskUuid} 
+              apiBaseUrl={apiBaseUrl} 
+              markdownContent={markdownContent}
+              refinedSentences={refinedSentences}
+              videoRef={videoElementRef}
+              taskDetails={taskDetails}
+            />
+          </div>
         </div>
-
-        {/* --- Middle Column (AI Chat, VTT Previewer, or Keyframe Clip Panel) --- */}
-        <div className="flex flex-col flex-1 bg-white p-4 rounded-lg shadow overflow-auto custom-scrollbar">
-          <h3 className="text-lg font-semibold mb-2 border-b border-gray-300 pb-2 flex-shrink-0">
-            {vttMode === 'cut' && clipModeType === 'subtitle' ? "字幕选择 (剪辑模式)" :
-             vttMode === 'cut' && clipModeType === 'keyframe' ? "关键帧剪辑 (剪辑模式)" : 
-             "AI 对话"}
-          </h3>
-          {vttMode === 'cut' && clipModeType === 'subtitle' ? (
-            <div className="flex-grow min-h-0 custom-scrollbar">
-              <VttPreviewer
-                cues={displayedCues}
-                videoRef={videoElementRef}
-                syncEnabled={true} 
-                onCueSelect={handleCueSelect}
-                selectedCues={selectedCueIds}
-              />
-            </div>
-          ) : vttMode === 'cut' && clipModeType === 'keyframe' ? (
-            <div className="flex-grow min-h-0 custom-scrollbar">
-              <KeyframeClipPanel 
-                taskUuid={taskUuid}
-                onClipSegments={handleKeyframeClipSegments}
-                videoRef={videoElementRef}
-              />
-            </div>
-          ) : (
-            <div className="flex-grow h-full custom-scrollbar">
-              <AIChat 
-                markdownContent={markdownContent}
-                apiBaseUrl={apiBaseUrl}
-                taskUuid={taskUuid}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* --- Right Column (StudioWorkSpace) --- */}
-        <div className="flex flex-col w-1/4 flex-shrink-0 gap-4 overflow-auto custom-scrollbar relative">
-          <StudioWorkSpace 
-            taskUuid={taskUuid} 
-            apiBaseUrl={apiBaseUrl} 
-            markdownContent={markdownContent}
-            refinedSentences={refinedSentences}
-            videoRef={videoElementRef}
-            taskDetails={taskDetails}
-          />
-        </div>
-
-      </div>
-    </>
-  );
+      )}
+    </div>
+  </>
+);
 }
 
 export default Studio; 

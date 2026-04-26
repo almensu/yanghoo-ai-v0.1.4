@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Activity } from 'lucide-react';
 
 /**
  * 句子级转录稿查看器
@@ -11,14 +12,25 @@ import React, { useEffect, useRef, useState } from 'react';
 const SentencesViewer = ({ sentences = [], videoRef, syncEnabled = true }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const scrollTimeoutRef = useRef(null);
   const containerRef = useRef(null);
   const sentenceRefs = useRef([]);
+
+  // 检测用户滚动
+  const handleScroll = useCallback(() => {
+    setIsUserScrolling(true);
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => {
+      setIsUserScrolling(false);
+    }, 3000); // 3秒无操作后恢复自动滚动
+  }, []);
 
   // 更新当前时间
   useEffect(() => {
     if (!syncEnabled || !videoRef?.current) return;
 
-    const video = videoRef.current.video || videoRef.current; // 处理可能是封装过的引用
+    const video = videoRef.current.video || videoRef.current;
     if (!video || typeof video.addEventListener !== 'function') return;
     
     const handleTimeUpdate = () => {
@@ -40,22 +52,20 @@ const SentencesViewer = ({ sentences = [], videoRef, syncEnabled = true }) => {
     if (index !== -1 && index !== activeIndex) {
       setActiveIndex(index);
       
-      // 自动滚动到激活项
-      if (sentenceRefs.current[index]) {
+      // 自动滚动到激活项 (仅在非用户手动滚动时)
+      if (!isUserScrolling && sentenceRefs.current[index]) {
         sentenceRefs.current[index].scrollIntoView({
           behavior: 'smooth',
           block: 'center'
         });
       }
     }
-  }, [currentTime, sentences, activeIndex]);
+  }, [currentTime, sentences, activeIndex, isUserScrolling]);
 
   const handleSentenceClick = (start) => {
     if (!videoRef?.current) return;
     
     const video = videoRef.current.video || videoRef.current;
-    
-    // 如果有 seekToTimestamp 方法则优先使用
     if (typeof videoRef.current.seekToTimestamp === 'function') {
       videoRef.current.seekToTimestamp(start);
     } else {
@@ -66,8 +76,9 @@ const SentencesViewer = ({ sentences = [], videoRef, syncEnabled = true }) => {
 
   if (!sentences || sentences.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 italic">
-        暂无精制句子数据。
+      <div className="flex flex-col items-center justify-center h-full text-base-content/20 italic gap-2">
+        <Activity size={32} strokeWidth={1} />
+        <span className="text-xs">暂无精制句子数据</span>
       </div>
     );
   }
@@ -75,30 +86,37 @@ const SentencesViewer = ({ sentences = [], videoRef, syncEnabled = true }) => {
   return (
     <div 
       ref={containerRef} 
-      className="flex flex-col gap-2 p-2 h-full overflow-y-auto custom-scrollbar"
+      onScroll={handleScroll}
+      className="flex flex-col h-full overflow-y-auto custom-scrollbar bg-base-100"
     >
-      {sentences.map((s, index) => (
-        <div
-          key={index}
-          ref={(el) => (sentenceRefs.current[index] = el)}
-          className={`
-            p-3 rounded-lg cursor-pointer transition-all duration-200 border-l-4
-            ${index === activeIndex 
-              ? 'bg-primary/10 border-primary shadow-sm' 
-              : 'bg-white border-transparent hover:bg-gray-50 hover:border-gray-200'}
-          `}
-          onClick={() => handleSentenceClick(s.start)}
-        >
-          <div className="flex justify-between items-start gap-3">
-            <span className="text-xs font-mono text-base-content/40 mt-0.5 flex-shrink-0">
+      <div className="divide-y divide-base-200">
+        {sentences.map((s, index) => (
+          <div
+            key={index}
+            ref={(el) => (sentenceRefs.current[index] = el)}
+            className={`
+              flex gap-4 p-3 cursor-pointer transition-colors duration-150 group
+              ${index === activeIndex 
+                ? 'bg-primary/5 text-primary border-r-2 border-primary' 
+                : 'hover:bg-base-200 text-base-content/80'}
+            `}
+            onClick={() => handleSentenceClick(s.start)}
+          >
+            <div className={`
+              text-[10px] font-mono tabular-nums mt-1 flex-shrink-0 w-14
+              ${index === activeIndex ? 'text-primary font-bold' : 'text-base-content/30 group-hover:text-base-content/50'}
+            `}>
               {new Date(s.start * 1000).toISOString().substr(11, 8)}
-            </span>
-            <p className={`text-sm leading-relaxed ${index === activeIndex ? 'text-primary font-medium' : 'text-base-content/80'}`}>
+            </div>
+            <div className={`
+              text-sm leading-relaxed break-words flex-grow
+              ${index === activeIndex ? 'font-medium' : ''}
+            `}>
               {s.text}
-            </p>
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 };

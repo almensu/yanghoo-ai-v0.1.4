@@ -31,26 +31,24 @@ const BilingualCueItem = ({ cue, isActive, onClick, onCueSelect, selectedCues })
   const zh = cue.zhText ?? "[缺失中文]"; // 使用中文占位符
 
   // 根据文本是否存在确定占位符样式（例如，斜体和灰色）
-  const enStyle = cue.enText ? "text-sm leading-tight mb-1" : "text-sm italic text-gray-400 leading-tight mb-1";
-  // 修复：当字幕活跃时，使中文与英文一样显示为白色，否则保持原有灰色
+  const enStyle = cue.enText ? "text-sm leading-tight mb-1 font-medium" : "text-sm italic text-base-content/40 leading-tight mb-1";
+  
   const zhStyle = cue.zhText 
-    ? (isActive ? "text-sm text-primary-content leading-tight" : "text-sm text-gray-700 leading-tight") 
-    : "text-sm italic text-gray-400 leading-tight";
+    ? (isActive ? "text-sm text-primary leading-tight font-bold" : "text-sm text-base-content/60 leading-tight") 
+    : "text-sm italic text-base-content/30 leading-tight";
 
   return (
     <li 
-      // Combine styles: active, selected, and hover
       className={`
         px-3 py-2 rounded cursor-pointer flex items-start
-        transition-all duration-150 ease-in-out
-        ${isActive ? 'bg-primary text-primary-content font-medium' : ''}
+        transition-all duration-150 ease-in-out border-l-2
+        ${isActive ? 'bg-primary/10 border-primary shadow-sm' : 'border-transparent'}
         ${isSelected ?
-          (isActive ? 'border-2 border-accent shadow-sm' : 'border border-accent bg-accent bg-opacity-5 shadow-sm') :
-          (isActive ? '' : 'hover:bg-base-300')
+          'bg-accent/5 border-accent shadow-sm' :
+          (isActive ? '' : 'hover:bg-base-200 hover:border-base-300')
         }
-        ${!isActive && !isSelected ? 'bg-base-100' : ''} // Default background if not active/selected
       `}
-      onClick={handleClick} // Use the new handler
+      onClick={handleClick}
     >
       {/* 选择指示器 (仅在选择模式下显示) */}
       {selectionModeActive && (
