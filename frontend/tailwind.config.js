@@ -38,7 +38,7 @@ module.exports = {
 
           "--rounded-box": "0.5rem", 
           "--rounded-btn": "0.375rem", 
-          "--rounded-badge": "1.9rem",
+          "--rounded-badge": "9999px",
           "--animation-btn": "0.25s", 
           "--animation-input": "0.2s",
           "--btn-text-case": "none", 
@@ -48,8 +48,6 @@ module.exports = {
           "--tab-radius": "0.5rem",
         },
       },
-      "light",
-      "dark",
     ],
   },
 }
