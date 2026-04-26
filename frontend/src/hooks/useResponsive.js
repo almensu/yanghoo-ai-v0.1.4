@@ -52,7 +52,7 @@ export const useResponsive = () => {
 
 // 屏幕尺寸检测hook
 export const useScreenSize = () => {
-  const { windowSize, isMobile, isTablet, isDesktop } = useResponsive();
+  const { isMobile, isTablet } = useResponsive();
   
   // 根据屏幕尺寸返回不同的布局配置
   const getLayoutConfig = () => {

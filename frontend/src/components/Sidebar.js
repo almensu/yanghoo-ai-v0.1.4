@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import navigationConfig from '../config/navigation';
 
-function Sidebar() {
+function Sidebar({ onNavigate }) {
   const [isExpanded, setIsExpanded] = useState(() => {
     const savedState = localStorage.getItem('sidebarExpanded');
     return savedState !== null ? JSON.parse(savedState) : false;
@@ -104,6 +104,7 @@ function Sidebar() {
                       <li key={item.id}>
                         <NavLink
                           to={item.path}
+                          onClick={() => onNavigate && onNavigate()}
                           className={({ isActive }) =>
                             `flex items-center gap-3 p-3 rounded-lg transition-all duration-200 ${
                               isActive

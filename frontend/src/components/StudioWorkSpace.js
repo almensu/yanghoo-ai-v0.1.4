@@ -9,14 +9,12 @@ import PlaceholderComponent2 from './PlaceholderComponent2';
 import MarkdownList from './MarkdownList';
 import SentencesViewer from './SentencesViewer'; // Import the new sentences component
 
-// Props:
-// - taskUuid: The UUID of the current task
-// - apiBaseUrl: The base URL for the backend API
-// - markdownContent: Optional fallback markdown content from parent
-// - refinedSentences: List of sentences for the refined view
-// - videoRef: Reference to the video element for timestamp navigation
+import { useResponsive } from '../hooks/useResponsive';
 
+// Props:
+// ...
 function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, refinedSentences = [], videoRef, taskDetails }) {
+  const { isMobile } = useResponsive();
   const [workspaceTab, setWorkspaceTab] = useState('docs'); // 'docs' or 'sentences'
   const [markdownFiles, setMarkdownFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null); // Name of the selected file
@@ -578,7 +576,7 @@ function StudioWorkSpace({ taskUuid, apiBaseUrl, markdownContent, refinedSentenc
   };
 
   return (
-    <div className={`flex flex-col bg-white rounded-lg shadow overflow-hidden ${isExpanded ? 'fixed right-0 top-0 z-30 w-[60%] h-screen' : 'flex-1 min-w-0'} transition-all duration-300 ease-in-out`}>
+    <div className={`flex flex-col bg-white rounded-lg shadow overflow-hidden ${isExpanded ? `fixed right-0 top-0 z-30 ${isMobile ? 'w-full' : 'w-[60%]'} h-screen` : 'flex-1 min-w-0'} transition-all duration-300 ease-in-out`}>
       <div className={`flex justify-between items-center border-b border-gray-300 flex-shrink-0 sticky top-0 bg-white z-20 ${isExpanded ? 'p-2' : 'p-4 pb-2'}`}>
         <h3 className="text-lg font-semibold">Studio WorkSpace</h3>
         <button 

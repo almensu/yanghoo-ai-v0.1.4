@@ -7,14 +7,16 @@ import VttPreviewer from './VttPreviewer';
 import StudioWorkSpace from './StudioWorkSpace';
 import AIChat from './AIChat';
 import KeyframeClipPanel from './KeyframeClipPanel';
+import { useResponsive } from '../hooks/useResponsive';
 import { 
   FileVideo, Captions, FileText, Layout, 
   Settings, ChevronLeft, Database,
-  Activity, Layers, PlayCircle
+  Activity, Layers, PlayCircle, Monitor, MessageSquare
 } from 'lucide-react';
 
 // Studio Header Component
 function StudioHeader({ taskDetails, onBack, apiBaseUrl }) {
+  const { isMobile } = useResponsive();
   if (!taskDetails) return null;
 
   const hasVideo = !!taskDetails.media_files && Object.keys(taskDetails.media_files).length > 0;
@@ -27,9 +29,11 @@ function StudioHeader({ taskDetails, onBack, apiBaseUrl }) {
   return (
     <header className="wb-toolbar bg-base-100 border-b border-base-300 h-14 flex-shrink-0 px-4 justify-between sticky top-0 z-[60]">
       <div className="flex items-center gap-3 overflow-hidden">
-        <button onClick={onBack} className="wb-btn-icon hover:bg-base-200" title="返回列表">
-          <ChevronLeft size={18} />
-        </button>
+        {!isMobile && (
+          <button onClick={onBack} className="wb-btn-icon hover:bg-base-200" title="返回列表">
+            <ChevronLeft size={18} />
+          </button>
+        )}
         <div className="flex flex-col min-w-0">
           <h1 className="text-sm font-bold truncate max-w-[400px] leading-tight" title={taskDetails.title}>
             {taskDetails.title || 'Loading...'}
@@ -43,14 +47,16 @@ function StudioHeader({ taskDetails, onBack, apiBaseUrl }) {
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-1">
-          <StatusBadge icon={FileVideo} active={hasVideo} label="Video" />
-          <StatusBadge icon={Captions} active={hasSubtitles} label="Subs" />
-          <StatusBadge icon={FileText} active={hasMarkdown} label="Doc" />
-          <StatusBadge icon={Activity} active={hasRefined} label="Refined" />
-          <StatusBadge icon={Layers} active={hasKeyframes} label={`KF (${taskDetails.keyframes_count || 0})`} />
-        </div>
-        <div className="divider divider-horizontal mx-0 h-6"></div>
+        {!isMobile && (
+          <div className="flex items-center gap-1">
+            <StatusBadge icon={FileVideo} active={hasVideo} label="Video" />
+            <StatusBadge icon={Captions} active={hasSubtitles} label="Subs" />
+            <StatusBadge icon={FileText} active={hasMarkdown} label="Doc" />
+            <StatusBadge icon={Activity} active={hasRefined} label="Refined" />
+            <StatusBadge icon={Layers} active={hasKeyframes} label={`KF (${taskDetails.keyframes_count || 0})`} />
+          </div>
+        )}
+        <div className="hidden sm:block divider divider-horizontal mx-0 h-6"></div>
         <VideoTaskSelector apiBaseUrl={apiBaseUrl} currentTaskUuid={taskDetails.uuid} />
       </div>
     </header>
@@ -874,6 +880,10 @@ const logger = {
 
 function Studio({ taskUuid, apiBaseUrl }) {
   const navigate = useNavigate();
+  const { isMobile, isTablet } = useResponsive();
+  const [activeMobileTab, setActiveMobileTab] = useState('monitor'); // 'monitor', 'ai', 'workspace'
+  const [rightColMode, setRightColMode] = useState('ai'); // For tablet: 'ai' or 'workspace'
+
   // Refs
   const videoElementRef = useRef(null);
 
@@ -1870,11 +1880,42 @@ function Studio({ taskUuid, apiBaseUrl }) {
              <button onClick={() => window.location.reload()} className="btn btn-ghost btn-sm underline">Retry</button>
           </div>
         ) : (
-          /* Step 2: Unified Three-Column Layout */
-          <div className="flex flex-row flex-grow overflow-hidden p-3 gap-3 animate-in fade-in duration-500">
+          /* Step 2: Unified Responsive Layout */
+          <div className="flex flex-col lg:flex-row flex-grow overflow-hidden p-2 lg:p-3 gap-2 lg:gap-3 relative">
+            
+            {/* --- Mobile View Navigation (Top) --- */}
+            {isMobile && (
+              <div className="flex-shrink-0 bg-base-100 border-b border-base-300 -mx-2 px-2 flex justify-around shadow-sm z-20">
+                <button 
+                  onClick={() => setActiveMobileTab('monitor')}
+                  className={`py-3 flex flex-col items-center gap-1 border-b-2 transition-all ${activeMobileTab === 'monitor' ? 'border-primary text-primary font-bold' : 'border-transparent opacity-50'}`}
+                >
+                  <Monitor size={16} />
+                  <span className="text-[10px] uppercase">Monitor</span>
+                </button>
+                <button 
+                  onClick={() => setActiveMobileTab('ai')}
+                  className={`py-3 flex flex-col items-center gap-1 border-b-2 transition-all ${activeMobileTab === 'ai' ? 'border-primary text-primary font-bold' : 'border-transparent opacity-50'}`}
+                >
+                  <MessageSquare size={16} />
+                  <span className="text-[10px] uppercase">AI Chat</span>
+                </button>
+                <button 
+                  onClick={() => setActiveMobileTab('workspace')}
+                  className={`py-3 flex flex-col items-center gap-1 border-b-2 transition-all ${activeMobileTab === 'workspace' ? 'border-primary text-primary font-bold' : 'border-transparent opacity-50'}`}
+                >
+                  <FileText size={16} />
+                  <span className="text-[10px] uppercase">Space</span>
+                </button>
+              </div>
+            )}
           
           {/* --- Left Column: Video & Controls --- */}
-          <div className="flex flex-col w-[30%] min-w-[350px] flex-shrink-0 gap-3">
+          <div className={`
+            flex flex-col flex-shrink-0 gap-3
+            ${isMobile ? (activeMobileTab === 'monitor' ? 'flex w-full h-full' : 'hidden') : 'lg:w-[30%] lg:min-w-[350px]'}
+            ${isTablet ? 'w-[45%]' : ''}
+          `}>
             {/* Video Section */}
             <div className="wb-panel flex flex-col flex-shrink-0 overflow-hidden bg-black">
               <div className="aspect-video relative group">
@@ -2062,16 +2103,25 @@ function Studio({ taskUuid, apiBaseUrl }) {
             </div>
           </div>
 
-            <div className="flex flex-col flex-1 min-w-[400px] wb-panel bg-base-100 overflow-hidden">
-
-            <div className="wb-toolbar px-4 h-11 flex-shrink-0">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-base-content/40">
-                {vttMode === 'cut' && clipModeType === 'subtitle' ? "Subtitle Segments Selector" :
-                 vttMode === 'cut' && clipModeType === 'keyframe' ? "Keyframe Timeline Editor" : 
-                 "AI Editorial Assistant"}
-              </h3>
-            </div>
-            
+            {/* --- Middle Column: AI Chat or Dedicated Clip Selector --- */}
+            <div className={`
+              flex flex-col wb-panel bg-base-100 overflow-hidden shadow-sm
+              ${isMobile ? (activeMobileTab === 'ai' ? 'flex w-full h-full' : 'hidden') : 'lg:flex-1 lg:min-w-[400px]'}
+              ${isTablet ? (rightColMode === 'ai' ? 'flex flex-1' : 'hidden') : ''}
+            `}>
+              <div className="wb-toolbar px-4 h-11 flex-shrink-0 justify-between bg-base-100 border-b">
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-base-content/40">
+                  {vttMode === 'cut' && clipModeType === 'subtitle' ? "Subtitle Selector" :
+                   vttMode === 'cut' && clipModeType === 'keyframe' ? "Timeline Editor" : 
+                   "AI Assistant"}
+                </h3>
+                {isTablet && (
+                  <div className="tabs tabs-boxed p-0.5 h-8 bg-base-200">
+                    <button onClick={() => setRightColMode('ai')} className={`tab tab-xs h-7 px-4 ${rightColMode === 'ai' ? 'tab-active' : ''}`}>AI</button>
+                    <button onClick={() => setRightColMode('workspace')} className={`tab tab-xs h-7 px-4 ${rightColMode === 'workspace' ? 'tab-active' : ''}`}>Docs</button>
+                  </div>
+                )}
+              </div>
             <div className="flex-grow overflow-hidden relative">
               {vttMode === 'cut' && clipModeType === 'subtitle' ? (
                 <div className="h-full custom-scrollbar flex flex-col">
@@ -2113,7 +2163,12 @@ function Studio({ taskUuid, apiBaseUrl }) {
           </div>
 
           {/* --- Right Column: StudioWorkSpace --- */}
-          <div className="flex flex-col w-1/4 min-w-[300px] flex-shrink-0 wb-panel bg-base-100 overflow-hidden relative">
+          <div className={`
+            flex flex-col wb-panel bg-base-100 overflow-hidden relative shadow-sm
+            ${isMobile ? (activeMobileTab === 'workspace' ? 'flex w-full h-full' : 'hidden') : 'lg:w-1/4 lg:min-w-[300px]'}
+            ${isTablet ? (rightColMode === 'workspace' ? 'flex flex-1' : 'hidden') : ''}
+          `}>
+
             <StudioWorkSpace 
               taskUuid={taskUuid} 
               apiBaseUrl={apiBaseUrl} 
@@ -2123,6 +2178,33 @@ function Studio({ taskUuid, apiBaseUrl }) {
               taskDetails={taskDetails}
             />
           </div>
+
+          {/* --- Mobile Bottom Navigation --- */}
+          {isMobile && (
+            <div className="fixed bottom-0 left-0 right-0 h-16 bg-base-100 border-t border-base-300 z-[100] flex justify-around items-center px-4 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+              <button 
+                onClick={() => setActiveMobileTab('monitor')}
+                className={`flex flex-col items-center gap-1 transition-all ${activeMobileTab === 'monitor' ? 'text-primary scale-110' : 'text-base-content/40'}`}
+              >
+                <Monitor size={20} strokeWidth={activeMobileTab === 'monitor' ? 2.5 : 2} />
+                <span className="text-[9px] font-bold uppercase">Monitor</span>
+              </button>
+              <button 
+                onClick={() => setActiveMobileTab('ai')}
+                className={`flex flex-col items-center gap-1 transition-all ${activeMobileTab === 'ai' ? 'text-primary scale-110' : 'text-base-content/40'}`}
+              >
+                <MessageSquare size={20} strokeWidth={activeMobileTab === 'ai' ? 2.5 : 2} />
+                <span className="text-[9px] font-bold uppercase">AI Chat</span>
+              </button>
+              <button 
+                onClick={() => setActiveMobileTab('workspace')}
+                className={`flex flex-col items-center gap-1 transition-all ${activeMobileTab === 'workspace' ? 'text-primary scale-110' : 'text-base-content/40'}`}
+              >
+                <FileText size={20} strokeWidth={activeMobileTab === 'workspace' ? 2.5 : 2} />
+                <span className="text-[9px] font-bold uppercase">Space</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
