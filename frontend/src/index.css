@@ -4,13 +4,6 @@
 
 @import './styles/tokens.css';
 
-/* Fix for daisyUI 5 + postcss-calc (CRA) 'infinity * 1px' warning */
-:root {
-  --rounded-badge: 9999px;
-  --rounded-btn: 0.375rem;
-  --rounded-box: 0.5rem;
-}
-
 :root {
   color-scheme: light;
 }

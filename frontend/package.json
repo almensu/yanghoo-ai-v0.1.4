@@ -26,6 +26,8 @@
     "webvtt-parser": "^2.2.0"
   },
   "scripts": {
+    "postinstall": "node scripts/patch-daisyui.js",
+    "prebuild": "node scripts/patch-daisyui.js",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",

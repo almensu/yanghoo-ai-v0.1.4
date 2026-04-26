@@ -11,7 +11,7 @@ const WS_BASE_URL = 'ws://127.0.0.1:8000';
 function App() {
   return (
     <BrowserRouter>
-      <div className="flex h-screen bg-base-100" data-theme="cupcake">
+      <div className="flex h-screen bg-base-100" data-theme="yanghoo-workbench">
         <Sidebar />
         <div className="flex-grow flex flex-col overflow-hidden">
           <main className="flex-grow flex-1 flex flex-col overflow-auto">
