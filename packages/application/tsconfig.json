@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../domain" },
+    { "path": "../source-adapters" },
+    { "path": "../storage" },
+    { "path": "../transcript" },
+    { "path": "../llm-gateway" },
+    { "path": "../llm-adapters" }
+  ]
+}

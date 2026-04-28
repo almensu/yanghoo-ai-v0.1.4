@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.DS_Store
+*.log
+.env
+.env.local
+data/
+backend/data/
+frontend/.vite/
+coverage/
+*.json3
+.DS_Store

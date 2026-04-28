@@ -1,0 +1,26 @@
+{
+  "name": "@yanghoo/application",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@yanghoo/domain": "*",
+    "@yanghoo/source-adapters": "*",
+    "@yanghoo/storage": "*",
+    "@yanghoo/transcript": "*",
+    "@yanghoo/llm-gateway": "*",
+    "@yanghoo/llm-adapters": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
