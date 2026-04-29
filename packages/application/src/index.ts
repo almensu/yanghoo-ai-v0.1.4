@@ -12,6 +12,8 @@ import {
   Message
 } from '@yanghoo/domain';
 import { execSync } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 import {
   youtubeAdapter,
   xiaoyuzhouAdapter,
@@ -26,6 +28,7 @@ import {
 } from '@yanghoo/transcript';
 import { llmGateway } from '@yanghoo/llm-gateway';
 import { mockLLMProvider } from '@yanghoo/llm-adapters';
+import { resolveRootScript } from './resolveProjectRoot.js';
 
 // Initialize Gateway
 llmGateway.registerProvider(mockLLMProvider);
@@ -90,28 +93,54 @@ export async function transcribeAudioUseCase(sourceId: string): Promise<Transcri
   const absoluteAudioPath = (audioStorage as any).resolvePath(audioAsset.localPath);
   
   // 1. Strict MLX check
+  const pythonExec = process.env.MLX_AUDIO_PYTHON;
+  if (!pythonExec) {
+    throw new Error(`MLX_AUDIO_PYTHON is not configured. Transcription requires a valid MLX Python runtime.
+Resolution: Start the API with:
+MLX_AUDIO_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-audio/.venv/bin/python npm run dev`);
+  }
+
   let transcriberAvailable = false;
+  let envCheckErrorMsg = '';
   try {
-    execSync('python3 -c "import mlx_audio; import mlx.core" && python3 -m mlx_audio.stt.generate --help');
+    // Check if mlx_audio can be imported
+    execSync(`"${pythonExec}" -c "import mlx_audio; import mlx.core"`, { stdio: 'pipe' });
     transcriberAvailable = true;
-  } catch (e) {
-    console.warn('[UseCase] MLX Audio environment check failed.');
+  } catch (e: any) {
+    envCheckErrorMsg = e.stderr?.toString() || e.message;
+    console.warn(`[UseCase] MLX Audio environment check failed with executable: ${pythonExec}`);
   }
 
   if (!transcriberAvailable) {
-     throw new Error(`Real transcription engine (mlx-audio) is not correctly installed or compatible with this environment. 
-     Note: Local ASR requires an Apple Silicon Mac and the 'mlx' core library.
-     Current status: ModuleNotFoundError: No module named 'mlx'
-     Resolution: Please run 'pip install mlx-audio mlx' in a compatible environment.`);
+     throw new Error(`Real transcription engine (mlx-audio) is not correctly installed in the configured Python environment. 
+     Attempted executable: ${pythonExec}
+     Error details: ${envCheckErrorMsg.trim()}
+     Resolution: Please ensure mlx_audio and mlx are installed in that environment.`);
   }
 
   const model = 'mlx-community/whisper-large-v3-turbo-asr-fp16';
-  console.log(`[UseCase] Running MLX ASR with model: ${model}`);
+  console.log(`[UseCase] Running MLX ASR with model: ${model} using ${pythonExec}`);
   
+  const outputDir = path.dirname(absoluteAudioPath);
+  const outputJsonPath = path.join(outputDir, `mlx-script-output-${sourceId}.json`);
+
+  // Path to our project-native script resolved independent of process.cwd()
+  const scriptPath = resolveRootScript('scripts/transcript/run-mlx-audio-transcription.py');
+
   try {
-    const cmd = `python3 -m mlx_audio.stt.generate --model "${model}" --audio "${absoluteAudioPath}" --output-format json`;
-    const resultJson = execSync(cmd).toString();
+    const cmd = `"${pythonExec}" "${scriptPath}" --model "${model}" --audio "${absoluteAudioPath}" --output-json "${outputJsonPath}"`;
+    execSync(cmd, { stdio: 'pipe' });
+    
+    if (!fs.existsSync(outputJsonPath)) {
+      throw new Error(`Transcription completed but output JSON not found at ${outputJsonPath}`);
+    }
+    
+    const resultJson = fs.readFileSync(outputJsonPath, 'utf-8');
     const result = JSON.parse(resultJson);
+
+    if (!result.segments) {
+      throw new Error(`Invalid JSON shape from MLX script: missing 'segments'. Output path: ${outputJsonPath}`);
+    }
 
     const rawSegments: TranscriptSegment[] = result.segments.map((s: any) => ({
       start: s.start,
@@ -213,8 +242,10 @@ export async function ensureTranscriptUseCase(sourceId: string): Promise<Transcr
   }
 }
 
-export * from './resolveSourceMediaUseCase.js';
-export * from './downloadSourceMediaUseCase.js';
+export { resolveSourceMediaUseCase } from './resolveSourceMediaUseCase.js';
+export { downloadSourceMediaUseCase } from './downloadSourceMediaUseCase.js';
+export { extractSourceAudioUseCase } from './extractSourceAudioUseCase.js';
+export { transcribeSourceMediaUseCase } from './transcribeSourceMediaUseCase.js';
 
 /**
  * Use Case: Capture a source from a URL.

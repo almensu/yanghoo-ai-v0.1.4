@@ -25,10 +25,16 @@ export async function downloadSourceMediaUseCase(sourceId: string): Promise<Medi
     const logicalPath = getMediaDownloadPath(sourceId, '%(ext)s');
     const absolutePathPattern = (mediaStorage as any).resolvePath(logicalPath);
     
-    // Command to download best video+audio and merge into mp4/mkv or best single file
-    const cmd = `yt-dlp -f "best" -o "${absolutePathPattern}" "${source.url}"`;
+    // Command to download best video+audio and merge into mp4
+    const cmd = `yt-dlp --merge-output-format mp4 -o "${absolutePathPattern}" "${source.url}"`;
     console.log(`[UseCase] Running: ${cmd}`);
-    execSync(cmd, { stdio: 'inherit' });
+    
+    try {
+      execSync(cmd, { stdio: 'pipe' });
+    } catch (e: any) {
+      const stderr = e.stderr?.toString() || e.message;
+      throw new Error(stderr);
+    }
 
     // Find the actual file (since %(ext)s was resolved by yt-dlp)
     const dirPath = (mediaStorage as any).resolvePath(`sources/${sourceId}`);
@@ -36,8 +42,23 @@ export async function downloadSourceMediaUseCase(sourceId: string): Promise<Medi
     if (files.length === 0) throw new Error("yt-dlp finished but no media file found.");
     
     const actualFile = files[0];
+    const absoluteFilePath = `${dirPath}/${actualFile}`;
     const ext = actualFile.split('.').pop();
-    const stats = fs.statSync(`${dirPath}/${actualFile}`);
+    const stats = fs.statSync(absoluteFilePath);
+
+    // Check for audio stream
+    let hasAudio = false;
+    let notTranscribableReason: string | undefined;
+    try {
+      const probeCmd = `ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "${absoluteFilePath}"`;
+      const audioStreams = execSync(probeCmd).toString().trim();
+      hasAudio = !!audioStreams;
+      if (!hasAudio) {
+        notTranscribableReason = "Media file has no audio stream.";
+      }
+    } catch (e: any) {
+      console.warn(`[UseCase] ffprobe failed for ${absoluteFilePath}: ${e.message}`);
+    }
 
     const updatedAsset: MediaAsset = {
       sourceId,
@@ -48,6 +69,8 @@ export async function downloadSourceMediaUseCase(sourceId: string): Promise<Medi
       localPath: `data/sources/${sourceId}/${actualFile}`,
       ext: ext,
       byteSize: stats.size,
+      hasAudio,
+      notTranscribableReason,
       fetchedAt: new Date().toISOString()
     };
 
