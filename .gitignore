@@ -13,3 +13,7 @@ coverage/
 .DS_Store
 apps/api/transcript.txt
 transcript.txt
+*.tsbuildinfo
+*.part
+*.part-*
+*.ytdl

@@ -75,6 +75,30 @@
   - 调用 Python 前先 `fs.existsSync(scriptPath)`，若缺失则抛出带有 `process.cwd()`、`Resolved Root` 和 `scriptPath` 的详尽诊断信息。
   - 推荐使用统一的 `resolveRootScript` 助手函数。
 
+### 0.2 taskId 作为 URL path 参数必须 encode
+- **问题**: 删除卡片或删除资产时报 404，例如请求实际变成：
+  ```text
+  DELETE /api/tasks/xhs-682eefa40000000003039a4b?source=webshare&...
+  ```
+  后端只收到 `xhs-682eefa40000000003039a4b`，找不到旧记录。
+- **坑**: 历史脏数据可能把小红书 query string 写进 `source.id`。如果前端直接拼：
+  ```ts
+  `/api/tasks/${taskId}`
+  ```
+  浏览器会把 `?` 后面当成 query string，而不是 path 的一部分。
+- **避坑**:
+  - 所有 task-specific API URL 都必须使用 `encodeURIComponent(taskId)`。
+  - 新的小红书导入必须使用 canonical ID，不能让 `?source=...` 进入 `source.id`。
+  - 旧脏 ID 仍要能通过 encoded route 删除，不能要求用户手动清理 data 目录。
+
+### 0.3 小红书封面防盗链 (Xiaohongshu Cover Hotlinking)
+- **问题**: `xhscdn.com` 的封面图在浏览器直接访问经常报 403 或加载失败。
+- **坑**: 小红书 CDN 有防盗链限制或 URL 签名过期快。
+- **避坑**: 
+  - 导入时通过 `cacheThumbnailUseCase` 将远程封面缓存到本地 `data/sources/{sourceId}/thumbnail.{ext}`。
+  - `source.thumbnailUrl` 应设为本地 API 路径 `/api/tasks/{sourceId}/thumbnail`。
+  - 前端 `TaskCard` 必须实现 `onError` 降级逻辑，在图片加载失败时展示占位图。
+
 ### 1. npm workspaces 启动阻塞
 - **问题**: 在根目录执行 `npm run dev -ws` 会按顺序启动所有 workspace。
 - **坑**: 如果第一个 workspace 是 Fastify 这种持久运行的服务，它会阻塞后续 workspace（如 Vite 前端）的启动。

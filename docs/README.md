@@ -35,3 +35,18 @@ This directory is the project command center. Codex keeps decisions and task pri
 - Discussion drafts can inform plans, but task files control execution.
 - New implementation work needs a stage plan before Gemini starts.
 - Reports must include changed files, verification commands, results, and unresolved risks.
+
+## Platform Acquisition Strategy
+
+- YouTube uses the Baoyu/YouTube InnerTube internal API path for metadata and captions. It must support caption-only transcript generation without downloading video.
+- YouTube cards should present `Ensure Transcript` / `载字幕` before any media-download action.
+- X, Xiaohongshu, and Douyin use `yt-dlp` for metadata/media acquisition, followed by audio extraction/probing and MLX transcription when media has audio.
+- Plans that route YouTube through the generic short-video `yt-dlp` download workflow must explicitly document the exception and why it does not replace the accepted Baoyu/InnerTube path.
+
+## Implementation References
+
+- YouTube captions and cover reference: `/Users/a123/claude-model/.claude-zhipu/skills/baoyu-youtube-transcript`.
+  - Read `SKILL.md` first for supported behavior and CLI contract.
+  - Use `scripts/main.ts` as the Baoyu/InnerTube implementation reference.
+  - The reference states that no API key or browser is required. It fetches the YouTube watch page, extracts `INNERTUBE_API_KEY`, calls `youtubei/v1/player`, validates playability/caption tracks, and fetches transcript snippets from the selected caption `baseUrl`.
+  - Treat this as a reference implementation and decision guide. Do not vendor the whole external skill into this repo.
