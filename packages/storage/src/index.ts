@@ -243,11 +243,15 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
 
     let mediaStatus: MediaAssetStatus | undefined;
     let mediaKind: MediaKind | undefined;
+    let mediaHasAudio: boolean | undefined;
+    let notTranscribableReason: string | undefined;
     if (hasMedia) {
       try {
         const m = JSON.parse(fs.readFileSync(this.resolvePath(getMediaManifestPath(sourceId)), 'utf-8'));
         mediaStatus = m.status;
         mediaKind = m.mediaKind;
+        mediaHasAudio = m.hasAudio;
+        notTranscribableReason = m.notTranscribableReason;
       } catch (e) {}
     }
 
@@ -262,7 +266,9 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
       hasAudio,
       hasMedia,
       mediaStatus,
-      mediaKind
+      mediaKind,
+      mediaHasAudio,
+      notTranscribableReason
     };
   }
 

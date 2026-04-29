@@ -64,6 +64,8 @@ export interface MediaAsset {
   mimeType?: string;
   byteSize?: number;
   durationSeconds?: number;
+  hasAudio?: boolean;
+  notTranscribableReason?: string;
   fetchedAt?: string;
   errorMessage?: string;
 }
@@ -135,6 +137,8 @@ export interface DocumentReadiness {
   hasMedia: boolean;
   mediaStatus?: MediaAssetStatus;
   mediaKind?: MediaKind;
+  mediaHasAudio?: boolean;
+  notTranscribableReason?: string;
 }
 
 export interface DocumentAsset {
