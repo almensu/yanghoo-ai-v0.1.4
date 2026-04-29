@@ -22,6 +22,8 @@ export const getAudioPath = (sourceId: string, ext: string = 'mp3') => `${getSou
 
 export const getAudioManifestPath = (sourceId: string) => `${getSourceDir(sourceId)}/audio-manifest.json`;
 
+export const getThumbnailPath = (sourceId: string, ext: string = 'jpg') => `${getSourceDir(sourceId)}/thumbnail.${ext}`;
+
 export const getMediaManifestPath = (sourceId: string) => `${getSourceDir(sourceId)}/media-manifest.json`;
 
 export const getMediaDownloadPath = (sourceId: string, ext: string) => `${getSourceDir(sourceId)}/media.${ext}`;

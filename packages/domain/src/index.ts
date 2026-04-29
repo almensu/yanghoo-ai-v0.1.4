@@ -33,6 +33,7 @@ export interface Source {
   duration?: number; // in seconds
   publishedAt?: string;
   capturedAt: string;
+  canonicalId?: string;
   metadata?: Record<string, any>;
   audioUrl?: string;
   shownotes?: string;
@@ -179,6 +180,15 @@ export interface GeneratedDocument {
   title: string;
   content: string;
   markdownPath?: string;
+}
+
+export type DeleteSourceAssetsScope = 'media' | 'audio' | 'transcript' | 'generated';
+
+export interface DeleteAssetsResponse {
+  deleted: string[];
+  skipped: string[];
+  failed: { path: string; reason: string }[];
+  readiness: DocumentReadiness;
 }
 
 export * from './storage.js';
