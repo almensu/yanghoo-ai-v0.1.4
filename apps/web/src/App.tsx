@@ -8,6 +8,8 @@ export function App() {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const [url, setUrl] = useState('');
   const [readingTaskId, setReadingTaskId] = useState<string | null>(null);
 
@@ -30,7 +32,9 @@ export function App() {
   }, []);
 
   const handleImport = async () => {
-    if (!url) return;
+    if (!url || isImporting) return;
+    setIsImporting(true);
+    setImportError(null);
     try {
       const response = await fetch('/api/tasks', {
         method: 'POST',
@@ -40,9 +44,15 @@ export function App() {
       if (response.ok) {
         setUrl('');
         refreshTasks();
+      } else {
+        const data = await response.json();
+        setImportError(data.message || 'Import failed');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Import failed:', error);
+      setImportError(error.message || 'Import failed');
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -54,20 +64,27 @@ export function App() {
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Yanghoo AI v0.3.0</p>
             <h1 className="text-xl font-semibold text-ink">Transcript Workbench</h1>
           </div>
-          <div className="flex gap-2">
-            <input 
-              type="text" 
-              placeholder="Paste YouTube URL..." 
-              className="w-64 rounded-md border border-line px-3 py-2 text-sm"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-            <button 
-              onClick={handleImport}
-              className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white"
-            >
-              Import Source
-            </button>
+          <div className="flex flex-col gap-1">
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                placeholder="粘贴链接或分享文本..." 
+                className="w-80 rounded-md border border-line px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                disabled={isImporting}
+              />
+              <button 
+                onClick={handleImport}
+                disabled={isImporting || !url}
+                className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {isImporting ? 'Importing...' : 'Import'}
+              </button>
+            </div>
+            {importError && (
+              <p className="text-[10px] text-red-500 font-medium">{importError}</p>
+            )}
           </div>
         </div>
       </header>
@@ -106,6 +123,10 @@ export function App() {
                 task={task} 
                 onRefresh={refreshTasks} 
                 onRead={(id) => setReadingTaskId(id)}
+                onDelete={(id) => {
+                  if (readingTaskId === id) setReadingTaskId(null);
+                  refreshTasks();
+                }}
               />
             ))}
           </section>

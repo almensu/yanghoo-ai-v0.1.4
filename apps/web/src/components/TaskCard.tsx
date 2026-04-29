@@ -1,24 +1,43 @@
-import { 
-  FileText, 
-  Play, 
-  RefreshCw, 
-  Loader2, 
-  Music, 
-  Mic, 
-  MoreVertical, 
-  Database, 
-  Download, 
-  Link2,
+import {
+  FileText,
+  Play,
+  Loader2,
+  Download,
+  Mic,
+  MoreVertical,
+  Trash2,
   Captions
 } from 'lucide-react';
 import { useState } from 'react';
-import { ensureTranscript, fetchAudio, transcribeAudio, resolveMedia, downloadMedia, transcribeMedia } from '../api/client';
+import { ensureTranscript, fetchAudio, transcribeAudio, downloadMedia, transcribeMedia, deleteTask } from '../api/client';
 import type { TaskSummary } from '../types';
 
 interface TaskCardProps {
   task: TaskSummary;
   onRefresh?: () => void;
   onRead?: (taskId: string) => void;
+  onDelete?: (taskId: string) => void;
+}
+
+function TaskThumbnail({ src, platform }: { src?: string, platform: string }) {
+  const [error, setError] = useState(false);
+
+  if (!src || error) {
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-100 text-[10px] text-muted uppercase tracking-widest">
+        {platform} COVER
+      </div>
+    );
+  }
+
+  return (
+    <img
+      className="h-full w-full object-cover"
+      src={src}
+      alt=""
+      onError={() => setError(true)}
+    />
+  );
 }
 
 function formatDuration(seconds?: number): string {
@@ -53,20 +72,19 @@ function transcriptSourceLabel(source: TaskSummary['documentAssets']['source']):
   return labels[source] || source;
 }
 
-export function TaskCard({ task, onRefresh, onRead }: TaskCardProps) {
+export function TaskCard({ task, onRefresh, onRead, onDelete }: TaskCardProps) {
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  
+
   const assets = task.documentAssets;
   const isProcessing = !!activeAction;
-  
   const canRead = assets.status === 'markdown_ready' || assets.status === 'enriched';
-  
-  // Action Rules
-  const isVideoPlatform = task.platform === 'douyin' || task.platform === 'x' || task.platform === 'youtube' || task.platform === 'xiaohongshu' || task.platform === 'bilibili';
+
+  // Platform classification
+  const isShortVideoPlatform = task.platform === 'douyin' || task.platform === 'x' || task.platform === 'xiaohongshu' || task.platform === 'bilibili';
+  const isYouTube = task.platform === 'youtube';
   const isPodcastPlatform = task.platform === 'xiaoyuzhou' || task.platform === 'apple_podcast' || task.sourceClass === 'podcast_audio';
-  
   const hasAudioUrl = !!(task.audioUrl || task.metadata?.mediaUrl);
 
   const runAction = async (actionId: string, fn: () => Promise<any>) => {
@@ -83,81 +101,87 @@ export function TaskCard({ task, onRefresh, onRead }: TaskCardProps) {
     }
   };
 
-  // Decide what to show
-  let primaryAction: { label: string; id: string; icon: any; fn: () => Promise<any>; disabled?: boolean; isPrimary?: boolean } | null = null;
-  const secondaryActions: { label: string; id: string; icon: any; fn: () => Promise<any> }[] = [];
+  const handleDeleteCard = async () => {
+    const confirmed = window.confirm(`删除这个卡片和所有本地资产？\n\n卡片和已下载/生成的资产都会被删除。`);
+    if (!confirmed) return;
+
+    await runAction('deleteCard', async () => {
+      await deleteTask(task.id);
+      onDelete?.(task.id);
+    });
+  };
+
+  // Decide the primary action
+  let primaryAction: { label: string; id: string; icon: any; fn: () => Promise<any>; disabled?: boolean; variant?: 'primary' | 'default' | 'danger' } | null = null;
 
   if (canRead) {
-    primaryAction = { label: '阅读', id: 'read', icon: Play, fn: async () => onRead?.(task.id), isPrimary: true };
-  } else if (isVideoPlatform) {
+    primaryAction = { label: '阅读', id: 'read', icon: Play, fn: async () => { onRead?.(task.id); }, variant: 'primary' };
+  } else if (isYouTube) {
+    // YouTube: 下载字幕 (platform captions only, no video download)
+    primaryAction = {
+      label: activeAction === 'downloadCaptions' ? '下载中...' : '下载字幕',
+      id: 'downloadCaptions',
+      icon: activeAction === 'downloadCaptions' ? Loader2 : Captions,
+      fn: () => ensureTranscript(task.id),
+      variant: 'primary',
+      disabled: isProcessing
+    };
+  } else if (isShortVideoPlatform) {
+    // X / XHS / Douyin / Bilibili: 下载视频 -> 转录
     if (!assets.hasMedia) {
-      primaryAction = { 
-        label: activeAction === 'downloadVideo' ? '下载中...' : '下载视频', 
-        id: 'downloadVideo', 
-        icon: activeAction === 'downloadVideo' ? Loader2 : Download, 
+      primaryAction = {
+        label: activeAction === 'downloadVideo' ? '下载中...' : '下载视频',
+        id: 'downloadVideo',
+        icon: activeAction === 'downloadVideo' ? Loader2 : Download,
         fn: () => downloadMedia(task.id),
-        isPrimary: true,
+        variant: 'primary',
         disabled: isProcessing
       };
     } else if (assets.mediaHasAudio === false) {
       primaryAction = {
-        label: '无音轨，不能转字幕',
+        label: assets.notTranscribableReason || '无音轨，不能转字幕',
         id: 'noAudio',
         icon: Mic,
         fn: async () => {},
-        isPrimary: false,
         disabled: true
       };
     } else {
-      primaryAction = { 
-        label: activeAction === 'transcribeVideo' ? '转写中...' : '视频转字幕', 
-        id: 'transcribeVideo', 
-        icon: activeAction === 'transcribeVideo' ? Loader2 : Mic, 
+      primaryAction = {
+        label: activeAction === 'transcribe' ? '转录中...' : '转录',
+        id: 'transcribe',
+        icon: activeAction === 'transcribe' ? Loader2 : Mic,
         fn: () => transcribeMedia(task.id),
-        isPrimary: true,
+        variant: 'primary',
         disabled: isProcessing
       };
     }
   } else if (isPodcastPlatform || hasAudioUrl) {
+    // Podcasts: 下载音频 -> 音频转字幕
     if (!assets.hasAudio) {
-      primaryAction = { 
-        label: activeAction === 'fetchAudio' ? '下载中...' : '下载音频', 
-        id: 'fetchAudio', 
-        icon: activeAction === 'fetchAudio' ? Loader2 : Download, 
+      primaryAction = {
+        label: activeAction === 'fetchAudio' ? '下载中...' : '下载音频',
+        id: 'fetchAudio',
+        icon: activeAction === 'fetchAudio' ? Loader2 : Download,
         fn: () => fetchAudio(task.id),
-        isPrimary: true,
+        variant: 'primary',
         disabled: isProcessing
       };
     } else {
-      primaryAction = { 
-        label: activeAction === 'transcribe' ? '转写中...' : '音频转字幕', 
-        id: 'transcribe', 
-        icon: activeAction === 'transcribe' ? Loader2 : Mic, 
+      primaryAction = {
+        label: activeAction === 'transcribe' ? '转录中...' : '转录',
+        id: 'transcribe',
+        icon: activeAction === 'transcribe' ? Loader2 : Mic,
         fn: () => transcribeAudio(task.id),
-        isPrimary: true,
+        variant: 'primary',
         disabled: isProcessing
       };
     }
-  } else if (task.platform === 'youtube') {
-    // Fallback for YouTube captions if no media download is preferred
-    primaryAction = { 
-      label: activeAction === 'loadCaptions' ? '载入中...' : '载字幕', 
-      id: 'loadCaptions', 
-      icon: activeAction === 'loadCaptions' ? Loader2 : Captions, 
-      fn: () => ensureTranscript(task.id),
-      isPrimary: true,
-      disabled: isProcessing
-    };
   }
 
   return (
     <article className="panel overflow-hidden rounded-lg">
       <div className="aspect-video bg-slate-200">
-        {task.thumbnailUrl ? (
-          <img className="h-full w-full object-cover" src={task.thumbnailUrl} alt="" />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted">无封面</div>
-        )}
+        <TaskThumbnail src={task.thumbnailUrl} platform={task.platform} />
       </div>
       <div className="space-y-4 p-4">
         <div>
@@ -195,84 +219,57 @@ export function TaskCard({ task, onRefresh, onRead }: TaskCardProps) {
           </div>
         )}
 
-        <div className="flex flex-col gap-2">
-          {/* Action Row */}
-          <div className="flex gap-2">
-            {primaryAction && (() => {
-              const Icon = primaryAction.icon;
-              const isSpinning = primaryAction.id === 'loadCaptions' || (isProcessing && activeAction === primaryAction.id);
-              
-              return (
-                <button 
-                  onClick={() => {
-                    if (primaryAction!.id === 'read') {
-                      onRead?.(task.id);
-                    } else {
-                      runAction(primaryAction!.id, primaryAction!.fn);
-                    }
-                  }}
-                  disabled={primaryAction.disabled}
-                  className={`inline-flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                    primaryAction.isPrimary ? 'bg-accent text-white hover:bg-blue-700' : 'border border-line bg-white text-ink hover:bg-slate-50'
-                  } disabled:opacity-50`}
-                >
-                  <Icon className={`h-4 w-4 ${isSpinning ? 'animate-spin' : ''}`} />
-                  {primaryAction.label}
-                </button>
-              );
-            })()}
+        <div className="flex gap-2">
+          {primaryAction && (() => {
+            const Icon = primaryAction.icon;
+            const isSpinning = isProcessing && activeAction === primaryAction.id;
 
-            <div className="relative">
-              <button 
-                onClick={() => setShowMenu(!showMenu)}
-                className="rounded-md border border-line p-2 text-muted hover:bg-slate-50 h-full"
+            return (
+              <button
+                onClick={() => runAction(primaryAction!.id, primaryAction!.fn)}
+                disabled={primaryAction.disabled}
+                className={`inline-flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  primaryAction.variant === 'primary'
+                    ? 'bg-accent text-white hover:bg-blue-700'
+                    : primaryAction.variant === 'danger'
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'border border-line bg-white text-ink hover:bg-slate-50'
+                } disabled:opacity-50`}
               >
-                <MoreVertical className="h-4 w-4" />
+                <Icon className={`h-4 w-4 ${isSpinning ? 'animate-spin' : ''}`} />
+                {activeAction === 'deleteCard' ? '删除中...' : primaryAction.label}
               </button>
-              
-              {showMenu && (
-                <div className="absolute right-0 bottom-full mb-2 w-48 rounded-md border border-line bg-white p-1 shadow-lg ring-1 ring-black ring-opacity-5 z-20">
-                  <button 
+            );
+          })()}
+
+          <div className="relative">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="rounded-md border border-line p-2 text-muted hover:bg-slate-50 h-full"
+            >
+              <MoreVertical className="h-4 w-4" />
+            </button>
+
+            {showMenu && (
+              <>
+                <div 
+                  className="fixed inset-0 z-10" 
+                  onClick={() => setShowMenu(false)}
+                />
+                <div className="absolute right-0 bottom-full mb-2 w-44 rounded-md border border-line bg-white p-1 shadow-lg ring-1 ring-black ring-opacity-5 z-20">
+                  <button
                     onClick={() => {
                       setShowMenu(false);
-                      runAction('resolve', () => resolveMedia(task.id));
+                      handleDeleteCard();
                     }}
-                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs text-ink hover:bg-slate-50"
+                    disabled={isProcessing}
+                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
                   >
-                    <Link2 className="h-3 w-3" /> 解析媒体
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setShowMenu(false);
-                      runAction('forceDownload', () => downloadMedia(task.id));
-                    }}
-                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs text-ink hover:bg-slate-50"
-                  >
-                    <Download className="h-3 w-3" /> 强制下载
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setShowMenu(false);
-                      runAction('forceTranscribeVideo', () => transcribeMedia(task.id));
-                    }}
-                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs text-ink hover:bg-slate-50"
-                  >
-                    <RefreshCw className="h-3 w-3" /> 强制处理
-                  </button>
-                  <div className="my-1 border-t border-line" />
-                  <button 
-                    onClick={() => {
-                      setShowMenu(false);
-                      console.log('Metadata:', task.metadata);
-                      alert('已在控制台打印元数据');
-                    }}
-                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs text-ink hover:bg-slate-50"
-                  >
-                    <Database className="h-3 w-3" /> 查看元数据
+                    <Trash2 className="h-3 w-3" /> 删除卡片
                   </button>
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </div>
       </div>

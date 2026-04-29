@@ -21,49 +21,69 @@ export async function listTasks(): Promise<TaskSummary[]> {
   return handleResponse(response);
 }
 
+function taskPath(taskId: string): string {
+  return `${API_BASE}/api/tasks/${encodeURIComponent(taskId)}`;
+}
+
 export async function getTaskDetail(taskId: string): Promise<TaskDetail> {
-  const response = await fetch(`${API_BASE}/api/tasks/${taskId}`);
+  const response = await fetch(taskPath(taskId));
   return handleResponse(response);
 }
 
 export async function ensureTranscript(taskId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/tasks/${taskId}/ensure-transcript`, {
+  const response = await fetch(`${taskPath(taskId)}/ensure-transcript`, {
     method: 'POST'
   });
   await handleResponse(response);
 }
 
 export async function fetchAudio(taskId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/tasks/${taskId}/fetch-audio`, {
+  const response = await fetch(`${taskPath(taskId)}/fetch-audio`, {
     method: 'POST'
   });
   await handleResponse(response);
 }
 
 export async function transcribeAudio(taskId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/tasks/${taskId}/transcribe-audio`, {
+  const response = await fetch(`${taskPath(taskId)}/transcribe-audio`, {
     method: 'POST'
   });
   await handleResponse(response);
 }
 
 export async function resolveMedia(taskId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/tasks/${taskId}/resolve-media`, {
+  const response = await fetch(`${taskPath(taskId)}/resolve-media`, {
     method: 'POST'
   });
   await handleResponse(response);
 }
 
 export async function downloadMedia(taskId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/tasks/${taskId}/download-media`, {
+  const response = await fetch(`${taskPath(taskId)}/download-media`, {
     method: 'POST'
   });
   await handleResponse(response);
 }
 
 export async function transcribeMedia(taskId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/tasks/${taskId}/transcribe-media`, {
+  const response = await fetch(`${taskPath(taskId)}/transcribe-media`, {
     method: 'POST'
+  });
+  await handleResponse(response);
+}
+
+export async function deleteAssets(taskId: string, scope: 'media' | 'audio' | 'transcript' | 'generated'): Promise<void> {
+  const response = await fetch(`${taskPath(taskId)}/assets`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope })
+  });
+  await handleResponse(response);
+}
+
+export async function deleteTask(taskId: string): Promise<void> {
+  const response = await fetch(taskPath(taskId), {
+    method: 'DELETE'
   });
   await handleResponse(response);
 }
