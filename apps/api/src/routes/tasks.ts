@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import * as fs from 'fs';
 import { z } from 'zod';
 import { 
   captureSourceUseCase, 
@@ -7,13 +8,15 @@ import {
   transcribeAudioUseCase,
   resolveSourceMediaUseCase,
   downloadSourceMediaUseCase,
-  transcribeSourceMediaUseCase
+  transcribeSourceMediaUseCase,
+  deleteSourceAssetsUseCase,
+  deleteSourceUseCase
 } from '@yanghoo/application';
 import { sourceStorage, documentStorage } from '@yanghoo/storage';
 import type { TaskRecord, TranscriptSource } from '../types.js';
 
 const createTaskSchema = z.object({
-  sourceUrl: z.string().url(),
+  sourceUrl: z.string(), // Allow text snippets
   title: z.string().optional()
 });
 
@@ -59,11 +62,44 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     return task;
   });
 
+  app.get('/api/tasks/:taskId/thumbnail', async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    
+    // Try common extensions
+    const extensions = ['jpg', 'png', 'webp', 'jpeg'];
+    for (const ext of extensions) {
+      const relPath = `sources/${taskId}/thumbnail.${ext}`;
+      const absPath = (sourceStorage as any).resolvePath(relPath);
+      if (fs.existsSync(absPath)) {
+        return reply.sendFile(relPath);
+      }
+    }
+
+    return reply.code(404).send({ error: 'Thumbnail not found' });
+  });
+
   app.post('/api/tasks', async (request, reply) => {
-    const input = createTaskSchema.parse(request.body);
-    const source = await captureSourceUseCase(input.sourceUrl);
-    const task = await mapSourceToTask(source);
-    return reply.code(201).send(task);
+    try {
+      const input = createTaskSchema.parse(request.body);
+      const source = await captureSourceUseCase(input.sourceUrl);
+      const task = await mapSourceToTask(source);
+      return reply.code(201).send(task);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return reply.code(400).send({ message: 'Validation failed', details: error.errors });
+      }
+      
+      const message = error.message || '';
+      if (
+        message.includes('No supported source URL found in input.') ||
+        message.includes('Unsupported platform for URL')
+      ) {
+        return reply.code(400).send({ message });
+      }
+      
+      console.error(`[API] createTask failed: ${error.stack || error.message}`);
+      return reply.code(500).send({ message: error.message });
+    }
   });
 
   app.post('/api/tasks/:taskId/ensure-transcript', async (request, reply) => {
@@ -128,6 +164,42 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const readiness = await documentStorage.getDocumentReadiness(taskId);
       return { assets: readiness };
     } catch (error: any) {
+      return reply.code(500).send({ message: error.message });
+    }
+  });
+
+  app.delete('/api/tasks/:taskId', async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    try {
+      const result = await deleteSourceUseCase(taskId);
+      return result;
+    } catch (error: any) {
+      if (error.message.includes('Source not found')) {
+        return reply.code(404).send({ message: error.message });
+      }
+      return reply.code(500).send({ message: error.message });
+    }
+  });
+
+  app.delete('/api/tasks/:taskId/assets', async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const schema = z.object({
+      scope: z.enum(['media', 'audio', 'transcript', 'generated']),
+      dryRun: z.boolean().optional()
+    });
+
+    try {
+      const body = request.body as any;
+      const { scope, dryRun } = schema.parse(body);
+      const result = await deleteSourceAssetsUseCase(taskId, scope, { dryRun });
+      return result;
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return reply.code(400).send({ message: 'Invalid scope', details: error.errors });
+      }
+      if (error.message.includes('Source not found')) {
+        return reply.code(404).send({ message: error.message });
+      }
       return reply.code(500).send({ message: error.message });
     }
   });
