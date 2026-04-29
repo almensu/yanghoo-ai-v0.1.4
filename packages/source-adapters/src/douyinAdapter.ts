@@ -1,6 +1,6 @@
 import { Source } from '@yanghoo/domain';
 import { nanoid } from 'nanoid';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 
 export class DouyinSourceAdapter {
   async capture(url: string): Promise<Source> {
@@ -17,18 +17,30 @@ export class DouyinSourceAdapter {
 
     try {
       // Use yt-dlp to get real metadata
-      // Douyin often requires a mobile User-Agent or specific headers
-      const cmd = `yt-dlp --dump-json --skip-download "${url}"`;
-      console.log(`[DouyinAdapter] Running: ${cmd}`);
-      const json = execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-      const metadata = JSON.parse(json);
+      const args = ['--proxy', '', '--dump-json', '--skip-download', url];
+      console.log(`[DouyinAdapter] Running: yt-dlp ${args.join(' ')}`);
       
-      title = metadata.title || metadata.description || title;
-      author = metadata.uploader || metadata.channel || author;
-      thumbnailUrl = metadata.thumbnail || '';
-      duration = metadata.duration || 0;
+      const result = spawnSync('yt-dlp', args, { encoding: 'utf-8' });
+      
+      if (result.status === 0) {
+        const metadata = JSON.parse(result.stdout);
+        title = metadata.title || metadata.description || title;
+        author = metadata.uploader || metadata.channel || author;
+        thumbnailUrl = metadata.thumbnail || '';
+        duration = metadata.duration || 0;
+      } else {
+        const stderr = result.stderr?.trim() || 'Unknown yt-dlp error';
+        console.warn(`[DouyinAdapter] yt-dlp fetch failed for ${url}: ${stderr}`);
+        // For short links, we might not have a good ID yet if yt-dlp fails
+        if (url.includes('v.douyin.com') && !videoIdMatch) {
+          throw new Error(`Douyin metadata capture failed (likely needs cookies or mobile headers): ${stderr}`);
+        }
+      }
     } catch (e: any) {
       console.warn(`[DouyinAdapter] Metadata fetch failed: ${e.message}`);
+      if (e.message.includes('metadata capture failed')) {
+        throw e;
+      }
     }
 
     return {
@@ -41,6 +53,7 @@ export class DouyinSourceAdapter {
       thumbnailUrl,
       duration,
       capturedAt: new Date().toISOString(),
+      canonicalId: videoId,
       metadata: {
         videoId
       }

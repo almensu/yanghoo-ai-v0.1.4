@@ -66,6 +66,7 @@ export class XiaoyuzhouSourceAdapter {
       duration,
       publishedAt,
       capturedAt: new Date().toISOString(),
+      canonicalId: episodeId,
       shownotes,
       metadata: {
         episodeId,

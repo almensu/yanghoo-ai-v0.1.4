@@ -1,6 +1,6 @@
 import { Source, Platform } from '@yanghoo/domain';
 import { nanoid } from 'nanoid';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 
 export class XSourceAdapter {
   async capture(url: string): Promise<Source> {
@@ -18,16 +18,31 @@ export class XSourceAdapter {
 
     try {
       // Use yt-dlp to get real metadata if possible
-      const cmd = `yt-dlp --dump-json --skip-download "${url}"`;
-      console.log(`[XAdapter] Running: ${cmd}`);
-      const json = execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-      const metadata = JSON.parse(json);
+      const args = ['--proxy', '', '--dump-json', '--skip-download', url];
+      console.log(`[XAdapter] Running: yt-dlp ${args.join(' ')}`);
       
-      title = metadata.title || metadata.description || title;
-      author = metadata.uploader || metadata.channel || author;
-      thumbnailUrl = metadata.thumbnail || '';
+      const result = spawnSync('yt-dlp', args, { encoding: 'utf-8' });
+      
+      if (result.status === 0) {
+        const metadata = JSON.parse(result.stdout);
+        title = metadata.title || metadata.description || title;
+        author = metadata.uploader || metadata.channel || author;
+        thumbnailUrl = metadata.thumbnail || '';
+      } else {
+        const stderr = result.stderr?.trim() || 'Unknown yt-dlp error';
+        console.warn(`[XAdapter] yt-dlp fetch failed for ${url}: ${stderr}`);
+        
+        // X is notorious for needing cookies. If it fails, we should expose it 
+        // if we want "real exposure" as per instructions.
+        if (stderr.includes('Sign in to confirm you’re not a bot') || stderr.includes('Available only to registered users')) {
+          throw new Error(`X metadata capture failed (requires cookies/auth): ${stderr}`);
+        }
+      }
     } catch (e: any) {
-      console.warn(`[XAdapter] Metadata fetch failed (common for X without cookies): ${e.message}`);
+      console.warn(`[XAdapter] Metadata fetch failed: ${e.message}`);
+      if (e.message.includes('metadata capture failed')) {
+        throw e;
+      }
     }
 
     return {
@@ -39,6 +54,7 @@ export class XSourceAdapter {
       author,
       thumbnailUrl,
       capturedAt: new Date().toISOString(),
+      canonicalId: statusId,
       metadata: {
         statusId
       }
