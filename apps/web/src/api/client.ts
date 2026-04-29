@@ -61,6 +61,13 @@ export async function downloadMedia(taskId: string): Promise<void> {
   await handleResponse(response);
 }
 
+export async function transcribeMedia(taskId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/tasks/${taskId}/transcribe-media`, {
+    method: 'POST'
+  });
+  await handleResponse(response);
+}
+
 export async function sendChatMessage(taskId: string, message: string, history: any[] = []): Promise<string> {
   const response = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',

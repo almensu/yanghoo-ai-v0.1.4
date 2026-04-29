@@ -6,7 +6,8 @@ import {
   fetchAudioUseCase,
   transcribeAudioUseCase,
   resolveSourceMediaUseCase,
-  downloadSourceMediaUseCase
+  downloadSourceMediaUseCase,
+  transcribeSourceMediaUseCase
 } from '@yanghoo/application';
 import { sourceStorage, documentStorage } from '@yanghoo/storage';
 import type { TaskRecord, TranscriptSource } from '../types.js';
@@ -113,6 +114,17 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     const { taskId } = request.params as { taskId: string };
     try {
       await downloadSourceMediaUseCase(taskId);
+      const readiness = await documentStorage.getDocumentReadiness(taskId);
+      return { assets: readiness };
+    } catch (error: any) {
+      return reply.code(500).send({ message: error.message });
+    }
+  });
+
+  app.post('/api/tasks/:taskId/transcribe-media', async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    try {
+      await transcribeSourceMediaUseCase(taskId);
       const readiness = await documentStorage.getDocumentReadiness(taskId);
       return { assets: readiness };
     } catch (error: any) {
