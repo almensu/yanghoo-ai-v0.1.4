@@ -11,3 +11,5 @@ frontend/.vite/
 coverage/
 *.json3
 .DS_Store
+apps/api/transcript.txt
+transcript.txt

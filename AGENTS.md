@@ -28,6 +28,25 @@ Default reference read order by task:
 
 Codex must reference these files when writing non-trivial Gemini task plans or audit reports. Gemini must use them before implementing structural, package, or naming changes.
 
+## Local Gotchas
+
+This repo also maintains a local avoid-pitfalls guide:
+
+```text
+docs/GOTCHAS.md
+```
+
+Agents must read it before work involving:
+
+- dev server startup or port debugging,
+- `MLX_AUDIO_PYTHON` and MLX Audio transcription,
+- `yt-dlp` media downloads,
+- `ffmpeg` audio extraction,
+- X/Douyin media cards,
+- asset deletion/reset workflows.
+
+If a task discovers a repeatable operational or implementation trap, update `docs/GOTCHAS.md` or state in the report why no update was needed.
+
 ## Project Purpose
 
 This is a greenfield transcript-first rewrite. The core workflow is:
@@ -54,7 +73,8 @@ Current accepted shape:
 │   ├── plans/            # Planning docs
 │   ├── plans/reports/    # Gemini reports and Codex audits
 │   ├── decisions/        # ADR-style decisions
-│   └── architecture/     # System boundaries and diagrams
+│   ├── architecture/     # System boundaries and diagrams
+│   └── GOTCHAS.md        # Local avoid-pitfalls guide
 ├── tests/                # Cross-app integration/e2e tests when needed
 ├── examples/             # Small sample inputs and fixtures
 ├── scripts/              # Small operational entry points; business logic stays in packages

@@ -62,6 +62,25 @@ Recommended reference files:
 
 If reference guidance conflicts with this repo's `docs/decisions/*`, follow this repo's accepted decisions and document the conflict.
 
+## Local Gotchas
+
+This repository has a local avoid-pitfalls guide:
+
+```text
+docs/GOTCHAS.md
+```
+
+Claude/Gemini must read it before environment-sensitive work such as:
+
+- starting dev servers,
+- debugging `127.0.0.1:3000` or `127.0.0.1:8001`,
+- running MLX Audio transcription,
+- downloading X/Douyin media,
+- extracting audio with `ffmpeg`,
+- changing card actions for media/transcript workflows.
+
+If a task hits a recurring failure, update `docs/GOTCHAS.md` or mention why no update was needed in the report.
+
 ## Current Structure
 
 Accepted shape:
@@ -84,8 +103,9 @@ Accepted shape:
 ├── docs/
 │   ├── decisions/
 │   ├── architecture/
-│   └── plans/
-│       └── reports/
+│   ├── plans/
+│   │   └── reports/
+│   └── GOTCHAS.md
 ├── scripts/
 ├── tests/
 ├── examples/
