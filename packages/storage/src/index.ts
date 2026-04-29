@@ -19,7 +19,8 @@ import {
   getAudioManifestPath,
   getMediaManifestPath,
   DocumentReadiness,
-  ReadinessStatus
+  ReadinessStatus,
+  DeleteSourceAssetsScope
 } from '@yanghoo/domain';
 
 /**
@@ -29,6 +30,7 @@ export interface SourceStorage {
   saveSource(source: Source): Promise<void>;
   getSource(id: string): Promise<Source | null>;
   listSources(): Promise<Source[]>;
+  deleteSource(id: string): Promise<{ deleted: string[], skipped: string[], failed: { path: string, reason: string }[] }>;
 }
 
 /**
@@ -62,6 +64,7 @@ export interface AudioStorage {
 export interface MediaStorage {
   saveMedia(asset: MediaAsset): Promise<void>;
   getMedia(sourceId: string): Promise<MediaAsset | null>;
+  deleteAssets(sourceId: string, scope: DeleteSourceAssetsScope): Promise<{ deleted: string[], skipped: string[], failed: { path: string, reason: string }[] }>;
 }
 
 /**
@@ -112,7 +115,84 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
       const source = await this.getSource(id);
       if (source) sources.push(source);
     }
-    return sources;
+
+    // Deduplication by platform + canonicalId
+    const seen = new Map<string, Source>();
+    for (const s of sources) {
+      if (s.platform && s.canonicalId) {
+        let canonicalKey = s.canonicalId;
+        // Normalize XHS canonical IDs for deduplication (strip query strings from legacy dirty records)
+        if (s.platform === 'xiaohongshu' && canonicalKey.includes('?')) {
+          canonicalKey = canonicalKey.split('?')[0];
+        }
+        
+        const key = `${s.platform}:${canonicalKey}`;
+        const existing = seen.get(key);
+        
+        // If we have a duplicate, prefer the one with the cleaner ID (no '?')
+        // or the more recently captured one if both are same "cleanliness"
+        const isCurrentDirty = s.id.includes('?');
+        const isExistingDirty = existing?.id.includes('?');
+
+        if (!existing) {
+          seen.set(key, s);
+        } else if (isExistingDirty && !isCurrentDirty) {
+          // Current is clean, existing is dirty -> prefer clean
+          seen.set(key, s);
+        } else if (!isExistingDirty && isCurrentDirty) {
+          // Current is dirty, existing is clean -> keep existing
+        } else {
+          // Both clean or both dirty -> prefer newest
+          if (new Date(s.capturedAt) > new Date(existing.capturedAt)) {
+            seen.set(key, s);
+          }
+        }
+      } else {
+        // Fallback for sources without canonicalId (legacy or other)
+        seen.set(s.id, s);
+      }
+    }
+
+    // Sort by capturedAt desc
+    return Array.from(seen.values()).sort((a, b) => 
+      new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime()
+    );
+  }
+
+  async deleteSource(id: string): Promise<{ deleted: string[], skipped: string[], failed: { path: string, reason: string }[] }> {
+    const recordRelPath = getSourceRecordPath(id);
+    const recordAbsPath = this.resolvePath(recordRelPath);
+    const dirAbsPath = this.resolvePath(getSourceDir(id));
+
+    const deleted: string[] = [];
+    const skipped: string[] = [];
+    const failed: { path: string, reason: string }[] = [];
+
+    if (fs.existsSync(recordAbsPath)) {
+      try {
+        fs.unlinkSync(recordAbsPath);
+        deleted.push(recordRelPath);
+      } catch (e: any) {
+        failed.push({ path: recordRelPath, reason: e.message });
+      }
+    } else {
+      skipped.push(recordRelPath);
+    }
+
+    // Try to remove the directory if empty
+    if (fs.existsSync(dirAbsPath)) {
+      try {
+        const remainingFiles = fs.readdirSync(dirAbsPath);
+        if (remainingFiles.length === 0) {
+          fs.rmdirSync(dirAbsPath);
+          deleted.push(getSourceDir(id));
+        }
+      } catch (e) {
+        // Silently ignore directory removal errors (it might not be empty)
+      }
+    }
+
+    return { deleted, skipped, failed };
   }
 
   async saveTranscript(asset: TranscriptAsset): Promise<void> {
@@ -310,6 +390,75 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     } catch (e) {
       return null;
     }
+  }
+
+  async deleteAssets(sourceId: string, scope: DeleteSourceAssetsScope): Promise<{ deleted: string[], skipped: string[], failed: { path: string, reason: string }[] }> {
+    const dirPath = this.resolvePath(getSourceDir(sourceId));
+    if (!fs.existsSync(dirPath)) {
+      return { deleted: [], skipped: [], failed: [] };
+    }
+
+    const filesToDelete: string[] = [];
+    
+    // Define patterns for scopes
+    if (scope === 'media' || scope === 'generated') {
+      filesToDelete.push(getMediaManifestPath(sourceId));
+      // For media.* we need to list files
+      const dirFiles = fs.readdirSync(dirPath);
+      dirFiles.forEach(f => {
+        if (f.startsWith('media.')) {
+          filesToDelete.push(path.join(getSourceDir(sourceId), f));
+        }
+      });
+    }
+
+    if (scope === 'audio' || scope === 'generated') {
+      filesToDelete.push(getAudioManifestPath(sourceId));
+      const dirFiles = fs.readdirSync(dirPath);
+      dirFiles.forEach(f => {
+        if (f.startsWith('audio.')) {
+          filesToDelete.push(path.join(getSourceDir(sourceId), f));
+        }
+      });
+    }
+
+    if (scope === 'transcript' || scope === 'generated') {
+      filesToDelete.push(getTranscriptManifestPath(sourceId));
+      filesToDelete.push(getTranscriptRawPath(sourceId));
+      filesToDelete.push(getTranscriptSentencesPath(sourceId));
+      filesToDelete.push(getTranscriptVttPath(sourceId));
+      filesToDelete.push(getDocumentMarkdownPath(sourceId));
+      
+      const dirFiles = fs.readdirSync(dirPath);
+      dirFiles.forEach(f => {
+        if (f.startsWith('mlx_out_') || f.startsWith('mlx-script-output-')) {
+          filesToDelete.push(path.join(getSourceDir(sourceId), f));
+        }
+      });
+    }
+
+    const deleted: string[] = [];
+    const skipped: string[] = [];
+    const failed: { path: string, reason: string }[] = [];
+
+    // Deduplicate and filter out empties
+    const uniqueFiles = Array.from(new Set(filesToDelete.filter(Boolean)));
+
+    for (const relPath of uniqueFiles) {
+      const absPath = this.resolvePath(relPath);
+      if (fs.existsSync(absPath)) {
+        try {
+          fs.unlinkSync(absPath);
+          deleted.push(relPath);
+        } catch (e: any) {
+          failed.push({ path: relPath, reason: e.message });
+        }
+      } else {
+        skipped.push(relPath);
+      }
+    }
+
+    return { deleted, skipped, failed };
   }
 
   // Helper to write raw data to a specific path
