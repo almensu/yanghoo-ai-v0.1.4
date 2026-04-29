@@ -12,7 +12,7 @@ export async function resolveSourceMediaUseCase(sourceId: string): Promise<Media
   if (!source) throw new Error(`Source not found: ${sourceId}`);
 
   try {
-    const cmd = `yt-dlp --dump-json --skip-download "${source.url}"`;
+    const cmd = `yt-dlp --proxy "" --dump-json --skip-download "${source.url}"`;
     console.log(`[UseCase] Running: ${cmd}`);
     const json = execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
     const metadata = JSON.parse(json);

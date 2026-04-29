@@ -8,6 +8,7 @@ import {
   getTranscriptVttPath,
   getDocumentMarkdownPath,
   getAudioPath,
+  getThumbnailPath,
   AudioAsset,
   Message
 } from '@yanghoo/domain';
@@ -242,16 +243,52 @@ export async function ensureTranscriptUseCase(sourceId: string): Promise<Transcr
   }
 }
 
+import { extractSupportedSourceUrl } from './extractSupportedSourceUrl.js';
+import { deleteSourceUseCase } from './deleteSourceUseCase.js';
+
 export { resolveSourceMediaUseCase } from './resolveSourceMediaUseCase.js';
 export { downloadSourceMediaUseCase } from './downloadSourceMediaUseCase.js';
 export { extractSourceAudioUseCase } from './extractSourceAudioUseCase.js';
 export { transcribeSourceMediaUseCase } from './transcribeSourceMediaUseCase.js';
+export { deleteSourceAssetsUseCase } from './deleteSourceAssetsUseCase.js';
+export { extractSupportedSourceUrl, deleteSourceUseCase };
 
 /**
- * Use Case: Capture a source from a URL.
+ * Use Case: Cache a remote thumbnail locally.
  */
-export async function captureSourceUseCase(url: string): Promise<Source> {
-  console.log(`[UseCase] captureSourceUseCase for url: ${url}`);
+export async function cacheThumbnailUseCase(sourceId: string, remoteUrl: string): Promise<string> {
+  console.log(`[UseCase] cacheThumbnailUseCase for source: ${sourceId}, url: ${remoteUrl}`);
+  
+  const ext = remoteUrl.split('?')[0].split('.').pop() || 'jpg';
+  // Standardize on jpg if it's too long or weird
+  const safeExt = ext.length > 4 ? 'jpg' : ext;
+  const localPath = getThumbnailPath(sourceId, safeExt);
+  const absoluteLocalPath = (sourceStorage as any).resolvePath(localPath);
+
+  try {
+    execSync(`mkdir -p "$(dirname "${absoluteLocalPath}")"`);
+    // Use -L to follow redirects, -s for silent
+    execSync(`curl -sL "${remoteUrl}" -o "${absoluteLocalPath}"`);
+    console.log(`[UseCase] Thumbnail cached at ${absoluteLocalPath}`);
+    
+    // Return a virtual API path that the frontend can use
+    return `/api/tasks/${sourceId}/thumbnail`;
+  } catch (error: any) {
+    console.warn(`[UseCase] Thumbnail cache failed: ${error.message}`);
+    return remoteUrl; // Fallback to remote URL
+  }
+}
+
+/**
+ * Use Case: Capture a source from a URL or text snippet.
+ */
+export async function captureSourceUseCase(input: string): Promise<Source> {
+  console.log(`[UseCase] captureSourceUseCase for input: ${input.substring(0, 50)}${input.length > 50 ? '...' : ''}`);
+
+  const url = extractSupportedSourceUrl(input);
+  if (!url) {
+    throw new Error('No supported source URL found in input.');
+  }
 
   let source: Source;
 
@@ -261,13 +298,34 @@ export async function captureSourceUseCase(url: string): Promise<Source> {
     source = await xiaoyuzhouAdapter.capture(url);
   } else if (url.includes('douyin.com')) {
     source = await douyinAdapter.capture(url);
-  } else if (url.includes('xiaohongshu.com')) {
+  } else if (url.includes('xiaohongshu.com') || url.includes('xhslink.com')) {
     source = await xiaohongshuAdapter.capture(url);
   } else if (url.includes('x.com') || url.includes('twitter.com')) {
     const { xAdapter } = await import('@yanghoo/source-adapters');
     source = await xAdapter.capture(url);
   } else {
     throw new Error(`Unsupported platform for URL: ${url}`);
+  }
+
+  // Deduplication: check if source already exists
+  const existing = await sourceStorage.getSource(source.id);
+  if (existing) {
+    console.log(`[UseCase] Source already exists: ${source.id}. Returning existing.`);
+    return existing;
+  }
+
+  // Xiaohongshu specific: Cache thumbnail locally if available
+  if (source.platform === 'xiaohongshu' && source.thumbnailUrl) {
+    const remoteThumbnailUrl = source.thumbnailUrl;
+    const localThumbnailUrl = await cacheThumbnailUseCase(source.id, remoteThumbnailUrl);
+    
+    if (localThumbnailUrl !== remoteThumbnailUrl) {
+      source.thumbnailUrl = localThumbnailUrl;
+      source.metadata = {
+        ...source.metadata,
+        remoteThumbnailUrl
+      };
+    }
   }
 
   await sourceStorage.saveSource(source);
@@ -323,6 +381,46 @@ export async function chatWithSourceUseCase(params: {
  */
 export async function listModelsUseCase() {
   return llmGateway.listModels();
+}
+
+/**
+ * Use Case: Repair YouTube titles for sources with fallback titles.
+ */
+export async function repairYouTubeTitlesUseCase(): Promise<{ repaired: string[], skipped: string[], failed: string[] }> {
+  console.log('[UseCase] repairYouTubeTitlesUseCase starting');
+  const sources = await sourceStorage.listSources();
+  const youtubeSources = sources.filter(s => s.platform === 'youtube');
+  
+  const repaired: string[] = [];
+  const skipped: string[] = [];
+  const failed: string[] = [];
+
+  for (const source of youtubeSources) {
+    // Detect fallback title patterns: "YouTube Video <videoId>" or missing title
+    const isFallback = !source.title || source.title.startsWith('YouTube Video ') || source.title === 'Untitled';
+    
+    if (isFallback) {
+      try {
+        const originalTitle = source.title;
+        const refreshed = await youtubeAdapter.refreshMetadata(source);
+        if (refreshed.title !== originalTitle) {
+          await sourceStorage.saveSource(refreshed);
+          repaired.push(source.id);
+          console.log(`[UseCase] Repaired title for ${source.id}: ${refreshed.title}`);
+        } else {
+          skipped.push(source.id);
+          console.log(`[UseCase] Metadata refresh didn't change title for ${source.id}`);
+        }
+      } catch (error: any) {
+        failed.push(source.id);
+        console.error(`[UseCase] Failed to repair title for ${source.id}: ${error.message}`);
+      }
+    } else {
+      skipped.push(source.id);
+    }
+  }
+
+  return { repaired, skipped, failed };
 }
 
 /**

@@ -26,7 +26,7 @@ export async function downloadSourceMediaUseCase(sourceId: string): Promise<Medi
     const absolutePathPattern = (mediaStorage as any).resolvePath(logicalPath);
     
     // Command to download best video+audio and merge into mp4
-    const cmd = `yt-dlp --merge-output-format mp4 -o "${absolutePathPattern}" "${source.url}"`;
+    const cmd = `yt-dlp --proxy "" --merge-output-format mp4 -o "${absolutePathPattern}" "${source.url}"`;
     console.log(`[UseCase] Running: ${cmd}`);
     
     try {
