@@ -20,6 +20,7 @@ import {
   getMediaManifestPath,
   DocumentReadiness,
   ReadinessStatus,
+  AudioStatus,
   DeleteSourceAssetsScope
 } from '@yanghoo/domain';
 
@@ -291,7 +292,24 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     const hasSentences = fs.existsSync(this.resolvePath(getTranscriptSentencesPath(sourceId)));
     const hasVtt = fs.existsSync(this.resolvePath(getTranscriptVttPath(sourceId)));
     const hasMarkdown = fs.existsSync(this.resolvePath(getDocumentMarkdownPath(sourceId)));
-    const hasAudio = fs.existsSync(this.resolvePath(getAudioManifestPath(sourceId)));
+    const hasAudioManifest = fs.existsSync(this.resolvePath(getAudioManifestPath(sourceId)));
+    let hasAudio = false;
+    let audioStatus: AudioStatus | undefined;
+    let audioErrorMessage: string | undefined;
+    if (hasAudioManifest) {
+      try {
+        const am = JSON.parse(fs.readFileSync(this.resolvePath(getAudioManifestPath(sourceId)), 'utf-8'));
+        audioStatus = am.status;
+        audioErrorMessage = am.errorMessage;
+        if (am.status === 'fetched' && am.localPath) {
+          const audioFilePath = this.resolvePath(am.localPath);
+          if (fs.existsSync(audioFilePath)) {
+            const stat = fs.statSync(audioFilePath);
+            hasAudio = stat.size > 0;
+          }
+        }
+      } catch (e) {}
+    }
     const hasMedia = fs.existsSync(this.resolvePath(getMediaManifestPath(sourceId)));
     const manifestPath = this.resolvePath(getTranscriptManifestPath(sourceId));
 
@@ -348,7 +366,9 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
       mediaStatus,
       mediaKind,
       mediaHasAudio,
-      notTranscribableReason
+      notTranscribableReason,
+      audioStatus,
+      audioErrorMessage
     };
   }
 
