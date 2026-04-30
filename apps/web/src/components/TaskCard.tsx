@@ -156,7 +156,7 @@ export function TaskCard({ task, onRefresh, onRead, onDelete }: TaskCardProps) {
       };
     }
   } else if (isPodcastPlatform || hasAudioUrl) {
-    // Podcasts: 下载音频 -> 音频转字幕
+    // Podcasts: 下载音频 -> 转录
     if (!assets.hasAudio) {
       primaryAction = {
         label: activeAction === 'fetchAudio' ? '下载中...' : '下载音频',
@@ -216,6 +216,11 @@ export function TaskCard({ task, onRefresh, onRead, onDelete }: TaskCardProps) {
         {errorMessage && (
           <div className="rounded-md bg-red-50 p-2 text-[10px] leading-relaxed text-red-700 border border-red-100">
             <strong>错误:</strong> {errorMessage}
+          </div>
+        )}
+        {!errorMessage && assets.audioErrorMessage && (
+          <div className="rounded-md bg-red-50 p-2 text-[10px] leading-relaxed text-red-700 border border-red-100">
+            {assets.audioErrorMessage}
           </div>
         )}
 
