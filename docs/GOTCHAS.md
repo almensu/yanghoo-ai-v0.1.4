@@ -31,6 +31,16 @@
   - 在下载完成后的探测阶段（Probing）即记录音轨状态。
   - UI 需根据 `hasAudio: false` 显式禁用转写按钮并展示原因，而非等待后台报错。
 
+### 5. Podcast 音频跟踪重定向、超时与 failed manifest
+- **问题**: Apple Podcasts / podcast episode audio URL 可能经过多层跟踪域名重定向，例如 `pfx.vpixl.com -> podtrac.com -> pdst.fm -> prefix.up.audio -> simplecastaudio.com`。本机 `curl -L` 或 `yt-dlp` 可能在中间域名报连接超时、TLS/SSL 错误，例如 `Operation timed out`、`SSL_ERROR_SYSCALL` 或 `UNEXPECTED_EOF_WHILE_READING`。
+- **坑**:
+  - 不能把原始 `curl`/`yt-dlp` 命令直接暴露给卡片用户。
+  - `audio-manifest.json` 存在不等于音频已下载；如果 manifest 是 `{ "status": "failed" }`，readiness 不能返回 `hasAudio: true`。
+- **避坑**:
+  - `fetchAudioUseCase` 应记录 `status: failed`、简短 `errorMessage` 和必要诊断，但不要泄漏完整 shell 命令到前端。
+  - `getDocumentReadiness()` 必须解析 `audio-manifest.json`，只有 `status: "fetched"` 且 `localPath` 文件存在时才返回 `hasAudio: true`。
+  - 对 podcast 音频下载使用带超时、重试、User-Agent、失败状态码检查的下载器，并保留明确错误分类：连接超时、网络/SSL、403/404、音频 URL 缺失、下载后文件缺失。
+
 ## 工程与开发环境 (Dev Environment)
 
 ### 0. 服务启动顺序与 MLX 环境变量
