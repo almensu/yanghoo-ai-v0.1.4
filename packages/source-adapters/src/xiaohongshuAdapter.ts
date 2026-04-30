@@ -9,7 +9,7 @@ export class XiaohongshuSourceAdapter {
     // https://www.xiaohongshu.com/discovery/item/ID
     // https://www.xiaohongshu.com/explore/ID
     // http://xhslink.com/o/TOKEN
-    const xhsUrlRegex = /(https?:\/\/(?:www\.xiaohongshu\.com|xhslink\.com)\/[^\s，]+)/;
+    const xhsUrlRegex = /(https?:\/\/(?:www\.xiaohongshu\.com|xhslink\.com)\/[^\s，,。！!）)]+)/;
     const urlMatch = input.match(xhsUrlRegex);
     const url = urlMatch ? urlMatch[0] : input.trim();
 

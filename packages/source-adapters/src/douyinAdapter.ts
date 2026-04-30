@@ -10,10 +10,11 @@ export class DouyinSourceAdapter {
 
     console.log(`[DouyinAdapter] Capturing URL: ${url} (Video ID: ${videoId})`);
 
-    let title = `Douyin Video ${videoId}`;
+    let title = `Douyin Video`;
     let author = 'Douyin Creator';
     let thumbnailUrl = '';
     let duration = 0;
+    let canonicalId = videoIdMatch ? videoIdMatch[1] : '';
 
     try {
       // Use yt-dlp to get real metadata
@@ -24,15 +25,18 @@ export class DouyinSourceAdapter {
       
       if (result.status === 0) {
         const metadata = JSON.parse(result.stdout);
-        title = metadata.title || metadata.description || title;
+        if (metadata.id) {
+          canonicalId = metadata.id;
+        }
+        title = metadata.title || metadata.description || `Douyin Video ${canonicalId}`;
         author = metadata.uploader || metadata.channel || author;
         thumbnailUrl = metadata.thumbnail || '';
         duration = metadata.duration || 0;
       } else {
         const stderr = result.stderr?.trim() || 'Unknown yt-dlp error';
         console.warn(`[DouyinAdapter] yt-dlp fetch failed for ${url}: ${stderr}`);
-        // For short links, we might not have a good ID yet if yt-dlp fails
-        if (url.includes('v.douyin.com') && !videoIdMatch) {
+        // For short links, we must resolve the canonical ID. If it fails, error out explicitly.
+        if (!canonicalId) {
           throw new Error(`Douyin metadata capture failed (likely needs cookies or mobile headers): ${stderr}`);
         }
       }
@@ -43,19 +47,21 @@ export class DouyinSourceAdapter {
       }
     }
 
+    const finalId = canonicalId || nanoid();
+
     return {
-      id: `dy-${videoId}`,
+      id: `dy-${finalId}`,
       sourceClass: 'short_video',
       platform: 'douyin',
       url,
-      title,
+      title: title === 'Douyin Video' ? `Douyin Video ${finalId}` : title,
       author,
       thumbnailUrl,
       duration,
       capturedAt: new Date().toISOString(),
-      canonicalId: videoId,
+      canonicalId: finalId,
       metadata: {
-        videoId
+        videoId: finalId
       }
     };
   }
