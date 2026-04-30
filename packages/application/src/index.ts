@@ -19,7 +19,8 @@ import {
   youtubeAdapter,
   xiaoyuzhouAdapter,
   douyinAdapter,
-  xiaohongshuAdapter
+  xiaohongshuAdapter,
+  applePodcastAdapter
 } from '@yanghoo/source-adapters';
 import { sourceStorage, transcriptStorage, documentStorage, audioStorage } from '@yanghoo/storage';
 import {
@@ -44,23 +45,94 @@ export async function fetchAudioUseCase(sourceId: string): Promise<AudioAsset> {
   if (!source) throw new Error(`Source not found: ${sourceId}`);
 
   const audioUrl = source.audioUrl || source.metadata?.mediaUrl;
-  if (!audioUrl) throw new Error(`No audio URL available for source: ${sourceId}`);
+  
+  // If it's an apple podcast, we can bypass the tracking url and use yt-dlp's native extractor on the source.url
+  const isApplePodcast = source.platform === 'apple_podcast';
+  if (!isApplePodcast && !audioUrl) throw new Error('音频下载失败：没有可用音频地址');
 
-  const ext = audioUrl.split('?')[0].split('.').pop() || 'mp3';
+  const ext = isApplePodcast ? 'mp3' : (audioUrl?.split('?')[0].split('.').pop() || 'mp3');
+  const targetUrl = isApplePodcast ? source.url : audioUrl;
   const localPath = getAudioPath(sourceId, ext);
+  const absoluteLocalPath = (audioStorage as any).resolvePath(localPath);
 
-  console.log(`[UseCase] Downloading audio from ${audioUrl} to ${localPath}`);
+  console.log(`[UseCase] Downloading audio from ${targetUrl} to ${localPath}`);
+
+  const classifyError = (raw: string): string => {
+    const lower = raw.toLowerCase();
+    if (lower.includes('ssl') || lower.includes('tls') || lower.includes('certificate') || lower.includes('ssl_error')) {
+      return '音频下载失败：网络或 SSL 连接失败';
+    }
+    if (lower.includes('403') || lower.includes('forbidden')) {
+      return '音频下载失败：远程文件不可访问 (403)';
+    }
+    if (lower.includes('404') || lower.includes('not found')) {
+      return '音频下载失败：远程文件不存在 (404)';
+    }
+    if (lower.includes('timed out') || lower.includes('timeout') || lower.includes('etimedout')) {
+      return '音频下载失败：连接超时';
+    }
+    if (lower.includes('no video formats found') || lower.includes('no audio formats found') || lower.includes('extractor failed')) {
+      return '音频下载失败：没有找到可用的音频流';
+    }
+    return '音频下载失败：网络或 SSL 连接失败';
+  };
 
   try {
-    const absoluteLocalPath = (audioStorage as any).resolvePath(localPath);
     execSync(`mkdir -p "$(dirname "${absoluteLocalPath}")"`);
-    execSync(`curl -sL "${audioUrl}" -o "${absoluteLocalPath}"`);
+
+    console.log(`[UseCase] Trying yt-dlp for audio fetch: ${targetUrl}`);
+    try {
+      if (isApplePodcast) {
+        // Native yt-dlp ApplePodcasts extraction
+        execSync(`yt-dlp --proxy "" -x --audio-format mp3 --audio-quality 0 -o "${absoluteLocalPath}" "${targetUrl}"`, { stdio: 'pipe', timeout: 300_000 });
+      } else {
+        execSync(`yt-dlp --proxy "" --no-playlist -f "bestaudio/best" -o "${absoluteLocalPath}" "${targetUrl}"`, { stdio: 'pipe', timeout: 120_000 });
+      }
+    } catch (ytDlpError: any) {
+      const ytDlpStderr = ytDlpError.stderr?.toString() || ytDlpError.message;
+      console.warn(`[UseCase] yt-dlp failed: ${ytDlpStderr.substring(0, 200)}`);
+
+      if (isApplePodcast) {
+        // If native yt-dlp fails for Apple Podcast, we can't reliably fallback to curl because curl doesn't parse Apple Podcast HTML/RSS to get the audio stream.
+        // We could try curl on audioUrl if it exists, but yt-dlp is the preferred method.
+        if (audioUrl) {
+          console.warn(`[UseCase] Apple Podcast native yt-dlp failed, trying curl fallback on extracted mediaUrl: ${audioUrl}`);
+          try {
+            execSync(`curl -sL --max-time 120 --connect-timeout 30 -A "Mozilla/5.0" -o "${absoluteLocalPath}" "${audioUrl}"`, { stdio: 'pipe', timeout: 130_000 });
+          } catch (curlError: any) {
+            const curlStderr = curlError.stderr?.toString() || curlError.message;
+            throw new Error(classifyError(curlStderr));
+          }
+        } else {
+          throw new Error(classifyError(ytDlpStderr));
+        }
+      } else {
+        // Fallback to curl with timeout, User-Agent, and follow redirects for generic audio URLs
+        try {
+          execSync(`curl -sL --max-time 120 --connect-timeout 30 -A "Mozilla/5.0" -o "${absoluteLocalPath}" "${targetUrl}"`, { stdio: 'pipe', timeout: 130_000 });
+        } catch (curlError: any) {
+          const curlStderr = curlError.stderr?.toString() || curlError.message;
+          throw new Error(classifyError(curlStderr));
+        }
+      }
+    }
+
+    // Validate downloaded file exists and is non-empty
+    if (!fs.existsSync(absoluteLocalPath)) {
+      throw new Error('音频下载失败：下载后文件为空');
+    }
+    const stat = fs.statSync(absoluteLocalPath);
+    if (stat.size === 0) {
+      fs.unlinkSync(absoluteLocalPath);
+      throw new Error('音频下载失败：下载后文件为空');
+    }
 
     const asset: AudioAsset = {
       sourceId,
       status: 'fetched',
       url: audioUrl,
       localPath,
+      size: stat.size,
       fetchedAt: new Date().toISOString()
     };
 
@@ -70,7 +142,8 @@ export async function fetchAudioUseCase(sourceId: string): Promise<AudioAsset> {
     console.error(`[UseCase] Audio fetch failed: ${error.message}`);
     const failedAsset: AudioAsset = {
       sourceId,
-      status: 'failed'
+      status: 'failed',
+      errorMessage: error.message
     };
     await audioStorage.saveAudio(failedAsset);
     throw error;
@@ -296,10 +369,12 @@ export async function captureSourceUseCase(input: string): Promise<Source> {
     source = await youtubeAdapter.capture(url);
   } else if (url.includes('xiaoyuzhoufm.com')) {
     source = await xiaoyuzhouAdapter.capture(url);
-  } else if (url.includes('douyin.com')) {
+  } else if (url.includes('douyin.com') || url.includes('iesdouyin.com')) {
     source = await douyinAdapter.capture(url);
   } else if (url.includes('xiaohongshu.com') || url.includes('xhslink.com')) {
     source = await xiaohongshuAdapter.capture(url);
+  } else if (url.includes('podcasts.apple.com')) {
+    source = await applePodcastAdapter.capture(url);
   } else if (url.includes('x.com') || url.includes('twitter.com')) {
     const { xAdapter } = await import('@yanghoo/source-adapters');
     source = await xAdapter.capture(url);

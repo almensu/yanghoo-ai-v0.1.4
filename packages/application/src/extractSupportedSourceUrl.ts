@@ -4,15 +4,17 @@
 
 const SUPPORTED_PATTERNS = [
   // Xiaohongshu
-  /https?:\/\/(?:www\.xiaohongshu\.com|xhslink\.com)\/[^\s，,！!]+/,
+  /https?:\/\/(?:www\.xiaohongshu\.com|xhslink\.com)\/[^\s，,。！!）)]+/,
   // YouTube
-  /https?:\/\/(?:www\.youtube\.com|youtu\.be)\/[^\s，,！!]+/,
+  /https?:\/\/(?:www\.youtube\.com|youtu\.be)\/[^\s，,。！!）)]+/,
   // Douyin
-  /https?:\/\/(?:v\.douyin\.com|www\.douyin\.com)\/[^\s，,！!]+/,
+  /https?:\/\/(?:v\.douyin\.com|www\.douyin\.com|www\.iesdouyin\.com)\/[^\s，,。！!）)]+/,
   // X/Twitter
-  /https?:\/\/(?:x\.com|twitter\.com)\/[^\s，,！!]+/,
+  /https?:\/\/(?:x\.com|twitter\.com)\/[^\s，,。！!）)]+/,
   // Xiaoyuzhou
-  /https?:\/\/www\.xiaoyuzhoufm\.com\/[^\s，,！!]+/
+  /https?:\/\/www\.xiaoyuzhoufm\.com\/[^\s，,。！!）)]+/,
+  // Apple Podcasts
+  /https?:\/\/podcasts\.apple\.com\/[^\s，,。！!）)]+/
 ];
 
 /**
