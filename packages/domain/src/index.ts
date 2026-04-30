@@ -48,6 +48,7 @@ export interface AudioAsset {
   url?: string;
   size?: number;
   fetchedAt?: string;
+  errorMessage?: string;
 }
 
 export type MediaAssetStatus = 'missing' | 'resolved' | 'downloaded' | 'failed';
@@ -140,6 +141,8 @@ export interface DocumentReadiness {
   mediaKind?: MediaKind;
   mediaHasAudio?: boolean;
   notTranscribableReason?: string;
+  audioStatus?: AudioStatus;
+  audioErrorMessage?: string;
 }
 
 export interface DocumentAsset {
