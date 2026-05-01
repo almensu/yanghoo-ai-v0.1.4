@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@yanghoo/domain": "*"
+    "@yanghoo/domain": "*",
+    "opencc-js": "^1.3.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

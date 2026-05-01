@@ -1,5 +1,7 @@
 import { TranscriptSegment } from '@yanghoo/domain';
 
+export * from './normalizeChineseTranscriptText.js';
+
 export interface TranscriptRefinerOptions {
   maxSentenceLength?: number;
   minSentenceLength?: number;
