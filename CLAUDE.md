@@ -152,7 +152,7 @@ Platform acquisition strategy:
 
 - YouTube must use the Baoyu/YouTube InnerTube internal API path for metadata and captions. YouTube cards should support a caption-only flow and must not require video download before transcript generation.
 - YouTube cards without a readable document should expose `Ensure Transcript` / `载字幕`, not a primary `下载视频` action.
-- X, Xiaohongshu, and Douyin use `yt-dlp` for metadata/media acquisition, then audio extraction/probing and MLX transcription when media has audio.
+- X, Xiaohongshu, Douyin, Bilibili, and TikTok use `yt-dlp` for metadata/media acquisition, then audio extraction/probing and MLX transcription when media has audio.
 - Do not route YouTube through the generic short-video `yt-dlp` download workflow unless a task explicitly defines a separate experimental fallback and records the architecture exception.
 
 For Xiaoyuzhou/audio sources, staged actions are allowed when they clarify real work:
@@ -164,6 +164,8 @@ Fetch Audio -> Transcribe Audio -> Read Transcript
 These actions must stay document-readiness oriented.
 
 Shownotes, summaries, descriptions, and chapter outlines are not transcripts. They must not be stored as `platform_caption`, and they must not make a card `markdown_ready`.
+
+Chinese transcript output should be normalized to Simplified Chinese for user-facing transcript assets. Apply this in the transcript normalization/persistence pipeline, not as a frontend-only display replacement.
 
 Never generate fake `document.md` or fake readiness to make a demo look complete.
 
