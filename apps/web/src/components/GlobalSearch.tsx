@@ -22,6 +22,7 @@ export function GlobalSearch({ onPreview }: GlobalSearchProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
@@ -92,6 +93,12 @@ export function GlobalSearch({ onPreview }: GlobalSearchProps) {
   };
 
   const activeResult = results[activeIndex];
+
+  useEffect(() => {
+    resultRefs.current[activeIndex]?.scrollIntoView({
+      block: 'nearest'
+    });
+  }, [activeIndex]);
 
   const handlePanelKeyDown = (event: ReactKeyboardEvent) => {
     if (event.key === 'Escape') {
@@ -171,6 +178,9 @@ export function GlobalSearch({ onPreview }: GlobalSearchProps) {
                   {results.map((result, index) => (
                     <div
                       key={`${result.sourceId}-${result.lineIndex}-${index}`}
+                      ref={(element) => {
+                        resultRefs.current[index] = element;
+                      }}
                       className={`rounded-lg border px-3 py-3 transition-colors ${
                         index === activeIndex ? 'border-accent bg-blue-50' : 'border-transparent hover:bg-slate-50'
                       }`}
