@@ -20,6 +20,7 @@ export type Platform =
   | 'x'
   | 'webpage'
   | 'bilibili'
+  | 'tiktok'
   | 'other';
 
 export interface Source {

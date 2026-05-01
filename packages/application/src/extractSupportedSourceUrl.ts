@@ -14,7 +14,13 @@ const SUPPORTED_PATTERNS = [
   // Xiaoyuzhou
   /https?:\/\/www\.xiaoyuzhoufm\.com\/[^\s，,。！!）)]+/,
   // Apple Podcasts
-  /https?:\/\/podcasts\.apple\.com\/[^\s，,。！!）)]+/
+  /https?:\/\/podcasts\.apple\.com\/[^\s，,。！!）)]+/,
+  // Bilibili
+  /https?:\/\/(?:www\.|m\.)?bilibili\.com\/video\/[^\s，,。！!）)]+/,
+  /https?:\/\/b23\.tv\/[^\s，,。！!）)]+/,
+  // TikTok
+  /https?:\/\/(?:www\.|m\.)?tiktok\.com\/[^\s，,。！!）)]+/,
+  /https?:\/\/(?:vm|vt)\.tiktok\.com\/[^\s，,。！!）)]+/
 ];
 
 /**
