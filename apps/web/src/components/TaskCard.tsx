@@ -89,6 +89,12 @@ export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false
   const isYouTube = task.platform === 'youtube';
   const isPodcastPlatform = task.platform === 'xiaoyuzhou' || task.platform === 'apple_podcast' || task.sourceClass === 'podcast_audio';
   const hasAudioUrl = !!(task.audioUrl || task.metadata?.mediaUrl);
+  const youtubeKnownNoCaptions = isYouTube && task.metadata?.hasCaptionTracks === false;
+  const youtubeNeedsAudioFallback = isYouTube && !canRead && (
+    youtubeKnownNoCaptions ||
+    assets.needsMediaTranscriptionFallback ||
+    assets.transcriptFallback === 'audio_transcription'
+  );
 
   const runAction = async (actionId: string, fn: () => Promise<any>) => {
     setActiveAction(actionId);
@@ -99,6 +105,7 @@ export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false
     } catch (error: any) {
       console.error(`${actionId} failed:`, error);
       setErrorMessage(error.message);
+      onRefresh?.();
     } finally {
       setActiveAction(null);
     }
@@ -119,8 +126,29 @@ export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false
 
   if (canRead) {
     primaryAction = { label: '阅读', id: 'read', icon: Play, fn: async () => { onRead?.(task.id); }, variant: 'primary' };
+  } else if (youtubeNeedsAudioFallback) {
+    // YouTube without platform captions: download audio directly, then transcribe.
+    if (!assets.hasAudio) {
+      primaryAction = {
+        label: activeAction === 'fetchAudio' ? '下载中...' : '下载音频',
+        id: 'fetchAudio',
+        icon: activeAction === 'fetchAudio' ? Loader2 : Download,
+        fn: () => fetchAudio(task.id),
+        variant: 'primary',
+        disabled: isProcessing
+      };
+    } else {
+      primaryAction = {
+        label: activeAction === 'transcribe' ? '转录中...' : '转录',
+        id: 'transcribe',
+        icon: activeAction === 'transcribe' ? Loader2 : Mic,
+        fn: () => transcribeAudio(task.id),
+        variant: 'primary',
+        disabled: isProcessing
+      };
+    }
   } else if (isYouTube) {
-    // YouTube: 下载字幕 (platform captions only, no video download)
+    // YouTube: download platform captions first via Baoyu/InnerTube.
     primaryAction = {
       label: activeAction === 'downloadCaptions' ? '下载中...' : '下载字幕',
       id: 'downloadCaptions',
@@ -210,10 +238,12 @@ export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false
             <div>
               <p className="text-xs font-semibold text-ink">{statusLabel(assets.status)}</p>
               <p className="mt-1 text-xs text-muted">
-                {assets.sentencesCount} 句 · {transcriptSourceLabel(assets.source)}
+                {assets.sentencesCount} 句 · {youtubeNeedsAudioFallback ? '待音频转录' : transcriptSourceLabel(assets.source)}
               </p>
               <p className="mt-0.5 text-[10px] text-muted opacity-80">
-                {assets.hasMedia ? `视频已下载 (${assets.mediaKind}) ` : (assets.hasAudio ? '音频已下载 ' : '媒体未下载')}
+                {youtubeNeedsAudioFallback && !assets.hasAudio
+                  ? '无平台字幕，需下载音频转录'
+                  : (assets.hasMedia ? `视频已下载 (${assets.mediaKind}) ` : (assets.hasAudio ? '音频已下载 ' : '媒体未下载'))}
                 {assets.mediaHasAudio === false && '· 无音轨'}
                 {assets.mediaStatus === 'failed' && ' · 下载失败'}
                 {assets.hasTranslation && ' · 已翻译'}
@@ -234,6 +264,11 @@ export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false
         {!errorMessage && assets.audioErrorMessage && (
           <div className="rounded-md bg-red-50 p-2 text-[10px] leading-relaxed text-red-700 border border-red-100">
             {assets.audioErrorMessage}
+          </div>
+        )}
+        {!errorMessage && !youtubeNeedsAudioFallback && assets.transcriptErrorMessage && (
+          <div className="rounded-md bg-red-50 p-2 text-[10px] leading-relaxed text-red-700 border border-red-100">
+            {assets.transcriptErrorMessage}
           </div>
         )}
 

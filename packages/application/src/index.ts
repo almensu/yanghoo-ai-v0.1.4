@@ -5,6 +5,7 @@ import {
   Conversation,
   getTranscriptRawPath,
   getTranscriptSentencesPath,
+  getTranscriptManifestPath,
   getTranscriptVttPath,
   getDocumentMarkdownPath,
   getAudioPath,
@@ -17,6 +18,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import {
   youtubeAdapter,
+  isYouTubeNoCaptionError,
   xiaoyuzhouAdapter,
   douyinAdapter,
   xiaohongshuAdapter,
@@ -63,12 +65,14 @@ export async function fetchAudioUseCase(sourceId: string): Promise<AudioAsset> {
 
   const audioUrl = source.audioUrl || source.metadata?.mediaUrl;
   
-  // If it's an apple podcast, we can bypass the tracking url and use yt-dlp's native extractor on the source.url
+  // If it's an apple podcast or a YouTube no-caption fallback, yt-dlp should extract audio from the canonical source URL.
   const isApplePodcast = source.platform === 'apple_podcast';
-  if (!isApplePodcast && !audioUrl) throw new Error('音频下载失败：没有可用音频地址');
+  const isYouTube = source.platform === 'youtube';
+  const shouldExtractAudioWithYtDlp = isApplePodcast || isYouTube;
+  if (!shouldExtractAudioWithYtDlp && !audioUrl) throw new Error('音频下载失败：没有可用音频地址');
 
-  const ext = isApplePodcast ? 'mp3' : (audioUrl?.split('?')[0].split('.').pop() || 'mp3');
-  const targetUrl = isApplePodcast ? source.url : audioUrl;
+  const ext = shouldExtractAudioWithYtDlp ? 'mp3' : (audioUrl?.split('?')[0].split('.').pop() || 'mp3');
+  const targetUrl = shouldExtractAudioWithYtDlp ? source.url : audioUrl!;
   const localPath = getAudioPath(sourceId, ext);
   const absoluteLocalPath = (audioStorage as any).resolvePath(localPath);
 
@@ -99,9 +103,9 @@ export async function fetchAudioUseCase(sourceId: string): Promise<AudioAsset> {
 
     console.log(`[UseCase] Trying yt-dlp for audio fetch: ${targetUrl}`);
     try {
-      if (isApplePodcast) {
-        // Native yt-dlp ApplePodcasts extraction
-        execSync(`yt-dlp --proxy "" -x --audio-format mp3 --audio-quality 0 -o "${absoluteLocalPath}" "${targetUrl}"`, { stdio: 'pipe', timeout: 300_000 });
+      if (shouldExtractAudioWithYtDlp) {
+        // Native yt-dlp audio extraction for platforms where the page URL is the source of truth.
+        execSync(`yt-dlp --proxy "" --no-playlist -x --audio-format mp3 --audio-quality 0 -o "${absoluteLocalPath}" "${targetUrl}"`, { stdio: 'pipe', timeout: 300_000 });
       } else {
         execSync(`yt-dlp --proxy "" --no-playlist -f "bestaudio/best" -o "${absoluteLocalPath}" "${targetUrl}"`, { stdio: 'pipe', timeout: 120_000 });
       }
@@ -123,6 +127,8 @@ export async function fetchAudioUseCase(sourceId: string): Promise<AudioAsset> {
         } else {
           throw new Error(classifyError(ytDlpStderr));
         }
+      } else if (isYouTube) {
+        throw new Error(classifyError(ytDlpStderr));
       } else {
         // Fallback to curl with timeout, User-Agent, and follow redirects for generic audio URLs
         try {
@@ -147,7 +153,7 @@ export async function fetchAudioUseCase(sourceId: string): Promise<AudioAsset> {
     const asset: AudioAsset = {
       sourceId,
       status: 'fetched',
-      url: audioUrl,
+      url: targetUrl,
       localPath,
       size: stat.size,
       fetchedAt: new Date().toISOString()
@@ -287,6 +293,23 @@ MLX_AUDIO_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-audio/.venv/bin/pytho
   }
 }
 
+async function recordTranscriptFallback(sourceId: string, errorMessage: string): Promise<void> {
+  await (transcriptStorage as any).writeAssetFile(
+    getTranscriptManifestPath(sourceId),
+    JSON.stringify(
+      {
+        sourceType: 'platform_caption',
+        status: 'failed',
+        errorMessage,
+        fallback: 'audio_transcription',
+        generatedAt: new Date().toISOString()
+      },
+      null,
+      2
+    )
+  );
+}
+
 /**
  * Use Case: Ensure a transcript exists for a given source.
  */
@@ -299,7 +322,17 @@ export async function ensureTranscriptUseCase(sourceId: string): Promise<Transcr
   if (source.platform === 'youtube') {
     const videoId = source.metadata?.videoId;
     if (!videoId) throw new Error(`YouTube videoId missing for source: ${sourceId}`);
-    const result = await youtubeAdapter.fetchTranscript(videoId);
+    let result;
+    try {
+      result = await youtubeAdapter.fetchTranscript(videoId);
+    } catch (error: any) {
+      if (isYouTubeNoCaptionError(error)) {
+        const message = '该 YouTube 视频没有平台字幕，请先下载音频，再使用转录生成文档。';
+        await recordTranscriptFallback(sourceId, message);
+        throw new Error(message);
+      }
+      throw error;
+    }
     
     const normalizedSegments = normalizeTranscriptSegments(result.segments);
     const refinedSegments = refineTranscriptSentences(normalizedSegments);

@@ -25,7 +25,9 @@ import {
   ReadinessStatus,
   AudioStatus,
   DeleteSourceAssetsScope,
-  TranslationStatus
+  TranslationStatus,
+  TranscriptFallback,
+  TranscriptStatus
 } from '@yanghoo/domain';
 
 /**
@@ -215,6 +217,7 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     const manifestPath = this.resolvePath(getTranscriptManifestPath(asset.sourceId));
     const manifest = {
       sourceType: asset.sourceType,
+      status: asset.status,
       language: asset.language,
       engine: asset.engine,
       model: asset.model,
@@ -343,10 +346,20 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     }
 
     let sourceType: any = 'none';
+    let transcriptStatus: TranscriptStatus | undefined;
+    let transcriptErrorMessage: string | undefined;
+    let transcriptFallback: TranscriptFallback | undefined;
+    let needsMediaTranscriptionFallback = false;
     if (fs.existsSync(manifestPath)) {
       try {
         const m = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
         sourceType = m.sourceType;
+        transcriptStatus = m.status;
+        transcriptErrorMessage = m.errorMessage;
+        transcriptFallback = m.fallback;
+        needsMediaTranscriptionFallback =
+          m.status === 'failed' &&
+          (m.fallback === 'audio_transcription' || m.fallback === 'media_transcription');
       } catch (e) {}
     }
 
@@ -383,6 +396,10 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
       hasVtt,
       hasAudio,
       hasMedia,
+      transcriptStatus,
+      transcriptErrorMessage,
+      transcriptFallback,
+      needsMediaTranscriptionFallback,
       hasTranslation,
       translationStatus,
       translatedPath,

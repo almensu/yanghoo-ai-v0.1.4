@@ -90,6 +90,7 @@ export type TranscriptSourceType =
   | 'mlx_audio'
   | 'manual'
   | 'none';
+export type TranscriptFallback = 'audio_transcription' | 'media_transcription';
 
 export interface TranscriptSegment {
   text: string;
@@ -139,6 +140,10 @@ export interface DocumentReadiness {
   hasVtt: boolean;
   hasAudio: boolean;
   hasMedia: boolean;
+  transcriptStatus?: TranscriptStatus;
+  transcriptErrorMessage?: string;
+  transcriptFallback?: TranscriptFallback;
+  needsMediaTranscriptionFallback?: boolean;
   hasTranslation?: boolean;
   translationStatus?: TranslationStatus;
   translatedPath?: string;

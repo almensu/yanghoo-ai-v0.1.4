@@ -3,6 +3,17 @@ import { nanoid } from 'nanoid';
 import { execSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 
+export const YOUTUBE_NO_CAPTION_TRACKS_MESSAGE = 'YouTube video has no caption tracks';
+
+export function isYouTubeNoCaptionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes(YOUTUBE_NO_CAPTION_TRACKS_MESSAGE) ||
+    message.includes('No caption tracks found') ||
+    message.includes('Fetched InnerTube transcript has 0 segments')
+  );
+}
+
 export interface RawYouTubeMetadata {
   id: string;
   title: string;
@@ -69,11 +80,19 @@ export class YouTubeSourceAdapter {
           }
         }
         
-        // Store caption tracks in metadata for later use
-        if (metadata.captions?.playerCaptionsTracklistRenderer?.captionTracks) {
+        // Store caption availability in metadata for later use.
+        const captionTracks = metadata.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        if (captionTracks) {
           source.metadata = {
             ...source.metadata,
-            captionTracks: metadata.captions.playerCaptionsTracklistRenderer.captionTracks
+            captionTracks,
+            hasCaptionTracks: captionTracks.length > 0
+          };
+        } else if (metadata.captions?.playerCaptionsTracklistRenderer) {
+          source.metadata = {
+            ...source.metadata,
+            captionTracks: [],
+            hasCaptionTracks: false
           };
         }
       }
@@ -250,6 +269,21 @@ export class YouTubeSourceAdapter {
         source.thumbnailUrl = videoDetails.thumbnail.thumbnails[videoDetails.thumbnail.thumbnails.length - 1].url;
       }
     }
+
+    const captionTracks = metadata?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (captionTracks) {
+      source.metadata = {
+        ...source.metadata,
+        captionTracks,
+        hasCaptionTracks: captionTracks.length > 0
+      };
+    } else if (metadata?.captions?.playerCaptionsTracklistRenderer) {
+      source.metadata = {
+        ...source.metadata,
+        captionTracks: [],
+        hasCaptionTracks: false
+      };
+    }
     
     return source;
   }
@@ -265,7 +299,7 @@ export class YouTubeSourceAdapter {
       const captionTracks = metadata?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
       
       if (!captionTracks || captionTracks.length === 0) {
-        throw new Error(`No caption tracks found for video: ${videoId}`);
+        throw new Error(`${YOUTUBE_NO_CAPTION_TRACKS_MESSAGE}: ${videoId}`);
       }
       
       // Preferred languages: Chinese (Simplified/Traditional), then English, then first available
