@@ -355,6 +355,7 @@ export { downloadSourceMediaUseCase } from './downloadSourceMediaUseCase.js';
 export { extractSourceAudioUseCase } from './extractSourceAudioUseCase.js';
 export { transcribeSourceMediaUseCase } from './transcribeSourceMediaUseCase.js';
 export { translateSourceDocumentUseCase } from './translateSourceDocumentUseCase.js';
+export { exportNotebookLmUseCase, openNotebookLmExportDirUseCase } from './exportNotebookLmUseCase.js';
 export { deleteSourceAssetsUseCase } from './deleteSourceAssetsUseCase.js';
 export { extractSupportedSourceUrl, deleteSourceUseCase };
 

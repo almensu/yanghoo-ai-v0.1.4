@@ -18,6 +18,8 @@ interface TaskCardProps {
   onRefresh?: () => void;
   onRead?: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
+  isSelected?: boolean;
+  onSelectionChange?: (taskId: string, selected: boolean) => void;
 }
 
 function TaskThumbnail({ src, platform }: { src?: string, platform: string }) {
@@ -73,7 +75,7 @@ function transcriptSourceLabel(source: TaskSummary['documentAssets']['source']):
   return labels[source] || source;
 }
 
-export function TaskCard({ task, onRefresh, onRead, onDelete }: TaskCardProps) {
+export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false, onSelectionChange }: TaskCardProps) {
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -180,7 +182,16 @@ export function TaskCard({ task, onRefresh, onRead, onDelete }: TaskCardProps) {
   }
 
   return (
-    <article className="panel overflow-hidden rounded-lg">
+    <article className={`panel relative overflow-hidden rounded-lg ${isSelected ? 'ring-2 ring-accent' : ''}`}>
+      <label className="absolute left-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-md border border-white/80 bg-white/95 shadow-sm">
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={(event) => onSelectionChange?.(task.id, event.target.checked)}
+          className="h-4 w-4 rounded border-line accent-blue-600"
+          aria-label={`选择 ${task.title || task.id}`}
+        />
+      </label>
       <div className="aspect-video bg-slate-200">
         <TaskThumbnail src={task.thumbnailUrl} platform={task.platform} />
       </div>

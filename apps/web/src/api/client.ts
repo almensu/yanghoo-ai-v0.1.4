@@ -72,6 +72,35 @@ export async function translateDocument(taskId: string): Promise<void> {
   await handleResponse(response);
 }
 
+export interface NotebookLmExportResult {
+  exportId: string;
+  exportDir: string;
+  files: { sourceId?: string; path: string; kind: 'markdown' | 'url-list' | 'manifest' }[];
+  skipped: { sourceId: string; reason: string }[];
+  mode: 'markdown' | 'url-list';
+  generatedAt: string;
+}
+
+export async function exportNotebookLm(sourceIds: string[], mode: 'markdown' | 'url-list'): Promise<NotebookLmExportResult> {
+  const response = await fetch(`${API_BASE}/api/exports/notebooklm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sourceIds,
+      mode,
+      language: 'zh-Hans-preferred'
+    })
+  });
+  return handleResponse(response);
+}
+
+export async function openNotebookLmExport(exportId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/exports/notebooklm/${encodeURIComponent(exportId)}/open`, {
+    method: 'POST'
+  });
+  await handleResponse(response);
+}
+
 export async function transcribeMedia(taskId: string): Promise<void> {
   const response = await fetch(`${taskPath(taskId)}/transcribe-media`, {
     method: 'POST'

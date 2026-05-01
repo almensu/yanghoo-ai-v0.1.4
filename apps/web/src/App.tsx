@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TaskCard } from './components/TaskCard';
 import { Reader } from './components/Reader';
-import { listTasks } from './api/client';
+import { exportNotebookLm, listTasks, openNotebookLmExport, type NotebookLmExportResult } from './api/client';
 import type { TaskSummary } from './types';
 
 export function App() {
@@ -12,6 +12,11 @@ export function App() {
   const [isImporting, setIsImporting] = useState(false);
   const [url, setUrl] = useState('');
   const [readingTaskId, setReadingTaskId] = useState<string | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isOpeningExport, setIsOpeningExport] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportResult, setExportResult] = useState<NotebookLmExportResult | null>(null);
 
   const refreshTasks = async () => {
     setIsLoading(true);
@@ -19,11 +24,50 @@ export function App() {
     try {
       const data = await listTasks();
       setTasks(data);
+      setSelectedTaskIds((current) => current.filter(id => data.some(task => task.id === id)));
     } catch (err: any) {
       console.error('Refresh failed:', err);
       setError(err.message || 'Failed to connect to API');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const updateTaskSelection = (taskId: string, selected: boolean) => {
+    setSelectedTaskIds((current) => {
+      if (selected) return current.includes(taskId) ? current : [...current, taskId];
+      return current.filter(id => id !== taskId);
+    });
+    setExportError(null);
+  };
+
+  const runNotebookLmExport = async (mode: 'markdown' | 'url-list') => {
+    if (!selectedTaskIds.length || isExporting) return;
+    setIsExporting(true);
+    setExportError(null);
+    setExportResult(null);
+    try {
+      const result = await exportNotebookLm(selectedTaskIds, mode);
+      setExportResult(result);
+    } catch (error: any) {
+      console.error('NotebookLM export failed:', error);
+      setExportError(error.message || 'NotebookLM export failed');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const openExportDir = async () => {
+    if (!exportResult) return;
+    setIsOpeningExport(true);
+    setExportError(null);
+    try {
+      await openNotebookLmExport(exportResult.exportId);
+    } catch (error: any) {
+      console.error('Open NotebookLM export failed:', error);
+      setExportError(error.message || 'Open NotebookLM export failed');
+    } finally {
+      setIsOpeningExport(false);
     }
   };
 
@@ -97,6 +141,76 @@ export function App() {
           </p>
         </section>
 
+        {selectedTaskIds.length > 0 && (
+          <section className="mb-6 rounded-lg border border-line bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-ink">已选择 {selectedTaskIds.length} 个卡片</p>
+                <p className="mt-1 text-xs text-muted">导出给 NotebookLM：Markdown 中文优先，URL 为卡片自身链接。</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => runNotebookLmExport('markdown')}
+                  disabled={isExporting}
+                  className="rounded-md bg-ink px-3 py-2 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {isExporting ? '导出中...' : '导出 MD'}
+                </button>
+                <button
+                  onClick={() => runNotebookLmExport('url-list')}
+                  disabled={isExporting}
+                  className="rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+                >
+                  导出 URL
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedTaskIds([]);
+                    setExportResult(null);
+                    setExportError(null);
+                  }}
+                  disabled={isExporting}
+                  className="rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-muted hover:bg-slate-50 disabled:opacity-50"
+                >
+                  清除选择
+                </button>
+              </div>
+            </div>
+
+            {exportError && (
+              <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{exportError}</p>
+            )}
+
+            {exportResult && (
+              <div className="mt-4 rounded-md bg-slate-50 p-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-ink">
+                      已导出 {exportResult.files.filter(file => file.kind !== 'manifest').length} 个文件
+                      {exportResult.skipped.length ? `，跳过 ${exportResult.skipped.length} 个` : ''}
+                    </p>
+                    <p className="mt-1 break-all font-mono text-[11px] text-muted">{exportResult.exportDir}</p>
+                  </div>
+                  <button
+                    onClick={openExportDir}
+                    disabled={isOpeningExport}
+                    className="w-fit rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {isOpeningExport ? '打开中...' : '打开文件夹'}
+                  </button>
+                </div>
+                {exportResult.skipped.length > 0 && (
+                  <ul className="mt-3 space-y-1 text-[11px] text-muted">
+                    {exportResult.skipped.map(item => (
+                      <li key={item.sourceId}>{item.sourceId}: {item.reason}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
         {error ? (
           <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
             <p className="text-sm font-medium text-red-800">Connection Error</p>
@@ -121,10 +235,13 @@ export function App() {
               <TaskCard 
                 key={task.id} 
                 task={task} 
+                isSelected={selectedTaskIds.includes(task.id)}
+                onSelectionChange={updateTaskSelection}
                 onRefresh={refreshTasks} 
                 onRead={(id) => setReadingTaskId(id)}
                 onDelete={(id) => {
                   if (readingTaskId === id) setReadingTaskId(null);
+                  setSelectedTaskIds((current) => current.filter(taskId => taskId !== id));
                   refreshTasks();
                 }}
               />

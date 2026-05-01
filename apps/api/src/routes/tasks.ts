@@ -10,6 +10,8 @@ import {
   downloadSourceMediaUseCase,
   transcribeSourceMediaUseCase,
   translateSourceDocumentUseCase,
+  exportNotebookLmUseCase,
+  openNotebookLmExportDirUseCase,
   deleteSourceAssetsUseCase,
   deleteSourceUseCase
 } from '@yanghoo/application';
@@ -20,6 +22,12 @@ import type { TaskRecord, TranscriptSource } from '../types.js';
 const createTaskSchema = z.object({
   sourceUrl: z.string(), // Allow text snippets
   title: z.string().optional()
+});
+
+const notebookLmExportSchema = z.object({
+  sourceIds: z.array(z.string()).min(1),
+  mode: z.enum(['markdown', 'url-list']),
+  language: z.enum(['zh-Hans-preferred']).optional()
 });
 
 /**
@@ -137,6 +145,28 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       
       console.error(`[API] createTask failed: ${error.stack || error.message}`);
       return reply.code(500).send({ message: error.message });
+    }
+  });
+
+  app.post('/api/exports/notebooklm', async (request, reply) => {
+    try {
+      const input = notebookLmExportSchema.parse(request.body);
+      return await exportNotebookLmUseCase(input);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return reply.code(400).send({ message: 'Invalid NotebookLM export request', details: error.errors });
+      }
+      console.error(`[API] NotebookLM export failed: ${error.stack || error.message}`);
+      return reply.code(500).send({ message: error.message });
+    }
+  });
+
+  app.post('/api/exports/notebooklm/:exportId/open', async (request, reply) => {
+    const { exportId } = request.params as { exportId: string };
+    try {
+      return openNotebookLmExportDirUseCase(exportId);
+    } catch (error: any) {
+      return reply.code(400).send({ message: error.message });
     }
   });
 
