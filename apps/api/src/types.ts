@@ -13,6 +13,7 @@ export interface TaskRecord extends Source {
   createdAt: string; // duplicate of capturedAt for legacy compatibility
   updatedAt: string;
   content?: string;
+  translatedContent?: string;
 }
 
 export interface TranscriptSnippet {

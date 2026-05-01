@@ -114,6 +114,7 @@ export interface TranscriptAsset {
 }
 export type DocumentStatus = 'draft' | 'published';
 export type DocumentFormat = 'markdown' | 'text';
+export type TranslationStatus = 'translated' | 'failed';
 
 /**
  * Task-level readiness for cards and tables.
@@ -138,6 +139,10 @@ export interface DocumentReadiness {
   hasVtt: boolean;
   hasAudio: boolean;
   hasMedia: boolean;
+  hasTranslation?: boolean;
+  translationStatus?: TranslationStatus;
+  translatedPath?: string;
+  translationErrorMessage?: string;
   mediaStatus?: MediaAssetStatus;
   mediaKind?: MediaKind;
   mediaHasAudio?: boolean;

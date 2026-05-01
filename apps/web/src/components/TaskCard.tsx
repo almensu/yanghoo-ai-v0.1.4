@@ -6,10 +6,11 @@ import {
   Mic,
   MoreVertical,
   Trash2,
-  Captions
+  Captions,
+  Languages
 } from 'lucide-react';
 import { useState } from 'react';
-import { ensureTranscript, fetchAudio, transcribeAudio, downloadMedia, transcribeMedia, deleteTask } from '../api/client';
+import { ensureTranscript, fetchAudio, transcribeAudio, downloadMedia, transcribeMedia, deleteTask, translateDocument } from '../api/client';
 import type { TaskSummary } from '../types';
 
 interface TaskCardProps {
@@ -82,7 +83,7 @@ export function TaskCard({ task, onRefresh, onRead, onDelete }: TaskCardProps) {
   const canRead = assets.status === 'markdown_ready' || assets.status === 'enriched';
 
   // Platform classification
-  const isShortVideoPlatform = task.platform === 'douyin' || task.platform === 'x' || task.platform === 'xiaohongshu' || task.platform === 'bilibili';
+  const isShortVideoPlatform = task.platform === 'douyin' || task.platform === 'x' || task.platform === 'xiaohongshu' || task.platform === 'bilibili' || task.platform === 'tiktok';
   const isYouTube = task.platform === 'youtube';
   const isPodcastPlatform = task.platform === 'xiaoyuzhou' || task.platform === 'apple_podcast' || task.sourceClass === 'podcast_audio';
   const hasAudioUrl = !!(task.audioUrl || task.metadata?.mediaUrl);
@@ -204,6 +205,7 @@ export function TaskCard({ task, onRefresh, onRead, onDelete }: TaskCardProps) {
                 {assets.hasMedia ? `视频已下载 (${assets.mediaKind}) ` : (assets.hasAudio ? '音频已下载 ' : '媒体未下载')}
                 {assets.mediaHasAudio === false && '· 无音轨'}
                 {assets.mediaStatus === 'failed' && ' · 下载失败'}
+                {assets.hasTranslation && ' · 已翻译'}
               </p>
               {assets.notTranscribableReason && assets.status !== 'markdown_ready' && (
                 <p className="mt-0.5 text-[10px] text-red-500 italic">{assets.notTranscribableReason}</p>
@@ -262,6 +264,19 @@ export function TaskCard({ task, onRefresh, onRead, onDelete }: TaskCardProps) {
                   onClick={() => setShowMenu(false)}
                 />
                 <div className="absolute right-0 bottom-full mb-2 w-44 rounded-md border border-line bg-white p-1 shadow-lg ring-1 ring-black ring-opacity-5 z-20">
+                  {canRead && (
+                    <button
+                      onClick={() => {
+                        setShowMenu(false);
+                        runAction('translate', () => translateDocument(task.id));
+                      }}
+                      disabled={isProcessing || assets.hasTranslation}
+                      className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs text-ink hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      <Languages className="h-3 w-3" /> 
+                      {assets.hasTranslation ? '已翻译' : '翻译中文'}
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setShowMenu(false);

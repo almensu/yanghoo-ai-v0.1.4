@@ -27,3 +27,24 @@ export const getThumbnailPath = (sourceId: string, ext: string = 'jpg') => `${ge
 export const getMediaManifestPath = (sourceId: string) => `${getSourceDir(sourceId)}/media-manifest.json`;
 
 export const getMediaDownloadPath = (sourceId: string, ext: string) => `${getSourceDir(sourceId)}/media.${ext}`;
+
+export const getTranslationDir = (sourceId: string) => `${getSourceDir(sourceId)}/translation`;
+
+export const getTranslationChunksDir = (sourceId: string) => `${getTranslationDir(sourceId)}/chunks`;
+
+export const formatTranslationChunkNumber = (index: number) => (index + 1).toString().padStart(3, '0');
+
+export const getTranslationAnalysisPath = (sourceId: string) => `${getTranslationDir(sourceId)}/01-analysis.md`;
+
+export const getTranslationPromptPath = (sourceId: string) => `${getTranslationDir(sourceId)}/02-prompt.md`;
+
+export const getTranslationChunkPath = (sourceId: string, index: number) =>
+  `${getTranslationChunksDir(sourceId)}/chunk-${formatTranslationChunkNumber(index)}.md`;
+
+export const getTranslationChunkOutputPath = (sourceId: string, index: number, lang: string = 'zh-Hans') =>
+  `${getTranslationChunksDir(sourceId)}/chunk-${formatTranslationChunkNumber(index)}.${lang}.md`;
+
+export const getDocumentTranslationPath = (sourceId: string, lang: string) =>
+  `${getTranslationDir(sourceId)}/document.${lang}.md`;
+
+export const getTranslationManifestPath = (sourceId: string) => `${getTranslationDir(sourceId)}/translation-manifest.json`;

@@ -12,4 +12,5 @@ export interface TaskSummary extends Source {
 
 export interface TaskDetail extends TaskSummary {
   content?: string;
+  translatedContent?: string;
 }

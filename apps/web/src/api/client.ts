@@ -65,6 +65,13 @@ export async function downloadMedia(taskId: string): Promise<void> {
   await handleResponse(response);
 }
 
+export async function translateDocument(taskId: string): Promise<void> {
+  const response = await fetch(`${taskPath(taskId)}/translate`, {
+    method: 'POST'
+  });
+  await handleResponse(response);
+}
+
 export async function transcribeMedia(taskId: string): Promise<void> {
   const response = await fetch(`${taskPath(taskId)}/transcribe-media`, {
     method: 'POST'

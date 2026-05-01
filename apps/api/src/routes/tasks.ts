@@ -9,10 +9,12 @@ import {
   resolveSourceMediaUseCase,
   downloadSourceMediaUseCase,
   transcribeSourceMediaUseCase,
+  translateSourceDocumentUseCase,
   deleteSourceAssetsUseCase,
   deleteSourceUseCase
 } from '@yanghoo/application';
 import { sourceStorage, documentStorage } from '@yanghoo/storage';
+import { getTranslationManifestPath } from '@yanghoo/domain';
 import type { TaskRecord, TranscriptSource } from '../types.js';
 
 const createTaskSchema = z.object({
@@ -59,7 +61,43 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       task.content = docAsset.content;
     }
 
+    // Check for translation
+    const translationManifestPath = getTranslationManifestPath(taskId);
+    if (fs.existsSync((sourceStorage as any).resolvePath(translationManifestPath))) {
+      const manifest = JSON.parse(fs.readFileSync((sourceStorage as any).resolvePath(translationManifestPath), 'utf-8'));
+      if (manifest.translatedPath && fs.existsSync((sourceStorage as any).resolvePath(manifest.translatedPath))) {
+        task.translatedContent = fs.readFileSync((sourceStorage as any).resolvePath(manifest.translatedPath), 'utf-8');
+      }
+    }
+
     return task;
+  });
+
+  app.get('/api/tasks/:taskId/translation', async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const source = await sourceStorage.getSource(taskId);
+    if (!source) return reply.code(404).send({ error: 'Source not found' });
+
+    const translationManifestPath = getTranslationManifestPath(taskId);
+    const translationManifestAbsPath = (sourceStorage as any).resolvePath(translationManifestPath);
+    if (!fs.existsSync(translationManifestAbsPath)) {
+      return reply.code(404).send({ error: 'Translation not found' });
+    }
+
+    const manifest = JSON.parse(fs.readFileSync(translationManifestAbsPath, 'utf-8'));
+    if (manifest.status !== 'translated' || !manifest.translatedPath) {
+      return reply.code(409).send({ error: 'Translation is not ready', manifest });
+    }
+
+    const translatedAbsPath = (sourceStorage as any).resolvePath(manifest.translatedPath);
+    if (!fs.existsSync(translatedAbsPath)) {
+      return reply.code(404).send({ error: 'Translated document file not found', manifest });
+    }
+
+    return {
+      manifest,
+      content: fs.readFileSync(translatedAbsPath, 'utf-8')
+    };
   });
 
   app.get('/api/tasks/:taskId/thumbnail', async (request, reply) => {
@@ -131,6 +169,18 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       const readiness = await documentStorage.getDocumentReadiness(taskId);
       return { assets: readiness };
     } catch (error: any) {
+      return reply.code(500).send({ message: error.message });
+    }
+  });
+
+  app.post('/api/tasks/:taskId/translate', async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    try {
+      const translatedPath = await translateSourceDocumentUseCase(taskId);
+      const readiness = await documentStorage.getDocumentReadiness(taskId);
+      return { assets: readiness, translatedPath };
+    } catch (error: any) {
+      console.error(`[API] translate failed for ${taskId}: ${error.stack || error.message}`);
       return reply.code(500).send({ message: error.message });
     }
   });

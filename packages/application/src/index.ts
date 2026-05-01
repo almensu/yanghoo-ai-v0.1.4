@@ -20,20 +20,37 @@ import {
   xiaoyuzhouAdapter,
   douyinAdapter,
   xiaohongshuAdapter,
-  applePodcastAdapter
+  applePodcastAdapter,
+  bilibiliAdapter,
+  tiktokAdapter
 } from '@yanghoo/source-adapters';
 import { sourceStorage, transcriptStorage, documentStorage, audioStorage } from '@yanghoo/storage';
 import {
   refineTranscriptSentences,
+  normalizeTranscriptSegments,
+  normalizeTranscriptText,
   convertToVTT,
   convertToMarkdown
 } from '@yanghoo/transcript';
 import { llmGateway } from '@yanghoo/llm-gateway';
-import { mockLLMProvider } from '@yanghoo/llm-adapters';
+import { mockLLMProvider, MlxLmProvider } from '@yanghoo/llm-adapters';
 import { resolveRootScript } from './resolveProjectRoot.js';
 
 // Initialize Gateway
 llmGateway.registerProvider(mockLLMProvider);
+
+// Register MLX LM Provider
+try {
+  const mlxLmPython = process.env.MLX_LM_PYTHON || '/Users/a123/Yanghoo-lab/MLX-Community/mlx-lm/.venv/bin/python';
+  const mlxLmScript = resolveRootScript('scripts/llm/run-mlx-lm-generate.py');
+  llmGateway.registerProvider(new MlxLmProvider({
+    pythonExec: mlxLmPython,
+    scriptPath: mlxLmScript
+  }));
+  console.log('[Application] Registered MlxLmProvider');
+} catch (e: any) {
+  console.warn(`[Application] Failed to register MlxLmProvider: ${e.message}`);
+}
 
 /**
  * Use Case: Fetch audio for a source.
@@ -222,12 +239,19 @@ MLX_AUDIO_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-audio/.venv/bin/pytho
       text: s.text.trim()
     }));
 
-    const refinedSegments = refineTranscriptSentences(rawSegments);
+    const normalizedSegments = normalizeTranscriptSegments(rawSegments);
+    const refinedSegments = refineTranscriptSentences(normalizedSegments);
+
+    // Detect if output is Chinese to set language metadata
+    const fullText = normalizedSegments.map(s => s.text).join(' ');
+    const language = /[\u4e00-\u9fa5]/.test(fullText) ? 'zh-Hans' : undefined;
+
     const asset: TranscriptAsset = {
       id: `ts-${sourceId}`,
       sourceId,
       status: 'refined',
       sourceType: 'mlx_audio',
+      language,
       engine: 'mlx-audio',
       model: model,
       segments: refinedSegments,
@@ -243,7 +267,7 @@ MLX_AUDIO_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-audio/.venv/bin/pytho
     const vttContent = convertToVTT(refinedSegments);
     await sourceStorage.writeAssetFile(asset.vttPath!, vttContent);
 
-    const mdContent = convertToMarkdown(source.title || 'Untitled', refinedSegments);
+    const mdContent = convertToMarkdown(normalizeTranscriptText(source.title || 'Untitled'), refinedSegments);
     const mdPath = getDocumentMarkdownPath(sourceId);
     await documentStorage.saveDocument({
       id: `doc-${sourceId}`,
@@ -277,13 +301,20 @@ export async function ensureTranscriptUseCase(sourceId: string): Promise<Transcr
     if (!videoId) throw new Error(`YouTube videoId missing for source: ${sourceId}`);
     const result = await youtubeAdapter.fetchTranscript(videoId);
     
-    const refinedSegments = refineTranscriptSentences(result.segments);
+    const normalizedSegments = normalizeTranscriptSegments(result.segments);
+    const refinedSegments = refineTranscriptSentences(normalizedSegments);
+
+    let language = result.language;
+    if (language?.startsWith('zh')) {
+      language = 'zh-Hans';
+    }
+
     const asset: TranscriptAsset = {
       id: `ts-${sourceId}`,
       sourceId,
       status: 'refined',
       sourceType: 'platform_caption',
-      language: result.language,
+      language,
       engine: result.trackName ? `youtube-innertube (${result.trackName})` : 'youtube-innertube',
       segments: refinedSegments,
       rawSegmentsCount: result.segments.length,
@@ -300,7 +331,7 @@ export async function ensureTranscriptUseCase(sourceId: string): Promise<Transcr
       sourceId,
       transcriptId: asset.id,
       status: 'published',
-      content: convertToMarkdown(source.title || 'Untitled', refinedSegments),
+      content: convertToMarkdown(normalizeTranscriptText(source.title || 'Untitled'), refinedSegments),
       format: 'markdown',
       markdownPath: getDocumentMarkdownPath(sourceId)
     });
@@ -323,6 +354,7 @@ export { resolveSourceMediaUseCase } from './resolveSourceMediaUseCase.js';
 export { downloadSourceMediaUseCase } from './downloadSourceMediaUseCase.js';
 export { extractSourceAudioUseCase } from './extractSourceAudioUseCase.js';
 export { transcribeSourceMediaUseCase } from './transcribeSourceMediaUseCase.js';
+export { translateSourceDocumentUseCase } from './translateSourceDocumentUseCase.js';
 export { deleteSourceAssetsUseCase } from './deleteSourceAssetsUseCase.js';
 export { extractSupportedSourceUrl, deleteSourceUseCase };
 
@@ -375,6 +407,10 @@ export async function captureSourceUseCase(input: string): Promise<Source> {
     source = await xiaohongshuAdapter.capture(url);
   } else if (url.includes('podcasts.apple.com')) {
     source = await applePodcastAdapter.capture(url);
+  } else if (url.includes('bilibili.com') || url.includes('b23.tv')) {
+    source = await bilibiliAdapter.capture(url);
+  } else if (url.includes('tiktok.com')) {
+    source = await tiktokAdapter.capture(url);
   } else if (url.includes('x.com') || url.includes('twitter.com')) {
     const { xAdapter } = await import('@yanghoo/source-adapters');
     source = await xAdapter.capture(url);

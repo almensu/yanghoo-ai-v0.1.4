@@ -18,10 +18,14 @@ import {
   getAudioPath,
   getAudioManifestPath,
   getMediaManifestPath,
+  getDocumentTranslationPath,
+  getTranslationDir,
+  getTranslationManifestPath,
   DocumentReadiness,
   ReadinessStatus,
   AudioStatus,
-  DeleteSourceAssetsScope
+  DeleteSourceAssetsScope,
+  TranslationStatus
 } from '@yanghoo/domain';
 
 /**
@@ -292,6 +296,22 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     const hasSentences = fs.existsSync(this.resolvePath(getTranscriptSentencesPath(sourceId)));
     const hasVtt = fs.existsSync(this.resolvePath(getTranscriptVttPath(sourceId)));
     const hasMarkdown = fs.existsSync(this.resolvePath(getDocumentMarkdownPath(sourceId)));
+    let hasTranslation = false;
+    let translationStatus: TranslationStatus | undefined;
+    let translatedPath: string | undefined;
+    let translationErrorMessage: string | undefined;
+    const translationManifestPath = this.resolvePath(getTranslationManifestPath(sourceId));
+    if (fs.existsSync(translationManifestPath)) {
+      try {
+        const tm = JSON.parse(fs.readFileSync(translationManifestPath, 'utf-8'));
+        translationStatus = tm.status;
+        translatedPath = tm.translatedPath;
+        translationErrorMessage = tm.errorMessage;
+        if (tm.status === 'translated' && tm.translatedPath) {
+          hasTranslation = fs.existsSync(this.resolvePath(tm.translatedPath));
+        }
+      } catch (e) {}
+    }
     const hasAudioManifest = fs.existsSync(this.resolvePath(getAudioManifestPath(sourceId)));
     let hasAudio = false;
     let audioStatus: AudioStatus | undefined;
@@ -315,7 +335,7 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
 
     let status: ReadinessStatus = 'metadata_only';
     if (hasMarkdown) {
-      status = 'markdown_ready';
+      status = hasTranslation ? 'enriched' : 'markdown_ready';
     } else if (hasSentences) {
       status = 'refined_ready';
     } else if (hasRaw) {
@@ -363,6 +383,10 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
       hasVtt,
       hasAudio,
       hasMedia,
+      hasTranslation,
+      translationStatus,
+      translatedPath,
+      translationErrorMessage,
       mediaStatus,
       mediaKind,
       mediaHasAudio,
@@ -448,6 +472,8 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
       filesToDelete.push(getTranscriptSentencesPath(sourceId));
       filesToDelete.push(getTranscriptVttPath(sourceId));
       filesToDelete.push(getDocumentMarkdownPath(sourceId));
+      filesToDelete.push(getDocumentTranslationPath(sourceId, 'zh-Hans'));
+      filesToDelete.push(getTranslationManifestPath(sourceId));
       
       const dirFiles = fs.readdirSync(dirPath);
       dirFiles.forEach(f => {
@@ -455,6 +481,14 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
           filesToDelete.push(path.join(getSourceDir(sourceId), f));
         }
       });
+    }
+
+    if (scope === 'generated') {
+      const translationDirRelPath = getTranslationDir(sourceId);
+      const translationDirAbsPath = this.resolvePath(translationDirRelPath);
+      if (fs.existsSync(translationDirAbsPath)) {
+        filesToDelete.push(...this.listRelativeFiles(translationDirAbsPath, translationDirRelPath));
+      }
     }
 
     const deleted: string[] = [];
@@ -487,6 +521,21 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     const dirPath = path.dirname(absolutePath);
     if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
     fs.writeFileSync(absolutePath, content, 'utf-8');
+  }
+
+  private listRelativeFiles(absDir: string, relDir: string): string[] {
+    const entries = fs.readdirSync(absDir, { withFileTypes: true });
+    const files: string[] = [];
+    for (const entry of entries) {
+      const childAbsPath = path.join(absDir, entry.name);
+      const childRelPath = path.join(relDir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...this.listRelativeFiles(childAbsPath, childRelPath));
+      } else {
+        files.push(childRelPath);
+      }
+    }
+    return files;
   }
 }
 
