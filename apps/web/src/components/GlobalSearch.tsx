@@ -195,9 +195,17 @@ export function GlobalSearch({ onPreview }: GlobalSearchProps) {
                           {result.timestamp && <span className="font-mono text-accent">{result.timestamp}</span>}
                           <span>{result.language === 'zh-Hans' ? '中文' : '原文'}</span>
                         </div>
-                        <p className="mt-1 line-clamp-1 text-sm font-semibold text-ink">{result.title}</p>
-                        {result.author && <p className="mt-0.5 text-xs text-muted">{result.author}</p>}
-                        <p className="mt-2 line-clamp-2 text-xs leading-5 text-ink">{result.snippet}</p>
+                        <p className="mt-1 line-clamp-1 text-sm font-semibold text-ink">
+                          {renderHighlightedText(result.title, query)}
+                        </p>
+                        {result.author && (
+                          <p className="mt-0.5 text-xs text-muted">
+                            {renderHighlightedText(result.author, query)}
+                          </p>
+                        )}
+                        <p className="mt-2 line-clamp-2 text-xs leading-5 text-ink">
+                          {renderHighlightedText(result.snippet, query)}
+                        </p>
                       </button>
 
                       <div className="mt-3 flex gap-2">
@@ -232,4 +240,26 @@ export function GlobalSearch({ onPreview }: GlobalSearchProps) {
       )}
     </>
   );
+}
+
+function renderHighlightedText(text: string, query: string) {
+  const terms = Array.from(new Set(query.trim().split(/\s+/).filter(Boolean)))
+    .sort((a, b) => b.length - a.length);
+  if (!terms.length) return text;
+
+  const pattern = new RegExp(`(${terms.map(escapeRegExp).join('|')})`, 'gi');
+  return text.split(pattern).map((part, index) => {
+    const isMatch = terms.some(term => part.toLocaleLowerCase() === term.toLocaleLowerCase());
+    if (!isMatch) return part;
+
+    return (
+      <mark key={`${part}-${index}`} className="rounded-sm bg-yellow-100 px-0.5 text-ink ring-1 ring-yellow-200/60">
+        {part}
+      </mark>
+    );
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
