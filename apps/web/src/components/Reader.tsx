@@ -10,10 +10,137 @@ interface Message {
 
 interface ReaderProps {
   taskId: string;
+  initialLineIndex?: number;
+  highlightQuery?: string;
+  initialDocumentLanguage?: 'english' | 'chinese';
   onClose: () => void;
 }
 
-export function Reader({ taskId, onClose }: ReaderProps) {
+function parseTimestampSeconds(timestamp: string): number | null {
+  const parts = timestamp.split(':').map(part => Number(part));
+  if (parts.length < 2 || parts.length > 3 || parts.some(part => Number.isNaN(part))) {
+    return null;
+  }
+
+  if (parts.length === 2) {
+    const [minutes, seconds] = parts;
+    return minutes * 60 + seconds;
+  }
+
+  const [hours, minutes, seconds] = parts;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function formatTimestampParam(seconds: number): string {
+  return Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
+}
+
+function buildTimestampUrl(task: TaskDetail, seconds: number): string | null {
+  const sourceUrl = task.url || task.sourceUrl;
+  if (!sourceUrl) return null;
+
+  try {
+    const url = new URL(sourceUrl);
+    const secondsParam = formatTimestampParam(seconds);
+
+    if (task.platform === 'youtube') {
+      url.searchParams.set('t', secondsParam);
+      return url.toString();
+    }
+
+    if (task.platform === 'bilibili') {
+      url.searchParams.set('t', secondsParam);
+      return url.toString();
+    }
+
+    if (task.platform === 'xiaoyuzhou') {
+      const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+      hashParams.set('ts', secondsParam);
+      url.hash = hashParams.toString();
+      return url.toString();
+    }
+  } catch (error) {
+    console.warn('Failed to build timestamp URL:', error);
+  }
+
+  return null;
+}
+
+function renderDocumentLine(
+  line: string,
+  index: number,
+  task: TaskDetail,
+  targetLineIndex?: number,
+  highlightQuery?: string
+) {
+  const isTargetLine = targetLineIndex === index;
+  const targetClassName = isTargetLine ? 'rounded-lg bg-amber-50 px-3 py-2 ring-1 ring-amber-200' : '';
+
+  if (!line.trim()) {
+    return <div key={index} id={`reader-line-${index}`} className="h-3" />;
+  }
+
+  const headingMatch = line.match(/^#\s+(.+)$/);
+  if (headingMatch) {
+    return (
+      <h1 key={index} id={`reader-line-${index}`} className={`mb-6 text-2xl font-semibold leading-snug text-ink ${targetClassName}`}>
+        {headingMatch[1]}
+      </h1>
+    );
+  }
+
+  const timestampMatch = line.match(/^\s*(?:\*\*)?\[([0-9]+(?::[0-9]{1,2}){1,2}(?:\.\d+)?)\](?:\*\*)?\s*(.*)$/);
+  if (timestampMatch) {
+    const [, timestamp, text] = timestampMatch;
+    const seconds = parseTimestampSeconds(timestamp);
+    const timestampUrl = seconds === null ? null : buildTimestampUrl(task, seconds);
+
+    return (
+      <p key={index} id={`reader-line-${index}`} className={`my-4 flex gap-3 text-sm leading-7 text-ink ${targetClassName}`}>
+        {timestampUrl ? (
+          <a
+            href={timestampUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 rounded border border-line bg-white px-2 py-0.5 font-mono text-xs text-accent no-underline transition-colors hover:border-accent hover:bg-blue-50"
+            title="跳转到原页面时间戳"
+          >
+            {timestamp}
+          </a>
+        ) : (
+          <span className="shrink-0 rounded border border-line bg-white px-2 py-0.5 font-mono text-xs text-muted">
+            {timestamp}
+          </span>
+        )}
+        <span>{renderHighlightedText(text, isTargetLine ? highlightQuery : undefined)}</span>
+      </p>
+    );
+  }
+
+  return (
+    <p key={index} id={`reader-line-${index}`} className={`my-4 text-sm leading-7 text-ink ${targetClassName}`}>
+      {renderHighlightedText(line, isTargetLine ? highlightQuery : undefined)}
+    </p>
+  );
+}
+
+function renderHighlightedText(text: string, query?: string) {
+  const cleanQuery = query?.trim();
+  if (!cleanQuery) return text;
+
+  const index = text.toLocaleLowerCase().indexOf(cleanQuery.toLocaleLowerCase());
+  if (index < 0) return text;
+
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark className="rounded bg-yellow-200 px-0.5 text-ink">{text.slice(index, index + cleanQuery.length)}</mark>
+      {text.slice(index + cleanQuery.length)}
+    </>
+  );
+}
+
+export function Reader({ taskId, initialLineIndex, highlightQuery, initialDocumentLanguage = 'english', onClose }: ReaderProps) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -38,9 +165,9 @@ export function Reader({ taskId, onClose }: ReaderProps) {
   }, [taskId]);
 
   useEffect(() => {
-    setDocumentLanguage('english');
+    setDocumentLanguage(initialDocumentLanguage);
     setCopyState('idle');
-  }, [taskId]);
+  }, [taskId, initialDocumentLanguage]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -70,6 +197,19 @@ export function Reader({ taskId, onClose }: ReaderProps) {
     ? task.translatedContent
     : task?.content;
   const documentLabel = documentLanguage === 'chinese' ? '中文' : '英文';
+
+  useEffect(() => {
+    if (isLoading || !displayContent || initialLineIndex === undefined || initialLineIndex < 0) return;
+
+    const timeoutId = window.setTimeout(() => {
+      document.getElementById(`reader-line-${initialLineIndex}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      });
+    }, 80);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isLoading, displayContent, initialLineIndex, taskId, documentLanguage]);
 
   const copyDocument = async () => {
     if (!displayContent) return;
@@ -111,7 +251,7 @@ export function Reader({ taskId, onClose }: ReaderProps) {
               <div className="flex h-full items-center justify-center">
                 <p className="text-muted animate-pulse">Loading document content...</p>
               </div>
-            ) : displayContent ? (
+            ) : displayContent && task ? (
               <>
                 <div className="shrink-0 border-b border-line bg-white px-6 py-3 lg:px-8">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -146,10 +286,8 @@ export function Reader({ taskId, onClose }: ReaderProps) {
                   </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-8 lg:p-12">
-                  <div className="prose prose-slate max-w-none">
-                    {displayContent.split('\n').map((line, i) => (
-                      <p key={i}>{line}</p>
-                    ))}
+                  <div className="max-w-none">
+                    {displayContent.split('\n').map((line, i) => renderDocumentLine(line, i, task, initialLineIndex, highlightQuery))}
                   </div>
                 </div>
               </>

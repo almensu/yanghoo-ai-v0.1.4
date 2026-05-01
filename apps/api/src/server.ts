@@ -5,6 +5,7 @@ import fastify from 'fastify';
 import { config } from './config.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerChatRoutes } from './routes/chat.js';
+import { registerSearchRoutes } from './routes/search.js';
 
 const app = fastify({
   logger: true
@@ -25,6 +26,7 @@ await app.register(staticFiles, {
 
 await app.register(registerTaskRoutes);
 await app.register(registerChatRoutes);
+await app.register(registerSearchRoutes);
 
 app.get('/api/health', async () => ({
   ok: true,

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TaskCard } from './components/TaskCard';
 import { Reader } from './components/Reader';
+import { GlobalSearch, type SearchPreviewTarget } from './components/GlobalSearch';
 import { exportNotebookLm, listTasks, openNotebookLmExport, type NotebookLmExportResult } from './api/client';
 import type { TaskSummary } from './types';
 
@@ -11,7 +12,7 @@ export function App() {
   const [importError, setImportError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [url, setUrl] = useState('');
-  const [readingTaskId, setReadingTaskId] = useState<string | null>(null);
+  const [readingTarget, setReadingTarget] = useState<SearchPreviewTarget | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isOpeningExport, setIsOpeningExport] = useState(false);
@@ -139,6 +140,9 @@ export function App() {
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
             Import a video, prefer existing captions, fall back to mlx-audio, then generate timestamped reading assets.
           </p>
+          <div className="mt-4 max-w-3xl">
+            <GlobalSearch onPreview={setReadingTarget} />
+          </div>
         </section>
 
         {selectedTaskIds.length > 0 && (
@@ -238,9 +242,9 @@ export function App() {
                 isSelected={selectedTaskIds.includes(task.id)}
                 onSelectionChange={updateTaskSelection}
                 onRefresh={refreshTasks} 
-                onRead={(id) => setReadingTaskId(id)}
+                onRead={(id) => setReadingTarget({ taskId: id, lineIndex: -1, query: '', documentLanguage: 'english' })}
                 onDelete={(id) => {
-                  if (readingTaskId === id) setReadingTaskId(null);
+                  if (readingTarget?.taskId === id) setReadingTarget(null);
                   setSelectedTaskIds((current) => current.filter(taskId => taskId !== id));
                   refreshTasks();
                 }}
@@ -250,8 +254,14 @@ export function App() {
         )}
       </main>
 
-      {readingTaskId && (
-        <Reader taskId={readingTaskId} onClose={() => setReadingTaskId(null)} />
+      {readingTarget && (
+        <Reader
+          taskId={readingTarget.taskId}
+          initialLineIndex={readingTarget.lineIndex}
+          highlightQuery={readingTarget.query}
+          initialDocumentLanguage={readingTarget.documentLanguage}
+          onClose={() => setReadingTarget(null)}
+        />
       )}
     </div>
   );

@@ -21,6 +21,30 @@ export async function listTasks(): Promise<TaskSummary[]> {
   return handleResponse(response);
 }
 
+export interface SearchResult {
+  sourceId: string;
+  platform: string;
+  title: string;
+  author?: string;
+  timestamp?: string;
+  seconds?: number;
+  snippet: string;
+  score: number;
+  lineIndex: number;
+  language: 'zh-Hans' | 'source';
+  playbackUrl?: string;
+}
+
+export async function searchDocuments(query: string, limit = 30): Promise<SearchResult[]> {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(limit)
+  });
+  const response = await fetch(`${API_BASE}/api/search?${params.toString()}`);
+  const data = await handleResponse(response);
+  return data.results;
+}
+
 function taskPath(taskId: string): string {
   return `${API_BASE}/api/tasks/${encodeURIComponent(taskId)}`;
 }
