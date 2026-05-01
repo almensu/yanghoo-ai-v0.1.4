@@ -23,6 +23,27 @@
 - **坑**: Node.js 的 `execSync` 默认可能找不到对应的 Python 虚拟环境。
 - **避坑**: 在启动或调用脚本前，显式检查 `python -c "import mlx_audio"`。
 
+### 3.1 MLX LM 翻译环境依赖
+- **问题**: 英文翻译中文走 `mlx-lm`，需要独立的 Python 运行时和 `MLX_LM_PYTHON` 环境变量。
+- **坑**:
+  - 不能复用 `MLX_AUDIO_PYTHON`；ASR 和文本 LLM 是两套虚拟环境。
+  - 长文翻译 prompt 很长，不能把完整 prompt 直接拼进 shell 命令，否则引号、换行或命令长度会导致失败。
+  - 修改 `MLX_LM_PYTHON` 后，已运行的 API 进程不会继承新变量，必须重启。
+- **避坑**:
+  - 启动 API 前检查：
+    ```bash
+    MLX_LM_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-lm/.venv/bin/python
+    $MLX_LM_PYTHON -c "import mlx_lm; print('mlx-lm ok')"
+    ```
+  - 推荐启动方式：
+    ```bash
+    MLX_LM_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-lm/.venv/bin/python npm run dev -w @yanghoo/api
+    ```
+  - Node 适配器应通过临时文件传递 system/user prompt，并显式设置 `--max-tokens`，不要把完整 prompt 拼成 shell 字符串。
+  - `mlx-lm 0.31.x` 的 `generate()` 不接受旧的 `temp=` 参数；需要用 `mlx_lm.sample_utils.make_sampler(temp=...)` 后传 `sampler=`。
+  - Qwen3 默认可能输出 `<think>...</think>`。翻译脚本应在 `apply_chat_template` 中传 `enable_thinking=False`，并在保存译文前兜底剥离 thinking block。
+  - Qwen3 有时会输出 `什幺/怎幺/这幺` 这类非规范简体词形。最终译文保存前需要做简体规范化修正，例如 `什么/怎么/这么`。
+
 ### 4. 无音轨视频的状态管理 (State Management for Silent Videos)
 - **问题**: 虽然通过 `ffprobe` 解决了 `ffmpeg` 崩溃问题，但如果仅在执行提取时报错，UI 仍会持续引导用户点击“视频转字幕”，导致无效操作循环。
 - **坑**: 仅靠临时报错无法阻止 UI 的错误引导，必须将“无音轨”作为一种持久化的媒体属性。
@@ -101,15 +122,27 @@
   - 新的小红书导入必须使用 canonical ID，不能让 `?source=...` 进入 `source.id`。
   - 旧脏 ID 仍要能通过 encoded route 删除，不能要求用户手动清理 data 目录。
 
-### 0.3 小红书封面防盗链 (Xiaohongshu Cover Hotlinking)
-- **问题**: `xhscdn.com` 的封面图在浏览器直接访问经常报 403 或加载失败。
-- **坑**: 小红书 CDN 有防盗链限制或 URL 签名过期快。
-- **避坑**: 
+  ### 0.3 小红书封面防盗链 (Xiaohongshu Cover Hotlinking)
+  - **问题**: `xhscdn.com` 的封面图在浏览器直接访问经常报 403 或加载失败。
+  - **坑**: 小红书 CDN 有防盗链限制或 URL 签名过期快。
+  - **避坑**: 
   - 导入时通过 `cacheThumbnailUseCase` 将远程封面缓存到本地 `data/sources/{sourceId}/thumbnail.{ext}`。
   - `source.thumbnailUrl` 应设为本地 API 路径 `/api/tasks/{sourceId}/thumbnail`。
   - 前端 `TaskCard` 必须实现 `onError` 降级逻辑，在图片加载失败时展示占位图。
 
-### 1. npm workspaces 启动阻塞
+  ### 0.4 TikTok 与 Bilibili 抓取注意事项
+  - **问题**: TikTok 抓取经常报 impersonation 或 timeout 错误；Bilibili 虽是长视频但流程不同于 YouTube。
+  - **坑**: 
+  - TikTok 对 IP 和 Header 极其敏感，本地开发环境常因网络原因失败。
+  - Bilibili 不能使用 YouTube 的字幕下载路径，必须走“下载视频 -> 提取音频 -> 转录”流程。
+  - **避坑**:
+  - TikTok: 失败时在 `TikTokAdapter` 抛出包含完整 `yt-dlp` 错误信息的异常，不建立虚假记录。
+    - **Impersonation Error**: 如果报 `extractor is attempting impersonation, but no impersonate target is available`，说明环境缺少 TLS 模拟库。建议执行 `pip install "yt-dlp[build-in]"` 或使用 `--cookies`。
+    - **Read timed out**: 常见于网络受限环境，已在代码中增加 `--socket-timeout 30`，若持续失败请检查代理或网络连通性。
+  - Bilibili: 在 `TaskCard.tsx` 中将其归类为 `isShortVideoPlatform`（实际含义是“需下载媒体的平台”），确保 UI 走下载流。
+
+  ### 1. npm workspaces 启动阻塞
+
 - **问题**: 在根目录执行 `npm run dev -ws` 会按顺序启动所有 workspace。
 - **坑**: 如果第一个 workspace 是 Fastify 这种持久运行的服务，它会阻塞后续 workspace（如 Vite 前端）的启动。
 - **避坑**: 使用并发执行工具或手动开启多个终端：

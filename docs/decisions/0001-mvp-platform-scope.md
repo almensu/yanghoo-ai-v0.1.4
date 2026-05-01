@@ -21,7 +21,7 @@ collect short-video URL -> fetch media/metadata -> obtain audio -> transcribe ->
 
 They are planned platform adapters, but not part of the first build unless Stage 1 finishes early and the scope is expanded.
 
-X/Twitter, generic webpages, Bilibili, RSS expansion, Apple Podcasts, Douyin, Xiaohongshu, and advanced channel automation are deferred from the first MVP implementation.
+X/Twitter, TikTok, generic webpages, Bilibili, RSS expansion, Apple Podcasts, Douyin, Xiaohongshu, and advanced channel automation are deferred from the first MVP implementation.
 
 ## Rationale
 
@@ -42,6 +42,6 @@ Adding more platforms before this loop is stable would expand source parsing com
 
 - First source adapters: `youtubeSourceAdapter` and `xiaoyuzhouSourceAdapter`.
 - Domain models must separate `sourceClass` from `platform`.
-- Planned platforms should be represented as adapter extension points: `applePodcast`, `douyin`, `xiaohongshu`, `x`, `webpage`, and `bilibili`.
+- Planned platforms should be represented as adapter extension points: `applePodcast`, `douyin`, `xiaohongshu`, `x`, `tiktok`, `webpage`, and `bilibili`.
 - UI can show channel/feed concepts, but deep multi-platform automation is not part of MVP.
 - Early product goal is platform URL collectors first, then reliable transcript acquisition.

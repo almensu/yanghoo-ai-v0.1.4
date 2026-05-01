@@ -10,16 +10,16 @@ Model internet inputs with two separate fields:
 
 ```text
 sourceClass: long_video | podcast_audio | short_video | webpage | social_post | channel | feed
-platform: youtube | xiaoyuzhou | apple_podcast | douyin | xiaohongshu | x | webpage | bilibili | other
+platform: youtube | xiaoyuzhou | apple_podcast | douyin | xiaohongshu | x | tiktok | webpage | bilibili | other
 ```
 
 `sourceClass` describes the processing shape. `platform` describes the concrete adapter.
 
 Initial platform roadmap:
 
-- `long_video`: YouTube.
+- `long_video`: YouTube and Bilibili.
 - `podcast_audio`: Xiaoyuzhou first; Apple Podcasts later.
-- `short_video`: Douyin and Xiaohongshu.
+- `short_video`: Douyin, Xiaohongshu, and TikTok.
 - `social_post` / `webpage`: X/Twitter and generic webpages.
 
 Each platform gets a URL collector and source adapter. The user-facing early goal is:
@@ -32,7 +32,9 @@ save platform URL -> fetch metadata -> obtain transcript text -> refine into doc
 
 Xiaoyuzhou should not be hidden behind a vague `podcast` platform name. It is a concrete platform in the same class as Apple Podcasts.
 
-Douyin and Xiaohongshu should not be treated as special one-off downloaders. They are short-video platforms with the same product pipeline as other media sources: collect URL, obtain media or captions, transcribe when needed, then produce text.
+Douyin, Xiaohongshu, and TikTok should not be treated as special one-off downloaders. They are short-video platforms with the same product pipeline as other media sources: collect URL, obtain media or captions, transcribe when needed, then produce text.
+
+YouTube and Bilibili are both `long_video`, but they do not share the same acquisition strategy. YouTube is caption-first through Baoyu/InnerTube. Bilibili uses `yt-dlp` media acquisition followed by audio extraction/probing and MLX transcription when captions are not part of the accepted path.
 
 Separating source class from platform keeps the domain stable while platform adapters evolve independently.
 

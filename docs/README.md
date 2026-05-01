@@ -26,6 +26,7 @@ This directory is the project command center. Codex keeps decisions and task pri
 
 - `architecture/`: stable boundary notes and package responsibilities.
 - `decisions/`: ADR files with accepted choices.
+- `prompts/`: versioned prompt documents loaded by application/LLM workflows instead of hard-coded prompt strings.
 - `plans/`: Codex-authored task plans and roadmap.
 - `plans/reports/`: Gemini-authored completion reports.
 
@@ -35,12 +36,13 @@ This directory is the project command center. Codex keeps decisions and task pri
 - Discussion drafts can inform plans, but task files control execution.
 - New implementation work needs a stage plan before Gemini starts.
 - Reports must include changed files, verification commands, results, and unresolved risks.
+- User-facing Chinese transcript assets should be Simplified Chinese. Normalize in the transcript pipeline, not only in frontend rendering.
 
 ## Platform Acquisition Strategy
 
 - YouTube uses the Baoyu/YouTube InnerTube internal API path for metadata and captions. It must support caption-only transcript generation without downloading video.
 - YouTube cards should present `Ensure Transcript` / `载字幕` before any media-download action.
-- X, Xiaohongshu, and Douyin use `yt-dlp` for metadata/media acquisition, followed by audio extraction/probing and MLX transcription when media has audio.
+- X, Xiaohongshu, Douyin, Bilibili, and TikTok use `yt-dlp` for metadata/media acquisition, followed by audio extraction/probing and MLX transcription when media has audio.
 - Plans that route YouTube through the generic short-video `yt-dlp` download workflow must explicitly document the exception and why it does not replace the accepted Baoyu/InnerTube path.
 
 ## Implementation References
@@ -50,3 +52,8 @@ This directory is the project command center. Codex keeps decisions and task pri
   - Use `scripts/main.ts` as the Baoyu/InnerTube implementation reference.
   - The reference states that no API key or browser is required. It fetches the YouTube watch page, extracts `INNERTUBE_API_KEY`, calls `youtubei/v1/player`, validates playability/caption tracks, and fetches transcript snippets from the selected caption `baseUrl`.
   - Treat this as a reference implementation and decision guide. Do not vendor the whole external skill into this repo.
+- English-to-Chinese translation workflow reference: `/Users/a123/claude-model/.claude-zhipu/skills/baoyu-translate`.
+  - Read `SKILL.md`, `references/subagent-prompt-template.md`, `references/refined-workflow.md`, and `scripts/chunk.ts` for workflow ideas.
+  - Reuse the principles: analyze first, build a compact glossary, save shared prompt context, split Markdown by block boundaries, translate chunks, then merge in order.
+  - Adapt chunk sizing for local `Qwen/Qwen3-4B-MLX-4bit`; do not copy baoyu's long-context defaults directly.
+  - Treat it as a reference and decision guide. Do not vendor the whole external skill into this repo.
