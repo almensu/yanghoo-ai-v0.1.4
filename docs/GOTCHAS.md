@@ -40,6 +40,8 @@
     MLX_LM_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-lm/.venv/bin/python npm run dev -w @yanghoo/api
     ```
   - Node 适配器应通过临时文件传递 system/user prompt，并显式设置 `--max-tokens`，不要把完整 prompt 拼成 shell 字符串。
+  - 翻译模型必须走白名单配置。当前支持 `Qwen/Qwen3-4B-MLX-4bit` 和 `Qwen/Qwen3-8B-MLX-4bit`。
+  - M1 16GB 上使用 Qwen3 8B 时要比 4B 更保守：降低 source chunk target 和 max request tokens，避免首次加载或长文翻译时内存压力过高。
   - `mlx-lm 0.31.x` 的 `generate()` 不接受旧的 `temp=` 参数；需要用 `mlx_lm.sample_utils.make_sampler(temp=...)` 后传 `sampler=`。
   - Qwen3 默认可能输出 `<think>...</think>`。翻译脚本应在 `apply_chat_template` 中传 `enable_thinking=False`，并在保存译文前兜底剥离 thinking block。
   - Qwen3 有时会输出 `什幺/怎幺/这幺` 这类非规范简体词形。最终译文保存前需要做简体规范化修正，例如 `什么/怎么/这么`。

@@ -56,5 +56,5 @@ This directory is the project command center. Codex keeps decisions and task pri
 - English-to-Chinese translation workflow reference: `/Users/a123/claude-model/.claude-zhipu/skills/baoyu-translate`.
   - Read `SKILL.md`, `references/subagent-prompt-template.md`, `references/refined-workflow.md`, and `scripts/chunk.ts` for workflow ideas.
   - Reuse the principles: analyze first, build a compact glossary, save shared prompt context, split Markdown by block boundaries, translate chunks, then merge in order.
-  - Adapt chunk sizing for local `Qwen/Qwen3-4B-MLX-4bit`; do not copy baoyu's long-context defaults directly.
+  - Adapt chunk sizing for local Qwen3 MLX 4-bit models; `Qwen/Qwen3-8B-MLX-4bit` should use smaller chunks than `Qwen/Qwen3-4B-MLX-4bit` on M1 16GB.
   - Treat it as a reference and decision guide. Do not vendor the whole external skill into this repo.

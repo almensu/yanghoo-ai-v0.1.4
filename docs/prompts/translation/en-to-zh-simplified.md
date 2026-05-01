@@ -59,17 +59,25 @@ When translating one chunk from a longer document:
 - Do not add "continued", "translation", commentary, or summaries.
 - Maintain timestamp continuity exactly as provided.
 
-## Token Budget Guidance for Qwen3-4B-MLX-4bit
+## Token Budget Guidance for Qwen3 MLX 4-bit Models
 
-Qwen3-4B has a native context length of 32,768 tokens. On an M1 machine with 16GB unified memory, use conservative per-call budgets instead of filling the full context window.
+Qwen3 4B and 8B MLX 4-bit models have large native context windows, but on an M1 machine with 16GB unified memory, use conservative per-call budgets instead of filling the full context window.
 
-Recommended default budget:
+Recommended Qwen3 4B budget:
 
 - Total prompt + source + output per call: <= 12,000 tokens.
 - Shared prompt and glossary: <= 2,000 tokens.
 - Source chunk: <= 4,000 tokens.
 - Expected translation output: reserve <= 5,000 tokens.
 - Safety margin: >= 1,000 tokens.
+
+Recommended Qwen3 8B budget on 16GB unified memory:
+
+- Total prompt + source + output per call: <= 10,000 tokens.
+- Shared prompt and glossary: <= 1,800 tokens.
+- Source chunk: <= 3,000 tokens.
+- Expected translation output: reserve <= 4,500 tokens.
+- Safety margin: >= 1,200 tokens.
 
 If translation is truncated or slow:
 
