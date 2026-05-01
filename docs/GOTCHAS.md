@@ -62,6 +62,16 @@
   - `getDocumentReadiness()` 必须解析 `audio-manifest.json`，只有 `status: "fetched"` 且 `localPath` 文件存在时才返回 `hasAudio: true`。
   - 对 podcast 音频下载使用带超时、重试、User-Agent、失败状态码检查的下载器，并保留明确错误分类：连接超时、网络/SSL、403/404、音频 URL 缺失、下载后文件缺失。
 
+### 6. YouTube 无平台字幕时的 fallback
+- **问题**: 有些 YouTube 视频没有 `captionTracks`，点击“下载字幕”必然失败，但视频本身仍可通过音频转录生成文档。
+- **坑**:
+  - 不能把 YouTube 默认归入通用 `下载视频 -> 转录` 流程，否则会绕开 Baoyu/InnerTube 字幕优先策略。
+  - 仅在前端显示一次错误不够；刷新后卡片会回到“下载字幕”，用户会陷入重复失败。
+- **避坑**:
+  - InnerTube 明确无字幕或字幕结果为空时，写入 `transcript-manifest.json`：`status: "failed"`、`sourceType: "platform_caption"`、`fallback: "audio_transcription"`。
+  - `getDocumentReadiness()` 需要暴露 `needsMediaTranscriptionFallback` / `transcriptFallback`，让 UI 持久切换到 fallback。
+  - YouTube fallback 使用 `yt-dlp -x --audio-format mp3` 直接下载音频，再走 MLX Audio 转录；不要把它加入通用短视频 `download-media` 分支。
+
 ## 工程与开发环境 (Dev Environment)
 
 ### 0. 服务启动顺序与 MLX 环境变量

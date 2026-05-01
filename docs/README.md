@@ -42,8 +42,9 @@ This directory is the project command center. Codex keeps decisions and task pri
 
 - YouTube uses the Baoyu/YouTube InnerTube internal API path for metadata and captions. It must support caption-only transcript generation without downloading video.
 - YouTube cards should present `Ensure Transcript` / `载字幕` before any media-download action.
+- If InnerTube confirms that a YouTube video has no caption tracks or returns an empty caption result, record the caption failure and switch that card to `下载音频 -> 转录`. This is a narrow fallback for missing captions, not a replacement for the Baoyu/InnerTube caption path.
 - X, Xiaohongshu, Douyin, Bilibili, and TikTok use `yt-dlp` for metadata/media acquisition, followed by audio extraction/probing and MLX transcription when media has audio.
-- Plans that route YouTube through the generic short-video `yt-dlp` download workflow must explicitly document the exception and why it does not replace the accepted Baoyu/InnerTube path.
+- Do not route YouTube through the generic short-video `yt-dlp` download workflow. The accepted `yt-dlp` YouTube fallback is audio extraction for videos without platform captions.
 
 ## Implementation References
 
