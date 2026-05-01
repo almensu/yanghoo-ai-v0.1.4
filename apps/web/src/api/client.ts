@@ -89,9 +89,16 @@ export async function downloadMedia(taskId: string): Promise<void> {
   await handleResponse(response);
 }
 
-export async function translateDocument(taskId: string): Promise<void> {
+export interface TranslateDocumentOptions {
+  modelId?: string;
+  force?: boolean;
+}
+
+export async function translateDocument(taskId: string, options: TranslateDocumentOptions = {}): Promise<void> {
   const response = await fetch(`${taskPath(taskId)}/translate`, {
-    method: 'POST'
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options)
   });
   await handleResponse(response);
 }
@@ -158,7 +165,13 @@ export async function sendChatMessage(taskId: string, message: string, history: 
   return data.response;
 }
 
-export async function listModels(): Promise<any[]> {
+export interface LLMModel {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+export async function listModels(): Promise<LLMModel[]> {
   const response = await fetch(`${API_BASE}/api/models`);
   return handleResponse(response);
 }

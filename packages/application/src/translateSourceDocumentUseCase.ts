@@ -17,6 +17,37 @@ const DEFAULT_MODEL_ID = 'Qwen/Qwen3-4B-MLX-4bit';
 const DEFAULT_PROMPT_PATH = 'docs/prompts/translation/en-to-zh-simplified.md';
 const DEFAULT_GLOSSARY_PATH = 'docs/prompts/translation/glossary-en-zh.md';
 
+export interface TranslationModelConfig {
+  id: string;
+  label: string;
+  sourceChunkTargetTokens: number;
+  maxRequestTokens: number;
+  sharedPromptBudgetTokens: number;
+  reservedOutputTokens: number;
+  safetyMarginTokens: number;
+}
+
+export const TRANSLATION_MODEL_CONFIGS: TranslationModelConfig[] = [
+  {
+    id: 'Qwen/Qwen3-4B-MLX-4bit',
+    label: 'Qwen3 4B MLX 4-bit',
+    sourceChunkTargetTokens: 4000,
+    maxRequestTokens: 12000,
+    sharedPromptBudgetTokens: 2000,
+    reservedOutputTokens: 5000,
+    safetyMarginTokens: 1000
+  },
+  {
+    id: 'Qwen/Qwen3-8B-MLX-4bit',
+    label: 'Qwen3 8B MLX 4-bit',
+    sourceChunkTargetTokens: 3000,
+    maxRequestTokens: 10000,
+    sharedPromptBudgetTokens: 1800,
+    reservedOutputTokens: 4500,
+    safetyMarginTokens: 1200
+  }
+];
+
 interface WritableAssetStorage {
   resolvePath(filePath: string): string;
   writeAssetFile(filePath: string, content: string): Promise<void>;
@@ -44,14 +75,15 @@ interface TranslationChunk {
  * Use Case: Translate a source document to Simplified Chinese using local MLX LM.
  */
 export async function translateSourceDocumentUseCase(sourceId: string, options: TranslateOptions = {}): Promise<string> {
-  const modelId = options.modelId || DEFAULT_MODEL_ID;
+  const modelConfig = resolveTranslationModelConfig(options.modelId);
+  const modelId = modelConfig.id;
   const promptPath = options.promptPath || DEFAULT_PROMPT_PATH;
   const glossaryPath = options.glossaryPath || DEFAULT_GLOSSARY_PATH;
-  const sourceChunkTargetTokens = options.sourceChunkTargetTokens ?? 4000;
-  const maxRequestTokens = options.maxRequestTokens ?? 12000;
-  const sharedPromptBudgetTokens = options.sharedPromptBudgetTokens ?? 2000;
-  const reservedOutputTokens = options.reservedOutputTokens ?? 5000;
-  const safetyMarginTokens = options.safetyMarginTokens ?? 1000;
+  const sourceChunkTargetTokens = options.sourceChunkTargetTokens ?? modelConfig.sourceChunkTargetTokens;
+  const maxRequestTokens = options.maxRequestTokens ?? modelConfig.maxRequestTokens;
+  const sharedPromptBudgetTokens = options.sharedPromptBudgetTokens ?? modelConfig.sharedPromptBudgetTokens;
+  const reservedOutputTokens = options.reservedOutputTokens ?? modelConfig.reservedOutputTokens;
+  const safetyMarginTokens = options.safetyMarginTokens ?? modelConfig.safetyMarginTokens;
 
   console.log(`[UseCase] translateSourceDocumentUseCase for source: ${sourceId} using ${modelId}`);
 
@@ -206,6 +238,15 @@ export async function translateSourceDocumentUseCase(sourceId: string, options: 
     await assetStorage.writeAssetFile(manifestPath, JSON.stringify(failedManifest, null, 2));
     throw error;
   }
+}
+
+function resolveTranslationModelConfig(modelId?: string): TranslationModelConfig {
+  const requestedModelId = modelId || DEFAULT_MODEL_ID;
+  const config = TRANSLATION_MODEL_CONFIGS.find(model => model.id === requestedModelId);
+  if (!config) {
+    throw new Error(`Unsupported translation model: ${requestedModelId}`);
+  }
+  return config;
 }
 
 function buildSharedPrompt(input: {

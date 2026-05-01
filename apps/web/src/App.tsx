@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { TaskCard } from './components/TaskCard';
 import { Reader } from './components/Reader';
 import { GlobalSearch, type SearchPreviewTarget } from './components/GlobalSearch';
-import { exportNotebookLm, listTasks, openNotebookLmExport, type NotebookLmExportResult } from './api/client';
+import { exportNotebookLm, listModels, listTasks, openNotebookLmExport, type LLMModel, type NotebookLmExportResult } from './api/client';
 import type { TaskSummary } from './types';
 
 export function App() {
@@ -18,6 +18,7 @@ export function App() {
   const [isOpeningExport, setIsOpeningExport] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<NotebookLmExportResult | null>(null);
+  const [translationModels, setTranslationModels] = useState<LLMModel[]>([]);
 
   const refreshTasks = async () => {
     setIsLoading(true);
@@ -74,6 +75,15 @@ export function App() {
 
   useEffect(() => {
     refreshTasks();
+    async function loadTranslationModels() {
+      try {
+        const models = await listModels();
+        setTranslationModels(models.filter(model => model.provider === 'mlx-lm' && model.id.includes('Qwen3')));
+      } catch (error) {
+        console.error('Load translation models failed:', error);
+      }
+    }
+    loadTranslationModels();
   }, []);
 
   const handleImport = async () => {
@@ -239,6 +249,7 @@ export function App() {
               <TaskCard 
                 key={task.id} 
                 task={task} 
+                translationModels={translationModels}
                 isSelected={selectedTaskIds.includes(task.id)}
                 onSelectionChange={updateTaskSelection}
                 onRefresh={refreshTasks} 

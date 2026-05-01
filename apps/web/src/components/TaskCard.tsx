@@ -9,8 +9,9 @@ import {
   Captions,
   Languages
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ensureTranscript, fetchAudio, transcribeAudio, downloadMedia, transcribeMedia, deleteTask, translateDocument } from '../api/client';
+import type { LLMModel } from '../api/client';
 import type { TaskSummary } from '../types';
 
 interface TaskCardProps {
@@ -20,7 +21,13 @@ interface TaskCardProps {
   onDelete?: (taskId: string) => void;
   isSelected?: boolean;
   onSelectionChange?: (taskId: string, selected: boolean) => void;
+  translationModels?: LLMModel[];
 }
+
+const DEFAULT_TRANSLATION_MODELS: LLMModel[] = [
+  { id: 'Qwen/Qwen3-4B-MLX-4bit', name: 'Qwen3 4B (4-bit)', provider: 'mlx-lm' },
+  { id: 'Qwen/Qwen3-8B-MLX-4bit', name: 'Qwen3 8B (4-bit)', provider: 'mlx-lm' }
+];
 
 function TaskThumbnail({ src, platform }: { src?: string, platform: string }) {
   const [error, setError] = useState(false);
@@ -75,10 +82,15 @@ function transcriptSourceLabel(source: TaskSummary['documentAssets']['source']):
   return labels[source] || source;
 }
 
-export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false, onSelectionChange }: TaskCardProps) {
+function translationModelLabel(models: LLMModel[], modelId: string): string {
+  return models.find(model => model.id === modelId)?.name || modelId;
+}
+
+export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false, onSelectionChange, translationModels = [] }: TaskCardProps) {
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [translationModelId, setTranslationModelId] = useState(DEFAULT_TRANSLATION_MODELS[0].id);
 
   const assets = task.documentAssets;
   const isProcessing = !!activeAction;
@@ -95,6 +107,13 @@ export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false
     assets.needsMediaTranscriptionFallback ||
     assets.transcriptFallback === 'audio_transcription'
   );
+  const availableTranslationModels = translationModels.length ? translationModels : DEFAULT_TRANSLATION_MODELS;
+
+  useEffect(() => {
+    if (!availableTranslationModels.some(model => model.id === translationModelId)) {
+      setTranslationModelId(availableTranslationModels[0].id);
+    }
+  }, [availableTranslationModels, translationModelId]);
 
   const runAction = async (actionId: string, fn: () => Promise<any>) => {
     setActiveAction(actionId);
@@ -119,6 +138,19 @@ export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false
       await deleteTask(task.id);
       onDelete?.(task.id);
     });
+  };
+
+  const handleTranslate = async () => {
+    setShowMenu(false);
+    if (assets.hasTranslation) {
+      const confirmed = window.confirm(`使用 ${translationModelLabel(availableTranslationModels, translationModelId)} 重新生成中文译文？\n\n现有中文译文会被覆盖。`);
+      if (!confirmed) return;
+    }
+
+    await runAction('translate', () => translateDocument(task.id, {
+      modelId: translationModelId,
+      force: assets.hasTranslation
+    }));
   };
 
   // Decide the primary action
@@ -309,19 +341,29 @@ export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false
                   className="fixed inset-0 z-10" 
                   onClick={() => setShowMenu(false)}
                 />
-                <div className="absolute right-0 bottom-full mb-2 w-44 rounded-md border border-line bg-white p-1 shadow-lg ring-1 ring-black ring-opacity-5 z-20">
+                <div className="absolute right-0 bottom-full mb-2 w-64 rounded-md border border-line bg-white p-1 shadow-lg ring-1 ring-black ring-opacity-5 z-20">
                   {canRead && (
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        runAction('translate', () => translateDocument(task.id));
-                      }}
-                      disabled={isProcessing || assets.hasTranslation}
-                      className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs text-ink hover:bg-slate-50 disabled:opacity-50"
-                    >
-                      <Languages className="h-3 w-3" /> 
-                      {assets.hasTranslation ? '已翻译' : '翻译中文'}
-                    </button>
+                    <div className="space-y-2 rounded px-2 py-2">
+                      <label className="block text-[11px] font-medium text-muted">翻译模型</label>
+                      <select
+                        value={translationModelId}
+                        onChange={(event) => setTranslationModelId(event.target.value)}
+                        disabled={isProcessing}
+                        className="w-full rounded-md border border-line bg-white px-2 py-1.5 text-xs text-ink outline-none focus:border-accent disabled:opacity-50"
+                      >
+                        {availableTranslationModels.map(model => (
+                          <option key={model.id} value={model.id}>{model.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={handleTranslate}
+                        disabled={isProcessing}
+                        className="flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-ink hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <Languages className="h-3 w-3" /> 
+                        {activeAction === 'translate' ? '翻译中...' : (assets.hasTranslation ? '重新翻译中文' : '翻译中文')}
+                      </button>
+                    </div>
                   )}
                   <button
                     onClick={() => {

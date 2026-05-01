@@ -25,6 +25,7 @@ export class MlxLmProvider implements LLMProvider {
   async listModels(): Promise<LLMModel[]> {
     return [
       { id: 'Qwen/Qwen3-4B-MLX-4bit', name: 'Qwen3 4B (4-bit)', provider: this.id },
+      { id: 'Qwen/Qwen3-8B-MLX-4bit', name: 'Qwen3 8B (4-bit)', provider: this.id },
       { id: 'mlx-community/Qwen2.5-3B-Instruct-4bit', name: 'Qwen2.5 3B (4-bit)', provider: this.id }
     ];
   }

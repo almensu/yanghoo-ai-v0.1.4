@@ -30,6 +30,11 @@ const notebookLmExportSchema = z.object({
   language: z.enum(['zh-Hans-preferred']).optional()
 });
 
+const translateTaskSchema = z.object({
+  modelId: z.string().optional(),
+  force: z.boolean().optional()
+});
+
 /**
  * Maps a Domain Source to an API TaskRecord.
  */
@@ -205,8 +210,12 @@ export async function registerTaskRoutes(app: FastifyInstance) {
 
   app.post('/api/tasks/:taskId/translate', async (request, reply) => {
     const { taskId } = request.params as { taskId: string };
+    const input = translateTaskSchema.parse(request.body ?? {});
     try {
-      const translatedPath = await translateSourceDocumentUseCase(taskId);
+      const translatedPath = await translateSourceDocumentUseCase(taskId, {
+        modelId: input.modelId,
+        force: input.force
+      });
       const readiness = await documentStorage.getDocumentReadiness(taskId);
       return { assets: readiness, translatedPath };
     } catch (error: any) {
