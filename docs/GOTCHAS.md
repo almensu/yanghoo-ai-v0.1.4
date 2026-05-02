@@ -74,6 +74,67 @@
   - `getDocumentReadiness()` 需要暴露 `needsMediaTranscriptionFallback` / `transcriptFallback`，让 UI 持久切换到 fallback。
   - YouTube fallback 使用 `yt-dlp -x --audio-format mp3` 直接下载音频，再走 MLX Audio 转录；不要把它加入通用短视频 `download-media` 分支。
 
+### 6.0.1 YouTube 英文和简体中文字幕
+- **问题**: YouTube 有英文字幕时，YouTube 前端通常能显示“自动翻译为中文”，但项目如果只选一条 `captionTrack`，就会只保存英文或只保存中文，漏掉机器翻译字幕。
+- **坑**:
+  - `captionTracks` 不一定直接包含 `zh-Hans`；需要主动请求 timedtext `tlang=zh-Hans`。
+  - 匿名请求 `tlang=zh-Hans` 可能返回 429 或 Sorry HTML 页面，但同一视频的英文字幕仍能正常下载。
+  - 不能因为中文机器翻译第一次请求失败就下载视频；应先尝试字幕-only fallback。
+- **避坑**:
+  - YouTube `Ensure Transcript` 必须同时尝试英文 `en` 和简体中文 `zh-Hans`。
+  - 英文和简体中文字幕分别落盘到：
+    ```text
+    data/sources/{sourceId}/captions/en/
+    data/sources/{sourceId}/captions/zh-Hans/
+    ```
+  - 简体中文机器翻译文档同时写入：
+    ```text
+    data/sources/{sourceId}/translation/document.zh-Hans.md
+    ```
+    这样阅读器的“中文”预览可以直接使用 YouTube 机器翻译字幕，不必再跑本地 MLX 翻译。
+  - 如果匿名 timedtext `tlang=zh-Hans` 被限流，使用字幕-only yt-dlp 兜底：
+    ```bash
+    yt-dlp --skip-download --write-auto-subs --sub-langs zh-Hans --sub-format json3 'https://www.youtube.com/watch?v=<id>'
+    ```
+  - 该兜底默认读取 Chrome cookies。可配置：
+    ```bash
+    export YOUTUBE_CAPTION_COOKIES_FROM_BROWSER=chrome
+    # 禁用浏览器 cookies:
+    export YOUTUBE_CAPTION_COOKIES_FROM_BROWSER=off
+    ```
+
+### 6.1 YouTube 音频下载的代理与 SSL
+- **问题**: YouTube fallback 下载音频时经常报 `网络或 SSL 连接失败`，例如 `yt-9E-DoP76U1s`。
+- **坑**:
+  - 不能在生产路径里写死 `yt-dlp --proxy ""`。这会强制 yt-dlp 直连，绕过本机代理和系统代理环境变量。
+  - 浏览器能打开 YouTube 不代表 Node 子进程里的 `yt-dlp` 也能访问；子进程只继承启动 API/CLI 时的环境变量。
+  - 修改 `YTDLP_PROXY`、`HTTPS_PROXY`、cookies 配置后，已运行 API 不会自动继承，必须重启 API。
+- **避坑**:
+  - YouTube fallback 和应用层媒体下载必须走统一的 yt-dlp 网络封装，不要手写 shell 字符串。
+  - 默认策略是代理优先，直连兜底；本机代理默认值与 Baoyu/InnerTube 适配器一致：`http://127.0.0.1:7897`。
+  - 推荐启动 API 前显式配置：
+    ```bash
+    export YTDLP_PROXY=http://127.0.0.1:7897
+    export YTDLP_RETRIES=10
+    export YTDLP_FRAGMENT_RETRIES=10
+    export YTDLP_SOCKET_TIMEOUT=30
+    ```
+  - 如果确实要强制直连，使用：
+    ```bash
+    export YTDLP_PROXY=direct
+    ```
+  - 遇到年龄、地区、登录或反爬限制时，补充 cookies：
+    ```bash
+    export YTDLP_COOKIES_FROM_BROWSER=chrome
+    # 或
+    export YTDLP_COOKIES=/absolute/path/to/cookies.txt
+    ```
+  - 验证 yt-dlp 环境时优先做轻量检查：
+    ```bash
+    yt-dlp --version
+    YTDLP_PROXY=http://127.0.0.1:7897 yt-dlp --simulate --no-playlist -x --audio-format mp3 'https://www.youtube.com/watch?v=9E-DoP76U1s'
+    ```
+
 ## 工程与开发环境 (Dev Environment)
 
 ### 0. 服务启动顺序与 MLX 环境变量
@@ -142,6 +203,15 @@
     npm run typecheck
     npm run build
     ```
+
+### 0.1.3 长任务不要在 API 请求内同步等待
+- **问题**: 下载视频、下载音频、MLX Audio 转录、MLX LM 翻译会调用长时间运行的子进程。如果前端直接等待同步 action endpoint，用户会感觉页面被卡住；如果后端在 Fastify 主进程内执行同步子进程，其他 API 请求也可能被阻塞。
+- **坑**: 只把前端改成“不 await”不够；真正阻塞的是后端进程。
+- **避坑**:
+  - 长任务从前端提交到 `/api/jobs/task-action`。
+  - API 主进程只登记 job，然后通过 `npm run -s cli -- ...` 启动独立子进程。
+  - 前端轮询 `/api/jobs`，用小气泡和进度条展示状态。
+  - 当前进度条是按任务类型估算的近似进度，不是 yt-dlp / MLX 的真实百分比。
 
 ### 0.2 taskId 作为 URL path 参数必须 encode
 - **问题**: 删除卡片或删除资产时报 404，例如请求实际变成：

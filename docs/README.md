@@ -41,10 +41,14 @@ This directory is the project command center. Codex keeps decisions and task pri
 ## Platform Acquisition Strategy
 
 - YouTube uses the Baoyu/YouTube InnerTube internal API path for metadata and captions. It must support caption-only transcript generation without downloading video.
+- YouTube caption acquisition must request both English captions and Simplified Chinese captions. If native `zh-Hans` is absent, actively request YouTube timedtext machine translation with `tlang=zh-Hans`.
+- Persist English and Simplified Chinese caption variants under `data/sources/{sourceId}/captions/`. The English caption remains the source document when available; the Simplified Chinese machine-translated caption is exposed through the Chinese document preview/translation asset.
+- If anonymous timedtext machine translation is blocked with 429/Sorry responses, use a subtitle-only `yt-dlp --skip-download --write-auto-subs --sub-langs zh-Hans` fallback with browser cookies. This is still a caption-only path and must not download video.
 - YouTube cards should present `Ensure Transcript` / `载字幕` before any media-download action.
 - If InnerTube confirms that a YouTube video has no caption tracks or returns an empty caption result, record the caption failure and switch that card to `下载音频 -> 转录`. This is a narrow fallback for missing captions, not a replacement for the Baoyu/InnerTube caption path.
 - X, Xiaohongshu, Douyin, Bilibili, and TikTok use `yt-dlp` for metadata/media acquisition, followed by audio extraction/probing and MLX transcription when media has audio.
 - Do not route YouTube through the generic short-video `yt-dlp` download workflow. The accepted `yt-dlp` YouTube fallback is audio extraction for videos without platform captions.
+- All `yt-dlp` production paths must honor `YTDLP_PROXY`, `HTTPS_PROXY`/`HTTP_PROXY`, retry/timeout settings, and cookies. Do not force `--proxy ""` unless `YTDLP_PROXY=direct` is explicitly requested.
 
 ## Implementation References
 

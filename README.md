@@ -158,6 +158,33 @@ npm run cli -- doctor
 export MLX_AUDIO_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-audio/.venv/bin/python
 ```
 
+YouTube 没有平台字幕时会通过 `yt-dlp` 下载音频再转录。为了避免反复出现 `网络或 SSL 连接失败`，建议启动 API/CLI 前固定 yt-dlp 网络配置：
+
+```bash
+# 推荐：本机代理。默认也会优先尝试这个地址，再兜底直连。
+export YTDLP_PROXY=http://127.0.0.1:7897
+
+# 可选：需要登录、地区或年龄验证时打开 cookies
+export YTDLP_COOKIES_FROM_BROWSER=chrome
+# 或 export YTDLP_COOKIES=/absolute/path/to/cookies.txt
+```
+
+YouTube 字幕获取会同时请求英文字幕和简体中文字幕。简体中文优先使用 YouTube timedtext 机器翻译；如果匿名请求被 YouTube 限流，会自动用字幕-only `yt-dlp` 兜底，不下载视频。这个兜底默认读取 Chrome cookies，可按需显式配置：
+
+```bash
+export YOUTUBE_CAPTION_COOKIES_FROM_BROWSER=chrome
+# 禁用浏览器 cookies:
+export YOUTUBE_CAPTION_COOKIES_FROM_BROWSER=off
+```
+
+强制直连时使用：
+
+```bash
+export YTDLP_PROXY=direct
+```
+
+修改这些环境变量后要重启 API。已运行的服务不会自动继承新的代理或 cookies 设置。
+
 翻译需要配置或使用默认的 `MLX_LM_PYTHON`：
 
 ```bash
