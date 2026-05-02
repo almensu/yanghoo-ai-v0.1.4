@@ -22,6 +22,8 @@ interface TaskCardProps {
   isSelected?: boolean;
   onSelectionChange?: (taskId: string, selected: boolean) => void;
   translationModels?: LLMModel[];
+  collectionId?: string;
+  onOpenCollection?: (collectionId: string) => void;
 }
 
 const DEFAULT_TRANSLATION_MODELS: LLMModel[] = [
@@ -86,7 +88,17 @@ function translationModelLabel(models: LLMModel[], modelId: string): string {
   return models.find(model => model.id === modelId)?.name || modelId;
 }
 
-export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false, onSelectionChange, translationModels = [] }: TaskCardProps) {
+export function TaskCard({
+  task,
+  onRefresh,
+  onRead,
+  onDelete,
+  isSelected = false,
+  onSelectionChange,
+  translationModels = [],
+  collectionId,
+  onOpenCollection
+}: TaskCardProps) {
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -262,7 +274,20 @@ export function TaskCard({ task, onRefresh, onRead, onDelete, isSelected = false
             <span>{formatDuration(task.duration)}</span>
           </div>
           <h2 className="line-clamp-2 text-sm font-semibold leading-snug text-ink">{task.title}</h2>
-          {task.author ? <p className="mt-1 text-xs text-muted">{task.author}</p> : null}
+          {task.author ? (
+            collectionId && onOpenCollection ? (
+              <button
+                type="button"
+                onClick={() => onOpenCollection(collectionId)}
+                className="mt-1 block max-w-full truncate text-left text-xs font-medium text-accent hover:text-blue-700"
+                title={`查看 ${task.author} 的所有已捕获来源`}
+              >
+                {task.author}
+              </button>
+            ) : (
+              <p className="mt-1 text-xs text-muted">{task.author}</p>
+            )
+          ) : null}
         </div>
 
         <div className="rounded-md border border-line bg-slate-50 p-3">

@@ -1,4 +1,4 @@
-import type { TaskSummary, TaskDetail } from '../types';
+import type { TaskSummary, TaskDetail, SourceChannelCollectionSummary } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
@@ -19,6 +19,12 @@ async function handleResponse(response: Response) {
 export async function listTasks(): Promise<TaskSummary[]> {
   const response = await fetch(`${API_BASE}/api/tasks`);
   return handleResponse(response);
+}
+
+export async function listSourceCollections(): Promise<SourceChannelCollectionSummary[]> {
+  const response = await fetch(`${API_BASE}/api/source-collections`);
+  const data = await handleResponse(response);
+  return data.collections;
 }
 
 export interface SearchResult {

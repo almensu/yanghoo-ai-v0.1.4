@@ -1,9 +1,139 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { Home, User } from 'lucide-react';
 import { TaskCard } from './components/TaskCard';
 import { Reader } from './components/Reader';
 import { GlobalSearch, type SearchPreviewTarget } from './components/GlobalSearch';
-import { exportNotebookLm, listModels, listTasks, openNotebookLmExport, type LLMModel, type NotebookLmExportResult } from './api/client';
-import type { TaskSummary } from './types';
+import { exportNotebookLm, listModels, listSourceCollections, listTasks, openNotebookLmExport, type LLMModel, type NotebookLmExportResult } from './api/client';
+import type { SourceChannelCollectionSummary, TaskSummary } from './types';
+
+interface CollectionNavigationProps {
+  collections: SourceChannelCollectionSummary[];
+  activeCollection: SourceChannelCollectionSummary | null;
+  totalCount: number;
+  onSelect: (collectionId: string | null) => void;
+}
+
+function CollectionAvatar({ collection }: { collection: SourceChannelCollectionSummary }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const initial = collection.title.trim().charAt(0).toUpperCase() || collection.platform.charAt(0).toUpperCase();
+
+  if (collection.thumbnailUrl && !imageFailed) {
+    return (
+      <img
+        src={collection.thumbnailUrl}
+        alt=""
+        onError={() => setImageFailed(true)}
+        className="h-8 w-8 rounded-full object-cover"
+      />
+    );
+  }
+
+  return (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-muted">
+      {initial}
+    </span>
+  );
+}
+
+function CollectionHeroAvatar({ collection }: { collection: SourceChannelCollectionSummary }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  if (collection.thumbnailUrl && !imageFailed) {
+    return (
+      <img
+        src={collection.thumbnailUrl}
+        alt=""
+        onError={() => setImageFailed(true)}
+        className="h-full w-full object-cover"
+      />
+    );
+  }
+
+  return <User className="h-7 w-7 text-muted" />;
+}
+
+function CollectionSidebar({ collections, activeCollection, totalCount, onSelect }: CollectionNavigationProps) {
+  return (
+    <aside className="hidden w-64 shrink-0 border-r border-line pr-4 lg:block">
+      <nav className="sticky top-6 space-y-5">
+        <div className="space-y-1">
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors ${
+              !activeCollection ? 'bg-slate-100 text-ink' : 'text-ink hover:bg-slate-100'
+            }`}
+          >
+            <Home className="h-4 w-4" />
+            <span className="min-w-0 flex-1 truncate">全部来源</span>
+            <span className="text-xs text-muted">{totalCount}</span>
+          </button>
+        </div>
+
+        <div className="border-t border-line pt-4">
+          <p className="px-3 text-xs font-semibold uppercase tracking-wide text-muted">频道</p>
+          <div className="mt-2 max-h-[calc(100vh-180px)] space-y-1 overflow-y-auto pr-1">
+            {collections.map((collection) => (
+              <button
+                key={collection.id}
+                type="button"
+                onClick={() => onSelect(collection.id)}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors ${
+                  activeCollection?.id === collection.id ? 'bg-slate-100 text-ink' : 'text-ink hover:bg-slate-100'
+                }`}
+              >
+                <CollectionAvatar collection={collection} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{collection.title}</span>
+                  <span className="mt-0.5 block truncate text-[11px] uppercase tracking-wide text-muted">
+                    {collection.platform} · {collection.sourceCount}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </nav>
+    </aside>
+  );
+}
+
+function MobileCollectionRail({ collections, activeCollection, totalCount, onSelect }: CollectionNavigationProps) {
+  if (!collections.length) return null;
+
+  return (
+    <div className="mt-5 lg:hidden">
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        <button
+          type="button"
+          onClick={() => onSelect(null)}
+          className={`shrink-0 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+            !activeCollection ? 'bg-slate-900 text-white' : 'bg-white text-ink hover:bg-slate-100'
+          }`}
+        >
+          全部 · {totalCount}
+        </button>
+        {collections.map((collection) => (
+          <button
+            key={collection.id}
+            type="button"
+            onClick={() => onSelect(collection.id)}
+            className={`shrink-0 rounded-md px-3 py-2 text-left text-xs transition-colors ${
+              activeCollection?.id === collection.id ? 'bg-slate-900 text-white' : 'bg-white text-ink hover:bg-slate-100'
+            }`}
+          >
+            <span className="block max-w-44 truncate font-medium">{collection.title}</span>
+            <span className={`mt-0.5 block text-[10px] uppercase tracking-wide ${
+              activeCollection?.id === collection.id ? 'text-slate-300' : 'text-muted'
+            }`}>
+              {collection.platform} · {collection.sourceCount}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function App() {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
@@ -19,14 +149,24 @@ export function App() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<NotebookLmExportResult | null>(null);
   const [translationModels, setTranslationModels] = useState<LLMModel[]>([]);
+  const [sourceCollections, setSourceCollections] = useState<SourceChannelCollectionSummary[]>([]);
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
 
   const refreshTasks = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await listTasks();
-      setTasks(data);
-      setSelectedTaskIds((current) => current.filter(id => data.some(task => task.id === id)));
+      const [taskData, collectionData] = await Promise.all([
+        listTasks(),
+        listSourceCollections()
+      ]);
+      setTasks(taskData);
+      setSourceCollections(collectionData);
+      setSelectedTaskIds((current) => current.filter(id => taskData.some(task => task.id === id)));
+      setActiveCollectionId((current) => {
+        if (!current) return current;
+        return collectionData.some(collection => collection.id === current) ? current : null;
+      });
     } catch (err: any) {
       console.error('Refresh failed:', err);
       setError(err.message || 'Failed to connect to API');
@@ -86,6 +226,27 @@ export function App() {
     loadTranslationModels();
   }, []);
 
+  const activeCollection = useMemo(
+    () => sourceCollections.find(collection => collection.id === activeCollectionId) || null,
+    [sourceCollections, activeCollectionId]
+  );
+
+  const collectionIdByTaskId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const collection of sourceCollections) {
+      for (const sourceId of collection.sourceIds) {
+        map.set(sourceId, collection.id);
+      }
+    }
+    return map;
+  }, [sourceCollections]);
+
+  const visibleTasks = useMemo(() => {
+    if (!activeCollection) return tasks;
+    const sourceIds = new Set(activeCollection.sourceIds);
+    return tasks.filter(task => sourceIds.has(task.id));
+  }, [tasks, activeCollection]);
+
   const handleImport = async () => {
     if (!url || isImporting) return;
     setIsImporting(true);
@@ -114,7 +275,7 @@ export function App() {
   return (
     <div className="min-h-screen bg-canvas">
       <header className="border-b border-line bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between px-6 py-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Yanghoo AI v0.3.0</p>
             <h1 className="text-xl font-semibold text-ink">Transcript Workbench</h1>
@@ -144,19 +305,60 @@ export function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-6 py-8">
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Document Assets</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-            Import a video, prefer existing captions, fall back to mlx-audio, then generate timestamped reading assets.
-          </p>
-          <div className="mt-4 max-w-3xl">
-            <GlobalSearch onPreview={setReadingTarget} />
-          </div>
-        </section>
+      <main className="mx-auto flex max-w-[1440px] gap-6 px-4 py-6 sm:px-6">
+        <CollectionSidebar
+          collections={sourceCollections}
+          activeCollection={activeCollection}
+          totalCount={tasks.length}
+          onSelect={setActiveCollectionId}
+        />
 
-        {selectedTaskIds.length > 0 && (
-          <section className="mb-6 rounded-lg border border-line bg-white p-4 shadow-sm">
+        <div className="min-w-0 flex-1">
+          <section className="mb-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Document Assets</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+              Import a video, prefer existing captions, fall back to mlx-audio, then generate timestamped reading assets.
+            </p>
+            <div className="mt-4 max-w-3xl">
+              <GlobalSearch onPreview={setReadingTarget} />
+            </div>
+
+            <MobileCollectionRail
+              collections={sourceCollections}
+              activeCollection={activeCollection}
+              totalCount={tasks.length}
+              onSelect={setActiveCollectionId}
+            />
+          </section>
+
+          {activeCollection && (
+            <section className="mb-6 border-b border-line pb-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-slate-100">
+                    <CollectionHeroAvatar collection={activeCollection} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted">{activeCollection.platform} 频道</p>
+                    <h2 className="mt-1 text-lg font-semibold text-ink">{activeCollection.title}</h2>
+                    <p className="mt-1 text-sm text-muted">
+                      {activeCollection.sourceCount} 个已捕获来源。这里显示当前本地已有的视频、播客或帖子。
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveCollectionId(null)}
+                  className="w-fit rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink hover:bg-slate-50"
+                >
+                  返回全部
+                </button>
+              </div>
+            </section>
+          )}
+
+          {selectedTaskIds.length > 0 && (
+            <section className="mb-6 rounded-lg border border-line bg-white p-4 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-sm font-semibold text-ink">已选择 {selectedTaskIds.length} 个卡片</p>
@@ -243,13 +445,26 @@ export function App() {
             <p className="text-sm font-medium text-ink">No sources captured yet</p>
             <p className="mt-1 text-xs text-muted">Paste a YouTube URL above to get started.</p>
           </div>
+        ) : visibleTasks.length === 0 ? (
+          <div className="rounded-lg border-2 border-dashed border-line p-12 text-center">
+            <p className="text-sm font-medium text-ink">这个频道暂无可显示来源</p>
+            <button
+              type="button"
+              onClick={() => setActiveCollectionId(null)}
+              className="mt-3 rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink hover:bg-slate-50"
+            >
+              返回全部
+            </button>
+          </div>
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {tasks.map((task) => (
+            {visibleTasks.map((task) => (
               <TaskCard 
                 key={task.id} 
                 task={task} 
                 translationModels={translationModels}
+                collectionId={collectionIdByTaskId.get(task.id)}
+                onOpenCollection={setActiveCollectionId}
                 isSelected={selectedTaskIds.includes(task.id)}
                 onSelectionChange={updateTaskSelection}
                 onRefresh={refreshTasks} 
@@ -263,6 +478,7 @@ export function App() {
             ))}
           </section>
         )}
+        </div>
       </main>
 
       {readingTarget && (

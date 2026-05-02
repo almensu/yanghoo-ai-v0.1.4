@@ -14,3 +14,14 @@ export interface TaskDetail extends TaskSummary {
   content?: string;
   translatedContent?: string;
 }
+
+export interface SourceChannelCollectionSummary {
+  id: string;
+  type: 'channel';
+  platform: Platform;
+  title: string;
+  sourceIds: string[];
+  sourceCount: number;
+  latestCapturedAt: string;
+  thumbnailUrl?: string;
+}
