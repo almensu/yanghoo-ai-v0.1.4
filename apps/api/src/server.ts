@@ -7,6 +7,7 @@ import { registerTaskRoutes } from './routes/tasks.js';
 import { registerChatRoutes } from './routes/chat.js';
 import { registerSearchRoutes } from './routes/search.js';
 import { registerSourceCollectionRoutes } from './routes/sourceCollections.js';
+import { registerJobRoutes } from './routes/jobs.js';
 
 const app = fastify({
   logger: true
@@ -27,6 +28,7 @@ await app.register(staticFiles, {
 
 await app.register(registerTaskRoutes);
 await app.register(registerSourceCollectionRoutes);
+await app.register(registerJobRoutes);
 await app.register(registerChatRoutes);
 await app.register(registerSearchRoutes);
 
