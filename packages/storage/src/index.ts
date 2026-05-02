@@ -15,6 +15,7 @@ import {
   getTranscriptVttPath,
   getTranscriptManifestPath,
   getDocumentMarkdownPath,
+  getCaptionDir,
   getAudioPath,
   getAudioManifestPath,
   getMediaManifestPath,
@@ -221,6 +222,7 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
       language: asset.language,
       engine: asset.engine,
       model: asset.model,
+      captionVariants: asset.captionVariants,
       generatedAt: asset.generatedAt,
       rawSegmentsCount: asset.rawSegmentsCount,
       refinedSegmentsCount: asset.segments.length
@@ -491,6 +493,11 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
       filesToDelete.push(getDocumentMarkdownPath(sourceId));
       filesToDelete.push(getDocumentTranslationPath(sourceId, 'zh-Hans'));
       filesToDelete.push(getTranslationManifestPath(sourceId));
+      const captionsDirRelPath = getCaptionDir(sourceId);
+      const captionsDirAbsPath = this.resolvePath(captionsDirRelPath);
+      if (fs.existsSync(captionsDirAbsPath)) {
+        filesToDelete.push(...this.listRelativeFiles(captionsDirAbsPath, captionsDirRelPath));
+      }
       
       const dirFiles = fs.readdirSync(dirPath);
       dirFiles.forEach(f => {

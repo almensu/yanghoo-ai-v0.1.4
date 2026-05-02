@@ -106,6 +106,16 @@ export interface TranscriptAsset {
   language?: string;
   engine?: string;
   model?: string;
+  captionVariants?: {
+    language: string;
+    label: string;
+    isTranslated?: boolean;
+    sourceLanguage?: string;
+    rawPath?: string;
+    sentencesPath?: string;
+    vttPath?: string;
+    documentPath?: string;
+  }[];
   segments: TranscriptSegment[];
   rawSegmentsCount?: number;
   rawPath?: string;

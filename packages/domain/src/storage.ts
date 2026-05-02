@@ -18,6 +18,20 @@ export const getTranscriptVttPath = (sourceId: string) => `${getSourceDir(source
 
 export const getDocumentMarkdownPath = (sourceId: string) => `${getSourceDir(sourceId)}/document.md`;
 
+export const getCaptionDir = (sourceId: string) => `${getSourceDir(sourceId)}/captions`;
+
+export const getCaptionLanguageDir = (sourceId: string, lang: string) => `${getCaptionDir(sourceId)}/${lang}`;
+
+export const getCaptionRawPath = (sourceId: string, lang: string) => `${getCaptionLanguageDir(sourceId, lang)}/transcript-raw.json`;
+
+export const getCaptionSentencesPath = (sourceId: string, lang: string) => `${getCaptionLanguageDir(sourceId, lang)}/transcript-sentences.json`;
+
+export const getCaptionVttPath = (sourceId: string, lang: string) => `${getCaptionLanguageDir(sourceId, lang)}/transcript.vtt`;
+
+export const getCaptionDocumentPath = (sourceId: string, lang: string) => `${getCaptionLanguageDir(sourceId, lang)}/document.md`;
+
+export const getCaptionBundleManifestPath = (sourceId: string) => `${getCaptionDir(sourceId)}/captions-manifest.json`;
+
 export const getAudioPath = (sourceId: string, ext: string = 'mp3') => `${getSourceDir(sourceId)}/audio.${ext}`;
 
 export const getAudioManifestPath = (sourceId: string) => `${getSourceDir(sourceId)}/audio-manifest.json`;

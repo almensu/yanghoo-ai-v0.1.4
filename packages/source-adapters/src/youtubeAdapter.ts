@@ -1,7 +1,9 @@
 import { Source, SourceClass, Platform, TranscriptSegment } from '@yanghoo/domain';
 import { nanoid } from 'nanoid';
-import { execSync, spawnSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 export const YOUTUBE_NO_CAPTION_TRACKS_MESSAGE = 'YouTube video has no caption tracks';
 
@@ -10,6 +12,7 @@ export function isYouTubeNoCaptionError(error: unknown): boolean {
   return (
     message.includes(YOUTUBE_NO_CAPTION_TRACKS_MESSAGE) ||
     message.includes('No caption tracks found') ||
+    message.includes('No requested YouTube English/Simplified Chinese caption variants found') ||
     message.includes('Fetched InnerTube transcript has 0 segments')
   );
 }
@@ -27,6 +30,21 @@ export interface FetchTranscriptResult {
   segments: TranscriptSegment[];
   language?: string;
   trackName?: string;
+  isTranslated?: boolean;
+  sourceLanguage?: string;
+  requestedLanguage?: string;
+}
+
+export interface FetchTranscriptBundleResult {
+  primary: FetchTranscriptResult;
+  english?: FetchTranscriptResult;
+  simplifiedChinese?: FetchTranscriptResult;
+  availableTracks: {
+    language: string;
+    languageCode: string;
+    isGenerated: boolean;
+    isTranslatable: boolean;
+  }[];
 }
 
 export class YouTubeSourceAdapter {
@@ -289,80 +307,353 @@ export class YouTubeSourceAdapter {
   }
 
   /**
-   * Fetches real transcript segments for a given video ID using InnerTube caption tracks.
+   * Fetches English and Simplified Chinese transcript variants. Simplified Chinese
+   * is actively requested through YouTube's timedtext machine translation
+   * (`tlang=zh-Hans`) when a native zh-Hans caption track is not available.
    */
-  async fetchTranscript(videoId: string): Promise<FetchTranscriptResult> {
-    console.log(`[YouTubeAdapter] Fetching InnerTube transcript for video: ${videoId}`);
-    
+  async fetchTranscriptBundle(videoId: string): Promise<FetchTranscriptBundleResult> {
+    console.log(`[YouTubeAdapter] Fetching bilingual InnerTube transcript for video: ${videoId}`);
+
     try {
       const metadata = await this.fetchMetadataFromInnerTube(videoId);
-      const captionTracks = metadata?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-      
+      const captionsRenderer = metadata?.captions?.playerCaptionsTracklistRenderer;
+      const captionTracks = captionsRenderer?.captionTracks;
+
       if (!captionTracks || captionTracks.length === 0) {
         throw new Error(`${YOUTUBE_NO_CAPTION_TRACKS_MESSAGE}: ${videoId}`);
       }
-      
-      // Preferred languages: Chinese (Simplified/Traditional), then English, then first available
-      const preferredLangs = ['zh-Hans', 'zh-Hant', 'zh', 'en'];
-      let selectedTrack = captionTracks[0];
-      
-      for (const lang of preferredLangs) {
-        const track = captionTracks.find((t: any) => t.languageCode === lang);
-        if (track) {
-          selectedTrack = track;
-          break;
-        }
+
+      const translationLanguages = this.extractTranslationLanguages(captionsRenderer);
+      const [english, simplifiedChinese] = await Promise.all([
+        this.fetchCaptionVariant(videoId, captionTracks, translationLanguages, 'en'),
+        this.fetchCaptionVariant(videoId, captionTracks, translationLanguages, 'zh-Hans')
+      ]);
+
+      if (!english && !simplifiedChinese) {
+        throw new Error(`No requested YouTube English/Simplified Chinese caption variants found for video: ${videoId}`);
       }
-      
-      const baseUrl = selectedTrack.baseUrl.replace(/&fmt=[^&]*/g, '');
-      const transcriptUrl = baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'fmt=json3';
-      
-      console.log(`[YouTubeAdapter] Loading transcript from InnerTube URL: ${transcriptUrl} (lang: ${selectedTrack.languageCode})`);
-      
-      let transcriptData: any;
+
+      return {
+        primary: english ?? simplifiedChinese!,
+        english: english ?? undefined,
+        simplifiedChinese: simplifiedChinese ?? undefined,
+        availableTracks: captionTracks.map((track: any) => ({
+          language: this.getTrackName(track),
+          languageCode: track.languageCode,
+          isGenerated: track.kind === 'asr',
+          isTranslatable: !!track.isTranslatable
+        }))
+      };
+    } catch (error: any) {
+      console.error(`[YouTubeAdapter] Error fetching bilingual InnerTube transcript: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Backward-compatible single transcript API. Prefer the bilingual bundle in
+   * application code so English and zh-Hans assets can be persisted together.
+   */
+  async fetchTranscript(videoId: string): Promise<FetchTranscriptResult> {
+    const bundle = await this.fetchTranscriptBundle(videoId);
+    return bundle.simplifiedChinese ?? bundle.english ?? bundle.primary;
+  }
+
+  private async fetchCaptionVariant(
+    videoId: string,
+    captionTracks: any[],
+    translationLanguages: { language: string; languageCode: string }[],
+    requestedLanguage: 'en' | 'zh-Hans'
+  ): Promise<FetchTranscriptResult | null> {
+    const candidates = this.buildCaptionCandidates(captionTracks, translationLanguages, requestedLanguage);
+    const errors: string[] = [];
+
+    for (const candidate of candidates) {
+      const transcriptUrl = this.buildTranscriptUrl(candidate.track.baseUrl, candidate.translateTo);
       try {
-        const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || 'http://127.0.0.1:7897';
-        const response = await fetch(transcriptUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const text = await response.text();
-        transcriptData = JSON.parse(text);
-      } catch (e) {
-        const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || 'http://127.0.0.1:7897';
-        const proxyArg = proxy ? `-x ${proxy}` : '';
-        const result = execSync(`curl ${proxyArg} -sL "${transcriptUrl}"`, { maxBuffer: 10 * 1024 * 1024 }).toString();
-        transcriptData = JSON.parse(result);
+        console.log(
+          `[YouTubeAdapter] Loading ${requestedLanguage} transcript from InnerTube URL` +
+          ` (track: ${candidate.track.languageCode}, translated: ${candidate.isTranslated ? 'yes' : 'no'})`
+        );
+        const transcriptData = await this.fetchTranscriptJson(transcriptUrl);
+        const segments = this.parseTranscriptJsonSegments(transcriptData);
+
+        if (segments.length === 0) {
+          throw new Error(`Fetched InnerTube transcript has 0 segments`);
+        }
+
+        return {
+          segments,
+          language: requestedLanguage,
+          requestedLanguage,
+          isTranslated: candidate.isTranslated,
+          sourceLanguage: candidate.isTranslated ? candidate.track.languageCode : undefined,
+          trackName: candidate.isTranslated
+            ? `${this.getTrackName(candidate.track)} -> ${requestedLanguage} (YouTube machine translation)`
+            : this.getTrackName(candidate.track)
+        };
+      } catch (error: any) {
+        errors.push(`${requestedLanguage} via ${candidate.track.languageCode}${candidate.translateTo ? `->${candidate.translateTo}` : ''}: ${error.message}`);
       }
-      
-      if (!transcriptData.events) {
-        throw new Error(`Invalid transcript data format from InnerTube for video: ${videoId}`);
-      }
-      
-      const segments: TranscriptSegment[] = transcriptData.events
-        .filter((event: any) => event.segs)
-        .map((event: any) => {
-          const text = event.segs.map((seg: any) => seg.utf8).join('').trim();
-          const start = event.tStartMs / 1000;
-          const duration = (event.dDurationMs || 0) / 1000;
-          return {
-            text,
-            start,
-            end: start + duration
-          };
+    }
+
+    if (errors.length > 0) {
+      console.warn(`[YouTubeAdapter] ${requestedLanguage} transcript attempts failed: ${errors.join(' | ')}`);
+    }
+
+    try {
+      return this.fetchCaptionVariantWithYtDlp(videoId, requestedLanguage, errors);
+    } catch (error: any) {
+      console.warn(`[YouTubeAdapter] yt-dlp ${requestedLanguage} subtitle fallback failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  private buildCaptionCandidates(
+    captionTracks: any[],
+    translationLanguages: { language: string; languageCode: string }[],
+    requestedLanguage: 'en' | 'zh-Hans'
+  ): { track: any; translateTo?: string; isTranslated: boolean }[] {
+    const directTracks = requestedLanguage === 'en'
+      ? captionTracks.filter((track: any) => this.isEnglishLanguage(track.languageCode))
+      : captionTracks.filter((track: any) => this.isSimplifiedChineseLanguage(track.languageCode));
+
+    const candidates: { track: any; translateTo?: string; isTranslated: boolean }[] = directTracks.map((track: any) => ({
+      track,
+      isTranslated: false
+    }));
+
+    const translateTo = this.resolveTranslationTargetCode(translationLanguages, requestedLanguage);
+    if (translateTo) {
+      const preferredBaseTracks = [...captionTracks].sort((a: any, b: any) => {
+        const aScore = this.translationBaseTrackScore(a, requestedLanguage);
+        const bScore = this.translationBaseTrackScore(b, requestedLanguage);
+        return bScore - aScore;
+      });
+
+      for (const track of preferredBaseTracks) {
+        if (!track.isTranslatable) continue;
+        if (this.isSameLanguageFamily(track.languageCode, requestedLanguage)) continue;
+        candidates.push({
+          track,
+          translateTo,
+          isTranslated: true
         });
-        
+      }
+    }
+
+    const seen = new Set<string>();
+    return candidates.filter((candidate) => {
+      const key = `${candidate.track.languageCode}:${candidate.translateTo ?? 'direct'}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  private resolveTranslationTargetCode(
+    translationLanguages: { language: string; languageCode: string }[],
+    requestedLanguage: 'en' | 'zh-Hans'
+  ): string | undefined {
+    const targetCodes = requestedLanguage === 'zh-Hans' ? ['zh-Hans', 'zh-CN', 'zh'] : ['en'];
+    if (translationLanguages.length === 0) return targetCodes[0];
+
+    for (const code of targetCodes) {
+      if (translationLanguages.some((language) => language.languageCode === code)) {
+        return code;
+      }
+    }
+
+    // Some InnerTube clients mark caption tracks as translatable but omit or
+    // vary the translationLanguages list. Timedtext still accepts explicit
+    // tlang values, so keep the requested machine translation path active.
+    return targetCodes[0];
+  }
+
+  private translationBaseTrackScore(track: any, requestedLanguage: 'en' | 'zh-Hans'): number {
+    const code = track.languageCode || '';
+    let score = track.kind === 'asr' ? 1 : 2;
+    if (requestedLanguage === 'zh-Hans' && this.isEnglishLanguage(code)) score += 5;
+    if (requestedLanguage === 'en' && this.isChineseLanguage(code)) score += 5;
+    return score;
+  }
+
+  private isSameLanguageFamily(languageCode: string, requestedLanguage: 'en' | 'zh-Hans'): boolean {
+    return requestedLanguage === 'en'
+      ? this.isEnglishLanguage(languageCode)
+      : this.isChineseLanguage(languageCode);
+  }
+
+  private isEnglishLanguage(languageCode: string): boolean {
+    return languageCode === 'en' || languageCode.startsWith('en-');
+  }
+
+  private isChineseLanguage(languageCode: string): boolean {
+    return languageCode === 'zh' || languageCode.startsWith('zh-');
+  }
+
+  private isSimplifiedChineseLanguage(languageCode: string): boolean {
+    return languageCode === 'zh-Hans' || languageCode === 'zh-CN' || languageCode === 'zh';
+  }
+
+  private extractTranslationLanguages(captionsRenderer: any): { language: string; languageCode: string }[] {
+    return (captionsRenderer?.translationLanguages || []).map((language: any) => ({
+      language: language.languageName?.runs?.map((run: any) => run.text).join('') || language.languageName?.simpleText || '',
+      languageCode: language.languageCode
+    }));
+  }
+
+  private getTrackName(track: any): string {
+    return track.name?.runs?.map((run: any) => run.text).join('') || track.name?.simpleText || track.languageCode || 'InnerTube platform caption';
+  }
+
+  private buildTranscriptUrl(baseUrl: string, translateTo?: string): string {
+    const url = new URL(baseUrl);
+    url.searchParams.delete('fmt');
+    url.searchParams.set('fmt', 'json3');
+    url.searchParams.delete('tlang');
+    if (translateTo) {
+      url.searchParams.set('tlang', translateTo);
+    }
+    return url.toString();
+  }
+
+  private async fetchTranscriptJson(transcriptUrl: string): Promise<any> {
+    try {
+      const response = await fetch(transcriptUrl, {
+        headers: {
+          'Accept-Language': 'en-US',
+          'User-Agent': 'Mozilla/5.0'
+        }
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = await response.text();
+      return JSON.parse(text);
+    } catch (e) {
+      const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || 'http://127.0.0.1:7897';
+      const proxyArg = proxy ? `-x ${proxy}` : '';
+      const result = execSync(`curl ${proxyArg} -sL "${transcriptUrl}"`, { maxBuffer: 10 * 1024 * 1024 }).toString();
+      return JSON.parse(result);
+    }
+  }
+
+  private parseTranscriptJsonSegments(transcriptData: any): TranscriptSegment[] {
+    if (!transcriptData.events) {
+      throw new Error(`Invalid transcript data format from InnerTube`);
+    }
+
+    return transcriptData.events
+      .filter((event: any) => event.segs)
+      .map((event: any) => {
+        const text = event.segs.map((seg: any) => seg.utf8).join('').trim();
+        const start = event.tStartMs / 1000;
+        const duration = (event.dDurationMs || 0) / 1000;
+        return {
+          text,
+          start,
+          end: start + duration
+        };
+      })
+      .filter((segment: TranscriptSegment) => segment.text.length > 0);
+  }
+
+  private fetchCaptionVariantWithYtDlp(
+    videoId: string,
+    requestedLanguage: 'en' | 'zh-Hans',
+    priorErrors: string[]
+  ): FetchTranscriptResult {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `yanghoo-youtube-captions-${videoId}-`));
+    try {
+      const outputPattern = path.join(tmpDir, '%(id)s');
+      const args = [
+        ...this.buildYtDlpCaptionNetworkArgs(),
+        '--skip-download',
+        '--no-playlist',
+        '--write-subs',
+        '--write-auto-subs',
+        '--sub-langs', requestedLanguage,
+        '--sub-format', 'json3',
+        '-o', outputPattern,
+        `${this.WATCH_URL}${videoId}`
+      ];
+
+      execFileSync('yt-dlp', args, {
+        stdio: 'pipe',
+        timeout: 180_000,
+        maxBuffer: 20 * 1024 * 1024
+      });
+
+      const subtitleFile = fs.readdirSync(tmpDir)
+        .find((file) => file.endsWith(`.${requestedLanguage}.json3`));
+
+      if (!subtitleFile) {
+        throw new Error(`yt-dlp did not create ${requestedLanguage} subtitle file`);
+      }
+
+      const transcriptData = JSON.parse(fs.readFileSync(path.join(tmpDir, subtitleFile), 'utf-8'));
+      const segments = this.parseTranscriptJsonSegments(transcriptData);
       if (segments.length === 0) {
-        throw new Error(`Fetched InnerTube transcript has 0 segments for video: ${videoId}`);
+        throw new Error(`yt-dlp ${requestedLanguage} subtitle has 0 segments`);
       }
 
       return {
         segments,
-        language: selectedTrack.languageCode,
-        trackName: selectedTrack.name?.simpleText || 'InnerTube platform caption'
+        language: requestedLanguage,
+        requestedLanguage,
+        isTranslated: requestedLanguage === 'zh-Hans',
+        sourceLanguage: requestedLanguage === 'zh-Hans' ? 'en' : undefined,
+        trackName: requestedLanguage === 'zh-Hans'
+          ? 'YouTube machine translation via yt-dlp subtitle fallback'
+          : 'YouTube subtitle via yt-dlp fallback'
       };
     } catch (error: any) {
-      console.error(`[YouTubeAdapter] Error fetching InnerTube transcript: ${error.message}`);
-      throw error;
+      const stderr = error.stderr?.toString() || error.stdout?.toString() || error.message;
+      throw new Error([stderr, ...priorErrors].filter(Boolean).join('\n'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  }
+
+  private buildYtDlpCaptionNetworkArgs(): string[] {
+    const args = [
+      '--socket-timeout', process.env.YTDLP_SOCKET_TIMEOUT || '30',
+      '--retries', process.env.YTDLP_RETRIES || '10',
+      '--extractor-retries', process.env.YTDLP_EXTRACTOR_RETRIES || '5',
+      '--user-agent', process.env.YTDLP_USER_AGENT || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    ];
+
+    const proxy = process.env.YTDLP_PROXY?.trim()
+      || process.env.HTTPS_PROXY
+      || process.env.HTTP_PROXY
+      || process.env.https_proxy
+      || process.env.http_proxy
+      || 'http://127.0.0.1:7897';
+
+    if (proxy.toLowerCase() === 'direct' || proxy.toLowerCase() === 'none' || proxy.toLowerCase() === 'off') {
+      args.push('--proxy', '');
+    } else {
+      args.push('--proxy', proxy);
+    }
+
+    const cookiesPath = process.env.YTDLP_COOKIES;
+    if (cookiesPath) {
+      args.push('--cookies', cookiesPath);
+    }
+
+    const cookiesFromBrowser = process.env.YOUTUBE_CAPTION_COOKIES_FROM_BROWSER
+      ?? process.env.YTDLP_COOKIES_FROM_BROWSER
+      ?? 'chrome';
+    const normalizedCookiesFromBrowser = cookiesFromBrowser.toLowerCase();
+    if (
+      cookiesFromBrowser &&
+      normalizedCookiesFromBrowser !== 'off' &&
+      normalizedCookiesFromBrowser !== 'none' &&
+      normalizedCookiesFromBrowser !== 'false'
+    ) {
+      args.push('--cookies-from-browser', cookiesFromBrowser);
+    }
+
+    return args;
   }
 }
 
