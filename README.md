@@ -31,6 +31,7 @@ Shownotes, descriptions, chapters, and outlines are not transcripts. They may be
 
 - Web: React, TypeScript, Vite, Tailwind CSS, lucide-react
 - API: Fastify, Node.js, TypeScript
+- CLI: Node.js + TypeScript workspace app
 - Workspace: npm workspaces
 - Storage: local filesystem under `data/` or `DATA_DIR`
 - Transcript engines: platform captions and MLX Audio
@@ -42,7 +43,8 @@ Shownotes, descriptions, chapters, and outlines are not transcripts. They may be
 .
 ├── apps/
 │   ├── web/              # React + TypeScript + Vite app
-│   └── api/              # Fastify API app
+│   ├── api/              # Fastify API app
+│   └── cli/              # Local command line operator
 ├── packages/
 │   ├── domain/           # Domain types and storage path contracts
 │   ├── application/      # Use cases and orchestration
@@ -120,6 +122,120 @@ Common startup checks:
 lsof -nP -iTCP:3000 -sTCP:LISTEN || true
 lsof -nP -iTCP:8001 -sTCP:LISTEN || true
 ```
+
+## 命令行使用手册
+
+命令行入口用于批量操作本项目，适合给 NotebookLM 准备 URL、Markdown、字幕和转录文档。开发环境下统一使用：
+
+```bash
+# 在仓库根目录执行；-- 后面才是 Yanghoo CLI 参数
+npm run cli -- <command>
+```
+
+常用全局参数：
+
+```bash
+# 输出 JSON，方便脚本处理
+npm run -s cli -- source list --json
+
+# 指定独立的数据缓存目录，避免污染默认 data/
+npm run cli -- --data-dir /tmp/yanghoo-data source list
+```
+
+需要纯 JSON 输出时使用 `npm run -s cli -- ...`，这样 npm 不会打印额外脚本日志。
+
+### 1. 检查本机环境
+
+```bash
+# 检查 DATA_DIR、yt-dlp、ffmpeg、ffprobe、MLX Audio、MLX LM
+npm run cli -- doctor
+```
+
+转录需要配置 `MLX_AUDIO_PYTHON`：
+
+```bash
+# 配置本机 MLX Audio Python，再执行转录相关命令
+export MLX_AUDIO_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-audio/.venv/bin/python
+```
+
+翻译需要配置或使用默认的 `MLX_LM_PYTHON`：
+
+```bash
+# 可选：显式指定 MLX LM Python
+export MLX_LM_PYTHON=/Users/a123/Yanghoo-lab/MLX-Community/mlx-lm/.venv/bin/python
+```
+
+### 2. 添加和查看来源
+
+```bash
+# 添加一个来源 URL，支持 YouTube、Bilibili、TikTok、抖音、小红书、X、小宇宙、Apple Podcast
+npm run cli -- source add "https://www.bilibili.com/video/BV1pqr5BUEhr"
+
+# 查看所有来源卡片和文档状态
+npm run cli -- source list
+
+# 查看某个来源的完整状态
+npm run cli -- source show <sourceId>
+```
+
+### 3. 字幕、音频、视频和转录
+
+```bash
+# 优先获取平台字幕；YouTube 会走 Baoyu/InnerTube 字幕逻辑
+npm run cli -- transcript ensure <sourceId>
+
+# 没有平台字幕时，先拉取音频，再用 MLX Audio 转录
+npm run cli -- audio fetch <sourceId>
+npm run cli -- transcribe <sourceId>
+
+# Bilibili、TikTok、抖音、小红书、X 等媒体来源可先下载媒体，再转录音轨
+npm run cli -- media download <sourceId>
+npm run cli -- transcribe <sourceId>
+```
+
+### 4. 英文文档翻译成简体中文
+
+```bash
+# 使用默认 Qwen3 4B 模型翻译
+npm run cli -- translate <sourceId>
+
+# 手动选择 Qwen3 8B 模型
+npm run cli -- translate <sourceId> --model Qwen/Qwen3-8B-MLX-4bit
+
+# 强制重新翻译，覆盖已有翻译资产
+npm run cli -- translate <sourceId> --force
+```
+
+### 5. 全局搜索
+
+```bash
+# 搜索已生成的 Markdown 或中文翻译文档
+npm run cli -- search "关键词"
+
+# 限制返回数量
+npm run cli -- search "NotebookLM" --limit 10
+```
+
+搜索结果如果命中时间戳，会返回可跳转播放 URL。
+
+### 6. 导出给 NotebookLM
+
+```bash
+# 导出所选来源的 Markdown；文件会放入 data/exports/notebooklm/
+npm run cli -- export notebooklm <sourceId1> <sourceId2> --mode markdown
+
+# 导出纯 URL 列表，适合 YouTube 频道或一组原始链接
+npm run cli -- export notebooklm <sourceId1> <sourceId2> --mode url-list
+
+# 导出完成后直接打开当前导出目录
+npm run cli -- export notebooklm <sourceId1> <sourceId2> --mode markdown --open
+```
+
+NotebookLM 导出规则：
+
+- Markdown 优先使用简体中文翻译资产；没有翻译时使用原始 Markdown。
+- 文件名会尽量保留平台、作者和标题，便于识别。
+- URL 列表是纯文本，每行一个来源 URL。
 
 ## Verification
 

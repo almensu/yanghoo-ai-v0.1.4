@@ -10,6 +10,18 @@ source video/url -> best transcript source -> refined sentence assets -> readabl
 
 Do not rebuild the old broad media control panel. Expose document readiness and reading actions.
 
+## Yanghoo Skill
+
+A project-specific Claude skill exists at:
+
+```text
+/Users/a123/claude-model/.claude-zhipu/skills/yanghoo/SKILL.md
+```
+
+Claude/Gemini should read this skill before Yanghoo AI work involving source capture, YouTube/Baoyu captions, yt-dlp media acquisition, MLX transcription, MLX LM translation, NotebookLM export, CLI workflows, architecture, or task/report handoffs.
+
+If the skill conflicts with this file, `AGENTS.md`, or accepted `docs/decisions/*`, prefer the repository-local rules and accepted decisions.
+
 ## Roles
 
 Codex is the project commander:
@@ -89,7 +101,8 @@ Accepted shape:
 .
 ├── apps/
 │   ├── web/
-│   └── api/
+│   ├── api/
+│   └── cli/
 ├── packages/
 │   ├── domain/
 │   ├── application/
@@ -211,6 +224,13 @@ Before handoff, Gemini should run:
 ```bash
 npm run build
 npm run typecheck
+```
+
+CLI-specific work should also verify:
+
+```bash
+npm run cli -- doctor
+npm run -s cli -- source list --json
 ```
 
 If working on a specific pipeline, Gemini must also run the relevant end-to-end commands and include outputs in the report.

@@ -118,6 +118,31 @@
   - 调用 Python 前先 `fs.existsSync(scriptPath)`，若缺失则抛出带有 `process.cwd()`、`Resolved Root` 和 `scriptPath` 的详尽诊断信息。
   - 推荐使用统一的 `resolveRootScript` 助手函数。
 
+### 0.1.1 CLI 默认 DATA_DIR 不能跟随 workspace cwd
+- **问题**: 通过 npm workspace 运行 CLI 时，进程 cwd 可能落在 `apps/cli`，导致默认数据目录被解析成 `apps/cli/data`。
+- **坑**: `FileStorage` 会根据 `process.cwd()` 推断 `data/`，CLI 如果不显式设置 `DATA_DIR`，就可能读不到仓库根目录已有来源卡片。
+- **避坑**:
+  - CLI 启动时应使用 `import.meta.url` 解析仓库根目录，并默认设置 `process.env.DATA_DIR=<repo>/data`。
+  - 用户传入 `--data-dir <path>` 时才覆盖默认目录。
+  - 需要纯 JSON 输出时使用 `npm run -s cli -- ...`，避免 npm 日志污染 stdout。
+
+### 0.1.2 workspace 类型检查依赖已生成的 dist 声明
+- **问题**: 在 `packages/application` 增加新导出后，直接跑 `npm run typecheck` 可能先检查 `apps/api`，并报：
+  ```text
+  Module '"@yanghoo/application"' has no exported member ...
+  ```
+- **坑**: API workspace 通过 package `types` 读取 `@yanghoo/application/dist/index.d.ts`。如果新导出还没有编译到 dist，引用方会看到旧类型。
+- **避坑**:
+  - 修改 package public exports 后，先运行：
+    ```bash
+    npm run build -w @yanghoo/application
+    ```
+  - 然后再运行：
+    ```bash
+    npm run typecheck
+    npm run build
+    ```
+
 ### 0.2 taskId 作为 URL path 参数必须 encode
 - **问题**: 删除卡片或删除资产时报 404，例如请求实际变成：
   ```text
