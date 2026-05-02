@@ -10,8 +10,8 @@ import {
   Languages
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { ensureTranscript, fetchAudio, transcribeAudio, downloadMedia, transcribeMedia, deleteTask, translateDocument } from '../api/client';
-import type { LLMModel } from '../api/client';
+import { deleteTask } from '../api/client';
+import type { BackgroundJob, LLMModel, TaskJobAction, TaskJobOptions } from '../api/client';
 import type { TaskSummary } from '../types';
 
 interface TaskCardProps {
@@ -24,6 +24,8 @@ interface TaskCardProps {
   translationModels?: LLMModel[];
   collectionId?: string;
   onOpenCollection?: (collectionId: string) => void;
+  runningJob?: BackgroundJob;
+  onStartJob?: (taskId: string, action: TaskJobAction, options?: TaskJobOptions) => Promise<void>;
 }
 
 const DEFAULT_TRANSLATION_MODELS: LLMModel[] = [
@@ -97,7 +99,9 @@ export function TaskCard({
   onSelectionChange,
   translationModels = [],
   collectionId,
-  onOpenCollection
+  onOpenCollection,
+  runningJob,
+  onStartJob
 }: TaskCardProps) {
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
@@ -105,7 +109,8 @@ export function TaskCard({
   const [translationModelId, setTranslationModelId] = useState(DEFAULT_TRANSLATION_MODELS[0].id);
 
   const assets = task.documentAssets;
-  const isProcessing = !!activeAction;
+  const taskJobRunning = runningJob?.status === 'queued' || runningJob?.status === 'running';
+  const isProcessing = !!activeAction || !!taskJobRunning;
   const canRead = assets.status === 'markdown_ready' || assets.status === 'enriched';
 
   // Platform classification
@@ -142,6 +147,11 @@ export function TaskCard({
     }
   };
 
+  const startBackgroundAction = (action: TaskJobAction, options?: TaskJobOptions) => async () => {
+    if (!onStartJob) throw new Error('后台任务入口未配置');
+    await onStartJob(task.id, action, options);
+  };
+
   const handleDeleteCard = async () => {
     const confirmed = window.confirm(`删除这个卡片和所有本地资产？\n\n卡片和已下载/生成的资产都会被删除。`);
     if (!confirmed) return;
@@ -159,7 +169,7 @@ export function TaskCard({
       if (!confirmed) return;
     }
 
-    await runAction('translate', () => translateDocument(task.id, {
+    await runAction('translate', startBackgroundAction('translate', {
       modelId: translationModelId,
       force: assets.hasTranslation
     }));
@@ -177,7 +187,7 @@ export function TaskCard({
         label: activeAction === 'fetchAudio' ? '下载中...' : '下载音频',
         id: 'fetchAudio',
         icon: activeAction === 'fetchAudio' ? Loader2 : Download,
-        fn: () => fetchAudio(task.id),
+        fn: startBackgroundAction('fetch-audio'),
         variant: 'primary',
         disabled: isProcessing
       };
@@ -186,7 +196,7 @@ export function TaskCard({
         label: activeAction === 'transcribe' ? '转录中...' : '转录',
         id: 'transcribe',
         icon: activeAction === 'transcribe' ? Loader2 : Mic,
-        fn: () => transcribeAudio(task.id),
+        fn: startBackgroundAction('transcribe-audio'),
         variant: 'primary',
         disabled: isProcessing
       };
@@ -197,7 +207,7 @@ export function TaskCard({
       label: activeAction === 'downloadCaptions' ? '下载中...' : '下载字幕',
       id: 'downloadCaptions',
       icon: activeAction === 'downloadCaptions' ? Loader2 : Captions,
-      fn: () => ensureTranscript(task.id),
+      fn: startBackgroundAction('ensure-transcript'),
       variant: 'primary',
       disabled: isProcessing
     };
@@ -208,7 +218,7 @@ export function TaskCard({
         label: activeAction === 'downloadVideo' ? '下载中...' : '下载视频',
         id: 'downloadVideo',
         icon: activeAction === 'downloadVideo' ? Loader2 : Download,
-        fn: () => downloadMedia(task.id),
+        fn: startBackgroundAction('download-media'),
         variant: 'primary',
         disabled: isProcessing
       };
@@ -225,7 +235,7 @@ export function TaskCard({
         label: activeAction === 'transcribe' ? '转录中...' : '转录',
         id: 'transcribe',
         icon: activeAction === 'transcribe' ? Loader2 : Mic,
-        fn: () => transcribeMedia(task.id),
+        fn: startBackgroundAction('transcribe-media'),
         variant: 'primary',
         disabled: isProcessing
       };
@@ -237,7 +247,7 @@ export function TaskCard({
         label: activeAction === 'fetchAudio' ? '下载中...' : '下载音频',
         id: 'fetchAudio',
         icon: activeAction === 'fetchAudio' ? Loader2 : Download,
-        fn: () => fetchAudio(task.id),
+        fn: startBackgroundAction('fetch-audio'),
         variant: 'primary',
         disabled: isProcessing
       };
@@ -246,7 +256,7 @@ export function TaskCard({
         label: activeAction === 'transcribe' ? '转录中...' : '转录',
         id: 'transcribe',
         icon: activeAction === 'transcribe' ? Loader2 : Mic,
-        fn: () => transcribeAudio(task.id),
+        fn: startBackgroundAction('transcribe-audio'),
         variant: 'primary',
         disabled: isProcessing
       };
@@ -312,6 +322,27 @@ export function TaskCard({
             <FileText className="h-4 w-4 text-accent" />
           </div>
         </div>
+
+        {runningJob && (
+          <div className="rounded-md border border-blue-100 bg-blue-50 p-2">
+            <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-blue-800">
+              <span className="truncate">
+                {runningJob.status === 'failed'
+                  ? `${runningJob.label}失败`
+                  : runningJob.status === 'succeeded'
+                  ? `${runningJob.label}完成`
+                  : `${runningJob.label}后台处理中`}
+              </span>
+              <span>{runningJob.progress}%</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-blue-100">
+              <div
+                className={`h-full rounded-full ${runningJob.status === 'failed' ? 'bg-red-500' : 'bg-accent'}`}
+                style={{ width: `${runningJob.progress}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="rounded-md bg-red-50 p-2 text-[10px] leading-relaxed text-red-700 border border-red-100">

@@ -1,9 +1,22 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Home, User } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { AlertCircle, CheckCircle2, Home, Loader2, User, X } from 'lucide-react';
 import { TaskCard } from './components/TaskCard';
 import { Reader } from './components/Reader';
 import { GlobalSearch, type SearchPreviewTarget } from './components/GlobalSearch';
-import { exportNotebookLm, listModels, listSourceCollections, listTasks, openNotebookLmExport, type LLMModel, type NotebookLmExportResult } from './api/client';
+import {
+  exportNotebookLm,
+  listBackgroundJobs,
+  listModels,
+  listSourceCollections,
+  listTasks,
+  openNotebookLmExport,
+  startTaskActionJob,
+  type BackgroundJob,
+  type LLMModel,
+  type NotebookLmExportResult,
+  type TaskJobAction,
+  type TaskJobOptions
+} from './api/client';
 import type { SourceChannelCollectionSummary, TaskSummary } from './types';
 
 interface CollectionNavigationProps {
@@ -135,6 +148,81 @@ function MobileCollectionRail({ collections, activeCollection, totalCount, onSel
   );
 }
 
+function isActiveJob(job: BackgroundJob): boolean {
+  return job.status === 'queued' || job.status === 'running';
+}
+
+function mergeJobs(current: BackgroundJob[], incoming: BackgroundJob[]): BackgroundJob[] {
+  const byId = new Map<string, BackgroundJob>();
+  for (const job of current) byId.set(job.id, job);
+  for (const job of incoming) byId.set(job.id, job);
+  return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+function JobToastStack({
+  jobs,
+  dismissedJobIds,
+  onDismiss
+}: {
+  jobs: BackgroundJob[];
+  dismissedJobIds: Set<string>;
+  onDismiss: (jobId: string) => void;
+}) {
+  const visibleJobs = jobs
+    .filter(job => !dismissedJobIds.has(job.id))
+    .filter(job => isActiveJob(job) || job.status === 'succeeded' || job.status === 'failed')
+    .slice(0, 4);
+
+  if (!visibleJobs.length) return null;
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50 w-[min(360px,calc(100vw-2rem))] space-y-2">
+      {visibleJobs.map((job) => {
+        const isFailed = job.status === 'failed';
+        const isSucceeded = job.status === 'succeeded';
+        const Icon = isFailed ? AlertCircle : isSucceeded ? CheckCircle2 : Loader2;
+
+        return (
+          <div key={job.id} className="rounded-lg border border-line bg-white p-3 shadow-lg">
+            <div className="flex items-start gap-3">
+              <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${
+                isFailed ? 'text-red-600' : isSucceeded ? 'text-emerald-600' : 'animate-spin text-accent'
+              }`} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="truncate text-sm font-semibold text-ink">
+                    {isFailed ? `${job.label}失败` : isSucceeded ? `${job.label}完成` : `${job.label}中`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onDismiss(job.id)}
+                    className="rounded p-1 text-muted hover:bg-slate-100"
+                    aria-label="关闭任务通知"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <p className="mt-1 truncate text-xs text-muted">{job.message}</p>
+                <div className="mt-3 flex items-center gap-2">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className={`h-full rounded-full ${
+                        isFailed ? 'bg-red-500' : isSucceeded ? 'bg-emerald-500' : 'bg-accent'
+                      }`}
+                      style={{ width: `${job.progress}%` }}
+                    />
+                  </div>
+                  <span className="w-8 text-right text-[11px] font-medium text-muted">{job.progress}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function App() {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -151,9 +239,13 @@ export function App() {
   const [translationModels, setTranslationModels] = useState<LLMModel[]>([]);
   const [sourceCollections, setSourceCollections] = useState<SourceChannelCollectionSummary[]>([]);
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<BackgroundJob[]>([]);
+  const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(new Set());
+  const completedJobIdsRef = useRef<Set<string>>(new Set());
 
-  const refreshTasks = async () => {
-    setIsLoading(true);
+  const refreshTasks = async (options: { showLoading?: boolean } = {}) => {
+    const showLoading = options.showLoading ?? true;
+    if (showLoading) setIsLoading(true);
     setError(null);
     try {
       const [taskData, collectionData] = await Promise.all([
@@ -171,7 +263,7 @@ export function App() {
       console.error('Refresh failed:', err);
       setError(err.message || 'Failed to connect to API');
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   };
 
@@ -215,6 +307,10 @@ export function App() {
 
   useEffect(() => {
     refreshTasks();
+    listBackgroundJobs()
+      .then((jobData) => setJobs(jobData))
+      .catch((error) => console.error('Load background jobs failed:', error));
+
     async function loadTranslationModels() {
       try {
         const models = await listModels();
@@ -225,6 +321,34 @@ export function App() {
     }
     loadTranslationModels();
   }, []);
+
+  const activeJobs = useMemo(() => jobs.filter(isActiveJob), [jobs]);
+
+  useEffect(() => {
+    if (!activeJobs.length) return;
+
+    const interval = window.setInterval(async () => {
+      try {
+        const nextJobs = await listBackgroundJobs();
+        setJobs((current) => mergeJobs(current, nextJobs));
+      } catch (error) {
+        console.error('Poll background jobs failed:', error);
+      }
+    }, 1500);
+
+    return () => window.clearInterval(interval);
+  }, [activeJobs.length]);
+
+  useEffect(() => {
+    const newlyFinished = jobs.filter(job => !isActiveJob(job) && !completedJobIdsRef.current.has(job.id));
+    if (!newlyFinished.length) return;
+
+    for (const job of newlyFinished) {
+      completedJobIdsRef.current.add(job.id);
+    }
+
+    refreshTasks({ showLoading: false });
+  }, [jobs]);
 
   const activeCollection = useMemo(
     () => sourceCollections.find(collection => collection.id === activeCollectionId) || null,
@@ -246,6 +370,27 @@ export function App() {
     const sourceIds = new Set(activeCollection.sourceIds);
     return tasks.filter(task => sourceIds.has(task.id));
   }, [tasks, activeCollection]);
+
+  const jobByTaskId = useMemo(() => {
+    const map = new Map<string, BackgroundJob>();
+    for (const job of jobs) {
+      if (dismissedJobIds.has(job.id)) continue;
+      if (isActiveJob(job) && !map.has(job.taskId)) {
+        map.set(job.taskId, job);
+      }
+    }
+    return map;
+  }, [jobs, dismissedJobIds]);
+
+  const startCardJob = async (taskId: string, action: TaskJobAction, options: TaskJobOptions = {}) => {
+    const job = await startTaskActionJob(taskId, action, options);
+    setDismissedJobIds((current) => {
+      const next = new Set(current);
+      next.delete(job.id);
+      return next;
+    });
+    setJobs((current) => mergeJobs(current, [job]));
+  };
 
   const handleImport = async () => {
     if (!url || isImporting) return;
@@ -432,7 +577,7 @@ export function App() {
             <p className="text-sm font-medium text-red-800">Connection Error</p>
             <p className="mt-1 text-xs text-red-600">{error}</p>
             <button 
-              onClick={refreshTasks}
+              onClick={() => refreshTasks()}
               className="mt-4 rounded-md bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-200"
             >
               Retry
@@ -465,6 +610,8 @@ export function App() {
                 translationModels={translationModels}
                 collectionId={collectionIdByTaskId.get(task.id)}
                 onOpenCollection={setActiveCollectionId}
+                runningJob={jobByTaskId.get(task.id)}
+                onStartJob={startCardJob}
                 isSelected={selectedTaskIds.includes(task.id)}
                 onSelectionChange={updateTaskSelection}
                 onRefresh={refreshTasks} 
@@ -490,6 +637,11 @@ export function App() {
           onClose={() => setReadingTarget(null)}
         />
       )}
+      <JobToastStack
+        jobs={jobs}
+        dismissedJobIds={dismissedJobIds}
+        onDismiss={(jobId) => setDismissedJobIds((current) => new Set(current).add(jobId))}
+      />
     </div>
   );
 }

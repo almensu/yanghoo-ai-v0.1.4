@@ -27,6 +27,53 @@ export async function listSourceCollections(): Promise<SourceChannelCollectionSu
   return data.collections;
 }
 
+export type TaskJobAction =
+  | 'ensure-transcript'
+  | 'fetch-audio'
+  | 'transcribe-audio'
+  | 'download-media'
+  | 'transcribe-media'
+  | 'translate';
+
+export type BackgroundJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export interface TaskJobOptions {
+  modelId?: string;
+  force?: boolean;
+}
+
+export interface BackgroundJob {
+  id: string;
+  taskId: string;
+  action: TaskJobAction;
+  label: string;
+  status: BackgroundJobStatus;
+  progress: number;
+  message: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  errorMessage?: string;
+  stdoutTail?: string;
+  stderrTail?: string;
+}
+
+export async function startTaskActionJob(taskId: string, action: TaskJobAction, options: TaskJobOptions = {}): Promise<BackgroundJob> {
+  const response = await fetch(`${API_BASE}/api/jobs/task-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, action, options })
+  });
+  const data = await handleResponse(response);
+  return data.job;
+}
+
+export async function listBackgroundJobs(): Promise<BackgroundJob[]> {
+  const response = await fetch(`${API_BASE}/api/jobs`);
+  const data = await handleResponse(response);
+  return data.jobs;
+}
+
 export interface SearchResult {
   sourceId: string;
   platform: string;
