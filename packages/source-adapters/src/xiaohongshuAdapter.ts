@@ -1,6 +1,6 @@
 import { Source } from '@yanghoo/domain';
 import { nanoid } from 'nanoid';
-import { execSync, spawnSync } from 'child_process';
+import { runYtDlpMetadata, stringifyYtDlpArgs } from './ytDlpMetadataOptions.js';
 
 export class XiaohongshuSourceAdapter {
   async capture(input: string): Promise<Source> {
@@ -30,10 +30,10 @@ export class XiaohongshuSourceAdapter {
 
     try {
       // 2. Use yt-dlp to get real canonical metadata
-      const args = ['--proxy', '', '--dump-json', '--skip-download', url];
-      console.log(`[XiaohongshuAdapter] Running: yt-dlp ${args.join(' ')}`);
+      const args = ['--dump-json', '--skip-download', url];
+      console.log(`[XiaohongshuAdapter] Running: yt-dlp ${stringifyYtDlpArgs(args)}`);
       
-      const result = spawnSync('yt-dlp', args, { encoding: 'utf-8' });
+      const result = runYtDlpMetadata(args);
       
       if (result.status === 0) {
         const metadata = JSON.parse(result.stdout);

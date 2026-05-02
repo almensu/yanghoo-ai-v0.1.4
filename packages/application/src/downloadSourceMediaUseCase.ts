@@ -2,6 +2,7 @@ import { MediaAsset, getMediaDownloadPath } from '@yanghoo/domain';
 import { sourceStorage, mediaStorage } from '@yanghoo/storage';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
+import { runYtDlp } from './ytDlpNetworkOptions.js';
 
 /**
  * Use Case: Download real media for a source using yt-dlp.
@@ -25,15 +26,14 @@ export async function downloadSourceMediaUseCase(sourceId: string): Promise<Medi
     const logicalPath = getMediaDownloadPath(sourceId, '%(ext)s');
     const absolutePathPattern = (mediaStorage as any).resolvePath(logicalPath);
     
-    // Command to download best video+audio and merge into mp4
-    const cmd = `yt-dlp --proxy "" --merge-output-format mp4 -o "${absolutePathPattern}" "${source.url}"`;
-    console.log(`[UseCase] Running: ${cmd}`);
-    
     try {
-      execSync(cmd, { stdio: 'pipe' });
+      runYtDlp([
+        '--merge-output-format', 'mp4',
+        '-o', absolutePathPattern,
+        source.url
+      ], { timeoutMs: 300_000, preferProxy: true });
     } catch (e: any) {
-      const stderr = e.stderr?.toString() || e.message;
-      throw new Error(stderr);
+      throw new Error(e.message);
     }
 
     // Find the actual file (since %(ext)s was resolved by yt-dlp)

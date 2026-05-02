@@ -1,6 +1,6 @@
-import { MediaAsset, MediaAssetStatus } from '@yanghoo/domain';
+import { MediaAsset } from '@yanghoo/domain';
 import { sourceStorage, mediaStorage } from '@yanghoo/storage';
-import { execSync } from 'child_process';
+import { runYtDlp } from './ytDlpNetworkOptions.js';
 
 /**
  * Use Case: Resolve real media URL for a given source using yt-dlp.
@@ -12,9 +12,12 @@ export async function resolveSourceMediaUseCase(sourceId: string): Promise<Media
   if (!source) throw new Error(`Source not found: ${sourceId}`);
 
   try {
-    const cmd = `yt-dlp --proxy "" --dump-json --skip-download "${source.url}"`;
-    console.log(`[UseCase] Running: ${cmd}`);
-    const json = execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+    console.log(`[UseCase] Resolving media metadata with yt-dlp: ${source.url}`);
+    const json = runYtDlp([
+      '--dump-json',
+      '--skip-download',
+      source.url
+    ], { timeoutMs: 120_000, preferProxy: true }).toString();
     const metadata = JSON.parse(json);
 
     const asset: MediaAsset = {

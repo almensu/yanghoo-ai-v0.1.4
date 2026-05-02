@@ -1,6 +1,6 @@
 import { Source } from '@yanghoo/domain';
 import { nanoid } from 'nanoid';
-import { spawnSync } from 'child_process';
+import { runYtDlpMetadata, stringifyYtDlpArgs } from './ytDlpMetadataOptions.js';
 
 export class TikTokSourceAdapter {
   async capture(url: string): Promise<Source> {
@@ -15,10 +15,10 @@ export class TikTokSourceAdapter {
     try {
       // Use yt-dlp to get real metadata
       // TikTok often needs specific headers or cookies, and is sensitive to network/TLS impersonation.
-      const args = ['--proxy', '', '--socket-timeout', '30', '--dump-json', '--skip-download', url];
-      console.log(`[TikTokAdapter] Running: yt-dlp ${args.join(' ')}`);
+      const args = ['--dump-json', '--skip-download', url];
+      console.log(`[TikTokAdapter] Running: yt-dlp ${stringifyYtDlpArgs(args)}`);
       
-      const result = spawnSync('yt-dlp', args, { encoding: 'utf-8' });
+      const result = runYtDlpMetadata(args);
       
       if (result.status === 0) {
         const metadata = JSON.parse(result.stdout);
