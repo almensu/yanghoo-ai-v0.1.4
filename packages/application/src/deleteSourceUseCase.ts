@@ -1,4 +1,4 @@
-import { sourceStorage, mediaStorage } from '@yanghoo/storage';
+import { sourceStorage } from '@yanghoo/storage';
 
 /**
  * Use Case: Delete a source card and all its local assets.
@@ -11,15 +11,5 @@ export async function deleteSourceUseCase(sourceId: string): Promise<{ deleted: 
     throw new Error(`Source not found: ${sourceId}`);
   }
 
-  // 1. Delete all generated assets using the 'generated' scope
-  const assetDeletion = await mediaStorage.deleteAssets(sourceId, 'generated');
-
-  // 2. Delete the record.json file and attempt to clean up directory
-  const recordDeletion = await sourceStorage.deleteSource(sourceId);
-
-  return {
-    deleted: [...assetDeletion.deleted, ...recordDeletion.deleted],
-    skipped: [...assetDeletion.skipped, ...recordDeletion.skipped],
-    failed: [...assetDeletion.failed, ...recordDeletion.failed]
-  };
+  return sourceStorage.deleteSource(sourceId);
 }

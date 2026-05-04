@@ -229,6 +229,18 @@
   - 新的小红书导入必须使用 canonical ID，不能让 `?source=...` 进入 `source.id`。
   - 旧脏 ID 仍要能通过 encoded route 删除，不能要求用户手动清理 data 目录。
 
+### 0.2.1 UI 卡片数与本地 source 目录数不一致
+- **问题**: `data/sources/` 里有更多目录，但 UI 展示更少卡片，例如本地 17 个目录、UI 只有 11 张卡片。
+- **坑**:
+  - UI/API 的 `listSources()` 会按 `platform + canonicalId` 去重，旧脏记录或重复记录会被隐藏。
+  - 旧删除逻辑只删除 `record.json` 和部分已知资产文件，容易留下没有 `record.json` 的不可见资产目录。
+  - 如果点击 UI 删除只按可见 `sourceId` 删除单个目录，同 canonical 的隐藏目录仍会残留，前后端数据会再次不一致。
+- **避坑**:
+  - UI 展示是 source truth。`DELETE /api/tasks/:taskId` 必须按同一 canonical group 删除，而不是只删除单个 `sourceId`。
+  - 删除卡片时应递归删除匹配的 `data/sources/{sourceId}` 目录，包括未来新增资产、空子目录、caption/translation 子目录和旧脏目录。
+  - 对没有 `record.json` 的历史孤儿目录，按 UI 为准清理；这些目录不能在 UI 中被操作，也不应继续保留为有效资产。
+  - `delete assets` 和 `delete card` 语义不同：前者保留卡片，只删除某类生成资产；后者删除卡片和其整组本地资产。
+
   ### 0.3 小红书封面防盗链 (Xiaohongshu Cover Hotlinking)
   - **问题**: `xhscdn.com` 的封面图在浏览器直接访问经常报 403 或加载失败。
   - **坑**: 小红书 CDN 有防盗链限制或 URL 签名过期快。
