@@ -14,6 +14,7 @@ import {
   SyncCheckpoint,
   CaptionSyncReport,
   VideoSelection,
+  ChannelRefreshReport,
   getSourceRecordPath,
   getSourceDir,
   getTranscriptRawPath,
@@ -34,6 +35,7 @@ import {
   getChannelSyncCheckpointPath,
   getChannelCaptionSyncReportPath,
   getVideoSelectionPath,
+  getChannelRefreshReportPath,
   DocumentReadiness,
   ReadinessStatus,
   AudioStatus,
@@ -147,6 +149,8 @@ export interface ChannelStorage {
   listChannels(): Promise<string[]>;
   saveVideoSelection(selection: VideoSelection): Promise<void>;
   getVideoSelection(channelId: string): Promise<VideoSelection | null>;
+  saveChannelRefreshReport(report: ChannelRefreshReport): Promise<void>;
+  getChannelRefreshReport(channelId: string): Promise<ChannelRefreshReport | null>;
 }
 
 /**
@@ -876,6 +880,20 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     if (!fs.existsSync(fullPath)) return null;
     const content = await fs.promises.readFile(fullPath, 'utf-8');
     return JSON.parse(content) as VideoSelection;
+  }
+
+  async saveChannelRefreshReport(report: ChannelRefreshReport): Promise<void> {
+    const fullPath = this.resolvePath(getChannelRefreshReportPath(report.channelId));
+    const dir = path.dirname(fullPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await fs.promises.writeFile(fullPath, JSON.stringify(report, null, 2), 'utf-8');
+  }
+
+  async getChannelRefreshReport(channelId: string): Promise<ChannelRefreshReport | null> {
+    const fullPath = this.resolvePath(getChannelRefreshReportPath(channelId));
+    if (!fs.existsSync(fullPath)) return null;
+    const content = await fs.promises.readFile(fullPath, 'utf-8');
+    return JSON.parse(content) as ChannelRefreshReport;
   }
 }
 

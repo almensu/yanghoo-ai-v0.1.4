@@ -47,4 +47,5 @@ export interface LearningChannelVideoRow {
   indexStatus: VideoIndexStatus;
   youtubeUrl: string;
   lastError?: string;
+  discoveryStatus?: 'existing' | 'new' | 'remote_missing';
 }

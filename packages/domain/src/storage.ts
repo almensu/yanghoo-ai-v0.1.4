@@ -75,6 +75,8 @@ export const getChannelCaptionSyncReportPath = (channelId: string) => `${getChan
 
 export const getVideoSelectionPath = (channelId: string) => `${getChannelDir(channelId)}/video-selection.json`;
 
+export const getChannelRefreshReportPath = (channelId: string) => `${getChannelDir(channelId)}/channel-refresh-report.json`;
+
 export const getIndexDir = (channelId: string) => `${STORAGE_ROOT}/indexes/${channelId}`;
 export const getEnglishSentencesJsonlPath = (channelId: string) => `${getIndexDir(channelId)}/english-sentences.jsonl`;
 export const getEnglishSentencesManifestPath = (channelId: string) => `${getIndexDir(channelId)}/english-sentences-manifest.json`;

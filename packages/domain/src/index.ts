@@ -276,6 +276,35 @@ export interface CaptionSyncReport {
   updatedAt: string;
 }
 
+// --- Channel Refresh ---
+
+export type ChannelRefreshMode = 'latest' | 'full';
+
+export type ChannelVideoDiscoveryStatus = 'existing' | 'new' | 'remote_missing';
+
+export interface ChannelRefreshAddedVideo {
+  videoId: string;
+  title: string;
+  url: string;
+  publishedAt?: string;
+  duration?: number;
+}
+
+export interface ChannelRefreshReport {
+  channelId: string;
+  mode: ChannelRefreshMode;
+  fetchLimit: number;
+  fetchedAt: string;
+  localVideoCount: number;
+  remoteVideoCount: number;
+  addedCount: number;
+  updatedCount: number;
+  preservedCount: number;
+  remoteMissingCount: number;
+  addedVideos: ChannelRefreshAddedVideo[];
+  remoteMissingVideoIds: string[];
+}
+
 export * from './storage.js';
 export * from './englishSentenceIndex.js';
 export * from './channelVideoSelection.js';
