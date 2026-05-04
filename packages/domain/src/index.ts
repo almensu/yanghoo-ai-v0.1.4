@@ -278,3 +278,4 @@ export interface CaptionSyncReport {
 
 export * from './storage.js';
 export * from './englishSentenceIndex.js';
+export * from './channelVideoSelection.js';

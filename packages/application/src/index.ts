@@ -518,3 +518,7 @@ export * from './syncChannelCaptionsUseCase.js';
 export { validateLanguage } from './syncChannelCaptionsUseCase.js';
 export * from './buildEnglishSentenceIndexUseCase.js';
 export * from './searchEnglishSentenceIndexUseCase.js';
+export * from './listLearningChannelsUseCase.js';
+export * from './getLearningChannelVideosUseCase.js';
+export * from './updateChannelVideoSelectionUseCase.js';
+export * from './syncSelectedEnglishCaptionsUseCase.js';

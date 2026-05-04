@@ -13,6 +13,7 @@ import {
   ChannelVideo,
   SyncCheckpoint,
   CaptionSyncReport,
+  VideoSelection,
   getSourceRecordPath,
   getSourceDir,
   getTranscriptRawPath,
@@ -32,6 +33,7 @@ import {
   getChannelVideosPath,
   getChannelSyncCheckpointPath,
   getChannelCaptionSyncReportPath,
+  getVideoSelectionPath,
   DocumentReadiness,
   ReadinessStatus,
   AudioStatus,
@@ -142,6 +144,9 @@ export interface ChannelStorage {
   getSyncCheckpoint(channelId: string): Promise<SyncCheckpoint | null>;
   saveCaptionSyncReport(report: CaptionSyncReport): Promise<void>;
   getCaptionSyncReport(channelId: string): Promise<CaptionSyncReport | null>;
+  listChannels(): Promise<string[]>;
+  saveVideoSelection(selection: VideoSelection): Promise<void>;
+  getVideoSelection(channelId: string): Promise<VideoSelection | null>;
 }
 
 /**
@@ -842,6 +847,35 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     if (!fs.existsSync(fullPath)) return null;
     const content = await fs.promises.readFile(fullPath, 'utf-8');
     return JSON.parse(content) as CaptionSyncReport;
+  }
+
+  async listChannels(): Promise<string[]> {
+    const channelsDir = this.resolvePath('channels');
+    if (!fs.existsSync(channelsDir)) return [];
+    const entries = fs.readdirSync(channelsDir, { withFileTypes: true });
+    const channelIds: string[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const manifestPath = path.join(channelsDir, entry.name, 'channel-manifest.json');
+      if (fs.existsSync(manifestPath)) {
+        channelIds.push(entry.name);
+      }
+    }
+    return channelIds.sort();
+  }
+
+  async saveVideoSelection(selection: VideoSelection): Promise<void> {
+    const fullPath = this.resolvePath(getVideoSelectionPath(selection.channelId));
+    const dir = path.dirname(fullPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await fs.promises.writeFile(fullPath, JSON.stringify(selection, null, 2), 'utf-8');
+  }
+
+  async getVideoSelection(channelId: string): Promise<VideoSelection | null> {
+    const fullPath = this.resolvePath(getVideoSelectionPath(channelId));
+    if (!fs.existsSync(fullPath)) return null;
+    const content = await fs.promises.readFile(fullPath, 'utf-8');
+    return JSON.parse(content) as VideoSelection;
   }
 }
 
