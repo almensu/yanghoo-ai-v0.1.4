@@ -10,6 +10,8 @@ import { runSourceCommand } from './commands/source-command.js';
 import { runTranscriptCommand } from './commands/transcript-command.js';
 import { runTranscribeCommand } from './commands/transcribe-command.js';
 import { runTranslateCommand } from './commands/translate-command.js';
+import { runChannelCommand } from './commands/channel-command.js';
+import { runSentenceIndexCommand } from './commands/sentence-index-command.js';
 
 export async function runCli(argv: string[]): Promise<number> {
   let parsed: ReturnType<typeof extractGlobalArgs>;
@@ -39,6 +41,16 @@ export async function runCli(argv: string[]): Promise<number> {
 
       if (command === 'source') {
         await runSourceCommand(rest, context);
+        return;
+      }
+
+      if (command === 'channel') {
+        await runChannelCommand(rest, context);
+        return;
+      }
+
+      if (command === 'sentence-index') {
+        await runSentenceIndexCommand(rest, context);
         return;
       }
 

@@ -62,3 +62,17 @@ export const getDocumentTranslationPath = (sourceId: string, lang: string) =>
   `${getTranslationDir(sourceId)}/document.${lang}.md`;
 
 export const getTranslationManifestPath = (sourceId: string) => `${getTranslationDir(sourceId)}/translation-manifest.json`;
+
+export const getChannelDir = (channelId: string) => `${STORAGE_ROOT}/channels/${channelId}`;
+
+export const getChannelManifestPath = (channelId: string) => `${getChannelDir(channelId)}/channel-manifest.json`;
+
+export const getChannelVideosPath = (channelId: string) => `${getChannelDir(channelId)}/videos.json`;
+
+export const getChannelSyncCheckpointPath = (channelId: string) => `${getChannelDir(channelId)}/sync-checkpoint.json`;
+
+export const getChannelCaptionSyncReportPath = (channelId: string) => `${getChannelDir(channelId)}/caption-sync-report.json`;
+
+export const getIndexDir = (channelId: string) => `${STORAGE_ROOT}/indexes/${channelId}`;
+export const getEnglishSentencesJsonlPath = (channelId: string) => `${getIndexDir(channelId)}/english-sentences.jsonl`;
+export const getEnglishSentencesManifestPath = (channelId: string) => `${getIndexDir(channelId)}/english-sentences-manifest.json`;

@@ -215,4 +215,66 @@ export interface DeleteAssetsResponse {
   readiness: DocumentReadiness;
 }
 
+export interface ChannelManifest {
+  id: string;
+  platform: Platform;
+  url: string;
+  title: string;
+  description?: string;
+  thumbnailUrl?: string;
+  capturedAt: string;
+  isPartial?: boolean;
+}
+
+export interface ChannelVideo {
+  id: string;
+  videoId: string;
+  title: string;
+  url: string;
+  publishedAt?: string;
+  duration?: number;
+}
+
+export type SyncCheckpointStatus = 'in_progress' | 'completed';
+
+export interface SyncCheckpoint {
+  channelId: string;
+  language: string;
+  mode: string;
+  status: SyncCheckpointStatus;
+  nextIndex: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  startedAt: string;
+  updatedAt: string;
+}
+
+export type CaptionSyncItemStatus = 'success' | 'skipped' | 'failed';
+export type FailureKind = 'missing_caption' | 'rate_limit' | 'network' | 'unknown';
+
+export interface CaptionSyncReportItem {
+  videoId: string;
+  sourceId?: string;
+  status: CaptionSyncItemStatus;
+  attempts: number;
+  captionLanguage?: string;
+  failureKind?: FailureKind;
+  errorMessage?: string;
+  updatedAt: string;
+}
+
+export type CaptionSyncReportStatus = 'partial' | 'completed';
+
+export interface CaptionSyncReport {
+  channelId: string;
+  language: string;
+  status: CaptionSyncReportStatus;
+  items: CaptionSyncReportItem[];
+  startedAt: string;
+  updatedAt: string;
+}
+
 export * from './storage.js';
+export * from './englishSentenceIndex.js';

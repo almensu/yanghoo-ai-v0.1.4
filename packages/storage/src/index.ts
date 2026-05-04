@@ -3,11 +3,16 @@ import * as path from 'path';
 import {
   Source,
   TranscriptAsset,
+  TranscriptSegment,
   DocumentAsset,
   AudioAsset,
   MediaAsset,
   MediaAssetStatus,
   MediaKind,
+  ChannelManifest,
+  ChannelVideo,
+  SyncCheckpoint,
+  CaptionSyncReport,
   getSourceRecordPath,
   getSourceDir,
   getTranscriptRawPath,
@@ -22,6 +27,11 @@ import {
   getDocumentTranslationPath,
   getTranslationDir,
   getTranslationManifestPath,
+  getChannelDir,
+  getChannelManifestPath,
+  getChannelVideosPath,
+  getChannelSyncCheckpointPath,
+  getChannelCaptionSyncReportPath,
   DocumentReadiness,
   ReadinessStatus,
   AudioStatus,
@@ -47,6 +57,51 @@ export interface SourceStorage {
 export interface TranscriptStorage {
   saveTranscript(asset: TranscriptAsset): Promise<void>;
   getTranscript(sourceId: string): Promise<TranscriptAsset | null>;
+}
+
+/**
+ * Result of reading sentence data from a source.
+ * `status` distinguishes why data is absent.
+ */
+export type ReadSentencesResult =
+  | { status: 'ok'; sentences: TranscriptSegment[] }
+  | { status: 'no_source' }
+  | { status: 'no_asset' }
+  | { status: 'parse_error'; error: string }
+  | { status: 'invalid_shape'; error: string };
+
+/**
+ * Raw transcript manifest read from disk (type-lax).
+ */
+export interface TranscriptManifestData {
+  sourceType?: string;
+  status?: string;
+  language?: string;
+  engine?: string;
+  captionVariants?: Array<{
+    language: string;
+    label?: string;
+    isTranslated?: boolean;
+    rawPath?: string;
+    sentencesPath?: string;
+    vttPath?: string;
+    documentPath?: string;
+  }>;
+  generatedAt?: string;
+  rawSegmentsCount?: number;
+  refinedSegmentsCount?: number;
+  [key: string]: unknown;
+}
+
+export interface IndexInputStorage {
+  /** Read English caption sentences from captions/en/transcript-sentences.json */
+  readCaptionSentences(sourceId: string, language: string): ReadSentencesResult;
+  /** Read top-level transcript-sentences.json, returns parse errors explicitly */
+  readTopLevelSentences(sourceId: string): ReadSentencesResult;
+  /** Read transcript-manifest.json for a source */
+  readTranscriptManifest(sourceId: string): TranscriptManifestData | null;
+  /** Get the configured data root path */
+  getDataRoot(): string;
 }
 
 /**
@@ -76,9 +131,23 @@ export interface MediaStorage {
 }
 
 /**
- * File system implementation of SourceStorage, TranscriptStorage, and DocumentStorage.
+ * Interface for channel metadata persistence.
  */
-export class FileStorage implements SourceStorage, TranscriptStorage, DocumentStorage, AudioStorage, MediaStorage {
+export interface ChannelStorage {
+  saveChannelManifest(manifest: ChannelManifest): Promise<void>;
+  getChannelManifest(channelId: string): Promise<ChannelManifest | null>;
+  saveChannelVideos(channelId: string, videos: ChannelVideo[]): Promise<void>;
+  getChannelVideos(channelId: string): Promise<ChannelVideo[] | null>;
+  saveSyncCheckpoint(checkpoint: SyncCheckpoint): Promise<void>;
+  getSyncCheckpoint(channelId: string): Promise<SyncCheckpoint | null>;
+  saveCaptionSyncReport(report: CaptionSyncReport): Promise<void>;
+  getCaptionSyncReport(channelId: string): Promise<CaptionSyncReport | null>;
+}
+
+/**
+ * File system implementation of SourceStorage, TranscriptStorage, DocumentStorage, AudioStorage, MediaStorage, and ChannelStorage.
+ */
+export class FileStorage implements SourceStorage, TranscriptStorage, DocumentStorage, AudioStorage, MediaStorage, ChannelStorage, IndexInputStorage {
   private get dataRoot(): string {
     if (process.env.DATA_DIR) return path.resolve(process.env.DATA_DIR);
     
@@ -168,39 +237,139 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
   }
 
   async deleteSource(id: string): Promise<{ deleted: string[], skipped: string[], failed: { path: string, reason: string }[] }> {
-    const recordRelPath = getSourceRecordPath(id);
-    const recordAbsPath = this.resolvePath(recordRelPath);
-    const dirAbsPath = this.resolvePath(getSourceDir(id));
-
+    const targetSource = await this.getSource(id);
     const deleted: string[] = [];
     const skipped: string[] = [];
     const failed: { path: string, reason: string }[] = [];
+    const sourceDirs = this.findSourceDirsForDeletion(id, targetSource);
 
-    if (fs.existsSync(recordAbsPath)) {
+    if (sourceDirs.length === 0) {
+      skipped.push(getSourceDir(id));
+      return { deleted, skipped, failed };
+    }
+
+    for (const sourceDir of sourceDirs) {
+      const relDir = getSourceDir(sourceDir);
+      const absDir = this.resolvePath(relDir);
+
+      if (!fs.existsSync(absDir)) {
+        skipped.push(relDir);
+        continue;
+      }
+
       try {
-        fs.unlinkSync(recordAbsPath);
-        deleted.push(recordRelPath);
+        deleted.push(...this.listRelativeEntries(absDir, relDir));
+        fs.rmSync(absDir, { recursive: true, force: true });
+        deleted.push(relDir);
       } catch (e: any) {
-        failed.push({ path: recordRelPath, reason: e.message });
-      }
-    } else {
-      skipped.push(recordRelPath);
-    }
-
-    // Try to remove the directory if empty
-    if (fs.existsSync(dirAbsPath)) {
-      try {
-        const remainingFiles = fs.readdirSync(dirAbsPath);
-        if (remainingFiles.length === 0) {
-          fs.rmdirSync(dirAbsPath);
-          deleted.push(getSourceDir(id));
-        }
-      } catch (e) {
-        // Silently ignore directory removal errors (it might not be empty)
+        failed.push({ path: relDir, reason: e.message });
       }
     }
 
-    return { deleted, skipped, failed };
+    return {
+      deleted: Array.from(new Set(deleted)),
+      skipped: Array.from(new Set(skipped)),
+      failed
+    };
+  }
+
+  private findSourceDirsForDeletion(id: string, targetSource: Source | null): string[] {
+    const sourcesDir = this.resolvePath('sources');
+    const dirs = fs.existsSync(sourcesDir)
+      ? fs.readdirSync(sourcesDir, { withFileTypes: true })
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name)
+      : [];
+
+    const matched = new Set<string>();
+    if (dirs.includes(id)) matched.add(id);
+
+    if (!targetSource) {
+      return Array.from(matched);
+    }
+
+    const targetKey = this.sourceCanonicalKey(targetSource);
+    for (const dir of dirs) {
+      const source = this.readSourceFromDir(dir);
+      if (source && this.sourceCanonicalKey(source) === targetKey) {
+        matched.add(dir);
+        continue;
+      }
+
+      if (!source && this.sourceDirMayBelongToSource(dir, targetSource)) {
+        matched.add(dir);
+      }
+    }
+
+    return Array.from(matched);
+  }
+
+  private readSourceFromDir(dir: string): Source | null {
+    const recordAbsPath = this.resolvePath(getSourceRecordPath(dir));
+    if (!fs.existsSync(recordAbsPath)) return null;
+
+    try {
+      return JSON.parse(fs.readFileSync(recordAbsPath, 'utf-8')) as Source;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  private sourceCanonicalKey(source: Source): string {
+    if (!source.platform || !source.canonicalId) {
+      return `id:${source.id}`;
+    }
+
+    return `${source.platform}:${this.normalizeCanonicalId(source.platform, source.canonicalId)}`;
+  }
+
+  private normalizeCanonicalId(platform: string, canonicalId: string): string {
+    if (platform === 'xiaohongshu') {
+      return canonicalId.split('?')[0].split('#')[0];
+    }
+    return canonicalId;
+  }
+
+  private sourceDirMayBelongToSource(dir: string, source: Source): boolean {
+    const normalizedDir = dir.split('?')[0].split('#')[0];
+    if (normalizedDir === source.id) return true;
+
+    if (!source.canonicalId) return false;
+    const canonicalId = this.normalizeCanonicalId(source.platform, source.canonicalId);
+    const prefix = `${this.sourcePlatformDirPrefix(source.platform)}${canonicalId}`;
+    const expectedIds = new Set([source.id, prefix]);
+
+    if (expectedIds.has(normalizedDir)) return true;
+
+    // Match legacy orphan directories that share the source id/canonical prefix
+    for (const baseId of expectedIds) {
+      if (normalizedDir.startsWith(`${baseId}-`)) return true;
+    }
+
+    return false;
+  }
+
+  private sourcePlatformDirPrefix(platform: string): string {
+    switch (platform) {
+      case 'youtube':
+        return 'yt-';
+      case 'bilibili':
+        return 'bili-';
+      case 'xiaohongshu':
+        return 'xhs-';
+      case 'xiaoyuzhou':
+        return 'xyz-';
+      case 'apple_podcast':
+        return 'apple-podcast-';
+      case 'douyin':
+        return 'dy-';
+      case 'tiktok':
+        return 'tiktok-';
+      case 'x':
+        return 'x-';
+      default:
+        return `${platform}-`;
+    }
   }
 
   async saveTranscript(asset: TranscriptAsset): Promise<void> {
@@ -561,6 +730,119 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     }
     return files;
   }
+
+  private listRelativeEntries(absDir: string, relDir: string): string[] {
+    const entries = fs.readdirSync(absDir, { withFileTypes: true });
+    const paths: string[] = [];
+
+    for (const entry of entries) {
+      const childAbsPath = path.join(absDir, entry.name);
+      const childRelPath = path.join(relDir, entry.name);
+      if (entry.isDirectory()) {
+        paths.push(...this.listRelativeEntries(childAbsPath, childRelPath));
+        paths.push(childRelPath);
+      } else {
+        paths.push(childRelPath);
+      }
+    }
+
+    return paths;
+  }
+
+  // --- ChannelStorage Implementation ---
+
+  // --- IndexInputStorage Implementation ---
+
+  getDataRoot(): string {
+    return this.dataRoot;
+  }
+
+  readCaptionSentences(sourceId: string, language: string): ReadSentencesResult {
+    const captionSentencesPath = this.resolvePath(`sources/${sourceId}/captions/${language}/transcript-sentences.json`);
+    if (!fs.existsSync(captionSentencesPath)) return { status: 'no_asset' };
+    return this.parseSentencesFile(captionSentencesPath);
+  }
+
+  readTopLevelSentences(sourceId: string): ReadSentencesResult {
+    const sentencesPath = this.resolvePath(`sources/${sourceId}/transcript-sentences.json`);
+    if (!fs.existsSync(sentencesPath)) return { status: 'no_asset' };
+    return this.parseSentencesFile(sentencesPath);
+  }
+
+  readTranscriptManifest(sourceId: string): TranscriptManifestData | null {
+    const manifestPath = this.resolvePath(`sources/${sourceId}/transcript-manifest.json`);
+    if (!fs.existsSync(manifestPath)) return null;
+    try {
+      return JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as TranscriptManifestData;
+    } catch {
+      return null;
+    }
+  }
+
+  private parseSentencesFile(absPath: string): ReadSentencesResult {
+    try {
+      const content = fs.readFileSync(absPath, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (!Array.isArray(parsed)) {
+        return { status: 'invalid_shape', error: `Expected array, got ${typeof parsed}` };
+      }
+      return { status: 'ok', sentences: parsed };
+    } catch (e: any) {
+      return { status: 'parse_error', error: e.message };
+    }
+  }
+
+  async saveChannelManifest(manifest: ChannelManifest): Promise<void> {
+    const fullPath = this.resolvePath(getChannelManifestPath(manifest.id));
+    if (!fs.existsSync(path.dirname(fullPath))) fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    await fs.promises.writeFile(fullPath, JSON.stringify(manifest, null, 2), 'utf-8');
+  }
+
+  async getChannelManifest(channelId: string): Promise<ChannelManifest | null> {
+    const fullPath = this.resolvePath(getChannelManifestPath(channelId));
+    if (!fs.existsSync(fullPath)) return null;
+    const content = await fs.promises.readFile(fullPath, 'utf-8');
+    return JSON.parse(content) as ChannelManifest;
+  }
+
+  async saveChannelVideos(channelId: string, videos: ChannelVideo[]): Promise<void> {
+    const fullPath = this.resolvePath(getChannelVideosPath(channelId));
+    if (!fs.existsSync(path.dirname(fullPath))) fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    await fs.promises.writeFile(fullPath, JSON.stringify(videos, null, 2), 'utf-8');
+  }
+
+  async getChannelVideos(channelId: string): Promise<ChannelVideo[] | null> {
+    const fullPath = this.resolvePath(getChannelVideosPath(channelId));
+    if (!fs.existsSync(fullPath)) return null;
+    const content = await fs.promises.readFile(fullPath, 'utf-8');
+    return JSON.parse(content) as ChannelVideo[];
+  }
+
+  async saveSyncCheckpoint(checkpoint: SyncCheckpoint): Promise<void> {
+    const fullPath = this.resolvePath(getChannelSyncCheckpointPath(checkpoint.channelId));
+    if (!fs.existsSync(path.dirname(fullPath))) fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    await fs.promises.writeFile(fullPath, JSON.stringify(checkpoint, null, 2), 'utf-8');
+  }
+
+  async getSyncCheckpoint(channelId: string): Promise<SyncCheckpoint | null> {
+    const fullPath = this.resolvePath(getChannelSyncCheckpointPath(channelId));
+    if (!fs.existsSync(fullPath)) return null;
+    const content = await fs.promises.readFile(fullPath, 'utf-8');
+    return JSON.parse(content) as SyncCheckpoint;
+  }
+
+  async saveCaptionSyncReport(report: CaptionSyncReport): Promise<void> {
+    const fullPath = this.resolvePath(getChannelCaptionSyncReportPath(report.channelId));
+    if (!fs.existsSync(path.dirname(fullPath))) fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    await fs.promises.writeFile(fullPath, JSON.stringify(report, null, 2), 'utf-8');
+  }
+
+  async getCaptionSyncReport(channelId: string): Promise<CaptionSyncReport | null> {
+    const fullPath = this.resolvePath(getChannelCaptionSyncReportPath(channelId));
+    if (!fs.existsSync(fullPath)) return null;
+    const content = await fs.promises.readFile(fullPath, 'utf-8');
+    return JSON.parse(content) as CaptionSyncReport;
+  }
 }
 
 // Current singleton for simplicity in MVP
@@ -569,3 +851,8 @@ export const transcriptStorage = sourceStorage;
 export const documentStorage = sourceStorage;
 export const audioStorage = sourceStorage;
 export const mediaStorage = sourceStorage;
+export const channelStorage = sourceStorage;
+export const indexInputStorage: IndexInputStorage = sourceStorage;
+
+export { createEnglishSentenceIndexStorage } from './englishSentenceIndexStorage.js';
+export type { EnglishSentenceIndexStorage } from './englishSentenceIndexStorage.js';

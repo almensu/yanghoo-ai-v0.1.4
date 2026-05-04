@@ -35,6 +35,10 @@ export interface FetchTranscriptResult {
   requestedLanguage?: string;
 }
 
+export interface FetchTranscriptBundleOptions {
+  languages?: ('en' | 'zh-Hans')[];
+}
+
 export interface FetchTranscriptBundleResult {
   primary: FetchTranscriptResult;
   english?: FetchTranscriptResult;
@@ -311,8 +315,10 @@ export class YouTubeSourceAdapter {
    * is actively requested through YouTube's timedtext machine translation
    * (`tlang=zh-Hans`) when a native zh-Hans caption track is not available.
    */
-  async fetchTranscriptBundle(videoId: string): Promise<FetchTranscriptBundleResult> {
-    console.log(`[YouTubeAdapter] Fetching bilingual InnerTube transcript for video: ${videoId}`);
+  async fetchTranscriptBundle(videoId: string, options?: FetchTranscriptBundleOptions): Promise<FetchTranscriptBundleResult> {
+    const requestedLanguages = options?.languages || ['en', 'zh-Hans'];
+    const label = requestedLanguages.length === 1 ? requestedLanguages[0] : 'bilingual';
+    console.log(`[YouTubeAdapter] Fetching ${label} InnerTube transcript for video: ${videoId}`);
 
     try {
       const metadata = await this.fetchMetadataFromInnerTube(videoId);
@@ -324,13 +330,18 @@ export class YouTubeSourceAdapter {
       }
 
       const translationLanguages = this.extractTranslationLanguages(captionsRenderer);
-      const [english, simplifiedChinese] = await Promise.all([
-        this.fetchCaptionVariant(videoId, captionTracks, translationLanguages, 'en'),
-        this.fetchCaptionVariant(videoId, captionTracks, translationLanguages, 'zh-Hans')
-      ]);
+
+      const fetchEn = requestedLanguages.includes('en')
+        ? this.fetchCaptionVariant(videoId, captionTracks, translationLanguages, 'en')
+        : Promise.resolve(null);
+      const fetchZh = requestedLanguages.includes('zh-Hans')
+        ? this.fetchCaptionVariant(videoId, captionTracks, translationLanguages, 'zh-Hans')
+        : Promise.resolve(null);
+
+      const [english, simplifiedChinese] = await Promise.all([fetchEn, fetchZh]);
 
       if (!english && !simplifiedChinese) {
-        throw new Error(`No requested YouTube English/Simplified Chinese caption variants found for video: ${videoId}`);
+        throw new Error(`No requested YouTube caption variants found for video: ${videoId} (requested: ${requestedLanguages.join(', ')})`);
       }
 
       return {
@@ -345,7 +356,7 @@ export class YouTubeSourceAdapter {
         }))
       };
     } catch (error: any) {
-      console.error(`[YouTubeAdapter] Error fetching bilingual InnerTube transcript: ${error.message}`);
+      console.error(`[YouTubeAdapter] Error fetching InnerTube transcript: ${error.message}`);
       throw error;
     }
   }
@@ -612,6 +623,107 @@ export class YouTubeSourceAdapter {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  }
+
+  async captureChannel(url: string, options?: { limit?: number }): Promise<{ manifest: import('@yanghoo/domain').ChannelManifest, videos: import('@yanghoo/domain').ChannelVideo[] }> {
+    // We use yt-dlp to extract channel playlist and videos
+    const args = [
+      '--dump-json',
+      '--flat-playlist',
+      '--ignore-errors',
+      '--no-warnings',
+      ...this.buildYtDlpCaptionNetworkArgs().filter((arg, i, arr) => {
+        if (arg === '--cookies-from-browser') return false;
+        if (i > 0 && arr[i - 1] === '--cookies-from-browser') return false;
+        return true;
+      })
+    ];
+
+    if (options?.limit && options.limit > 0) {
+      args.push('--playlist-end', options.limit.toString());
+    }
+    
+    args.push(url);
+
+    let output = '';
+    try {
+      output = execFileSync('yt-dlp', args, {
+        encoding: 'utf-8',
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 300_000 // 5 minutes timeout for large channels
+      });
+    } catch (e: any) {
+      if (e.stdout) {
+        output = e.stdout; // Some videos might error but we still have output
+      } else {
+        throw new Error(`yt-dlp channel capture failed: ${e.message}`);
+      }
+    }
+
+    const lines = output.split('\n').filter(l => l.trim().length > 0);
+    let videos: import('@yanghoo/domain').ChannelVideo[] = [];
+    const seenIds = new Set<string>();
+    let channelId = '';
+    let channelTitle = '';
+    let totalPlaylistCount: number | undefined;
+
+    for (const line of lines) {
+      try {
+        const item = JSON.parse(line);
+        if (item.id && item.title && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          videos.push({
+            id: `yt-${item.id}`,
+            videoId: item.id,
+            title: item.title,
+            url: item.url || `https://www.youtube.com/watch?v=${item.id}`,
+            duration: item.duration
+          });
+          
+          if (item.playlist_count !== undefined && item.playlist_count !== null) {
+             totalPlaylistCount = item.playlist_count;
+          }
+
+          if (!channelId && item.playlist_channel_id) {
+            channelId = item.playlist_channel_id;
+            channelTitle = item.playlist_channel || item.playlist_uploader || item.uploader || 'Unknown Channel';
+          } else if (!channelId && item.channel_id) {
+            channelId = item.channel_id;
+            channelTitle = item.channel || item.uploader || 'Unknown Channel';
+          }
+        }
+      } catch (err) {
+        // ignore parse errors for single lines
+      }
+    }
+
+    let isPartial = false;
+    if (options?.limit && options.limit > 0) {
+      isPartial = videos.length >= options.limit;
+      videos = videos.slice(0, options.limit);
+    } else if (totalPlaylistCount !== undefined && videos.length < totalPlaylistCount) {
+      isPartial = true;
+    }
+
+    if (!channelId) {
+      // Fallback if we couldn't parse channel ID from videos
+      const match = url.match(/@([^/?#]+)/);
+      if (match) channelId = match[1];
+      else channelId = nanoid();
+      
+      channelTitle = channelTitle || channelId;
+    }
+
+    const manifest: import('@yanghoo/domain').ChannelManifest = {
+      id: `youtube-${channelId}`,
+      platform: 'youtube',
+      url,
+      title: channelTitle,
+      capturedAt: new Date().toISOString(),
+      isPartial
+    };
+
+    return { manifest, videos };
   }
 
   private buildYtDlpCaptionNetworkArgs(): string[] {
