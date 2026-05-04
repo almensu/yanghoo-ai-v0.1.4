@@ -129,6 +129,75 @@ export async function searchEnglishSentences(
   return data.results;
 }
 
+// --- Learning Channels ---
+
+export interface LearningChannelSummary {
+  channelId: string;
+  title: string;
+  videoCount: number;
+  selectedCount: number;
+  captionReadyCount: number;
+  indexedSentenceCount: number;
+  updatedAt: string;
+}
+
+export interface LearningChannelVideoRow {
+  videoId: string;
+  sourceId?: string;
+  title: string;
+  publishedAt?: string;
+  selected: boolean;
+  captionStatus: string;
+  indexStatus: string;
+  youtubeUrl: string;
+  lastError?: string;
+}
+
+export async function registerLearningChannel(url: string, limit = 50): Promise<{ channelId: string; title: string; videoCount: number }> {
+  const response = await fetch(`${API_BASE}/api/learning-channels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, limit })
+  });
+  return handleResponse(response);
+}
+
+export async function listLearningChannels(): Promise<LearningChannelSummary[]> {
+  const response = await fetch(`${API_BASE}/api/learning-channels`);
+  const data = await handleResponse(response);
+  return data.channels;
+}
+
+export async function getChannelVideos(channelId: string): Promise<{ channelId: string; videos: LearningChannelVideoRow[] }> {
+  const response = await fetch(`${API_BASE}/api/learning-channels/${encodeURIComponent(channelId)}/videos`);
+  return handleResponse(response);
+}
+
+export async function updateVideoSelection(channelId: string, videoIds: string[], selected: boolean): Promise<{ selectedCount: number; totalVideos: number }> {
+  const response = await fetch(`${API_BASE}/api/learning-channels/${encodeURIComponent(channelId)}/selection`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ videoIds, selected })
+  });
+  return handleResponse(response);
+}
+
+export async function syncSelectedCaptions(channelId: string, batchSize = 10, force = false): Promise<{ channelId: string; processed: number; succeeded: number; failed: number; skipped: number }> {
+  const response = await fetch(`${API_BASE}/api/learning-channels/${encodeURIComponent(channelId)}/sync-selected`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ batchSize, force })
+  });
+  return handleResponse(response);
+}
+
+export async function buildChannelIndex(channelId: string): Promise<{ channelId: string; language: string; sourceCount: number; sentenceCount: number; skippedCount: number; failedCount: number; warnings: string[] }> {
+  const response = await fetch(`${API_BASE}/api/learning-channels/${encodeURIComponent(channelId)}/build-index`, {
+    method: 'POST'
+  });
+  return handleResponse(response);
+}
+
 function taskPath(taskId: string): string {
   return `${API_BASE}/api/tasks/${encodeURIComponent(taskId)}`;
 }

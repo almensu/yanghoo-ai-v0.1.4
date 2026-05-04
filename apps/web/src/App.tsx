@@ -4,6 +4,7 @@ import { TaskCard } from './components/TaskCard';
 import { Reader } from './components/Reader';
 import { GlobalSearch, type SearchPreviewTarget } from './components/GlobalSearch';
 import EnglishSentenceSearch from './components/EnglishSentenceSearch';
+import LearningChannelLibrary from './components/LearningChannelLibrary';
 import {
   exportNotebookLm,
   listBackgroundJobs,
@@ -225,7 +226,7 @@ function JobToastStack({
 }
 
 export function App() {
-  type View = 'workbench' | 'english-search';
+  type View = 'workbench' | 'channels' | 'english-search';
   const [activeView, setActiveView] = useState<View>('workbench');
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -437,6 +438,12 @@ export function App() {
                 Tasks
               </button>
               <button
+                onClick={() => setActiveView('channels')}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${activeView === 'channels' ? 'bg-white text-ink shadow-sm' : 'text-muted hover:bg-white'}`}
+              >
+                Channels
+              </button>
+              <button
                 onClick={() => setActiveView('english-search')}
                 className={`rounded px-3 py-1 text-xs font-medium transition-colors ${activeView === 'english-search' ? 'bg-white text-ink shadow-sm' : 'text-muted hover:bg-white'}`}
               >
@@ -474,6 +481,8 @@ export function App() {
       <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6">
         {activeView === 'english-search' ? (
           <EnglishSentenceSearch />
+        ) : activeView === 'channels' ? (
+          <LearningChannelLibrary />
         ) : (
         <div className="flex gap-6">
         <CollectionSidebar

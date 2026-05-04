@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BookOpen, Captions, Check, Clock3, Copy, ExternalLink, Loader2, Play, Search } from 'lucide-react';
-import { searchEnglishSentences } from '../api/client';
-import type { EnglishSentenceSearchResult } from '../api/client';
+import { searchEnglishSentences, listLearningChannels } from '../api/client';
+import type { EnglishSentenceSearchResult, LearningChannelSummary } from '../api/client';
 
-const DEFAULT_CHANNEL_ID = 'youtube-UCxJGMJbjokfnr2-s4_RXPxQ';
-const DEFAULT_CHANNEL_TITLE = 'Speak English With Vanessa';
+const FALLBACK_CHANNEL_ID = 'youtube-UCxJGMJbjokfnr2-s4_RXPxQ';
+const FALLBACK_CHANNEL_TITLE = 'Speak English With Vanessa';
 const QUICK_QUERIES = ['would have', 'because', 'kind of', 'I mean', 'pronunciation'];
 const RESULT_LIMITS = [10, 20, 30, 50];
 
@@ -152,12 +152,47 @@ export default function EnglishSentenceSearch() {
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
+  const [channels, setChannels] = useState<LearningChannelSummary[]>([]);
+  const [activeChannelId, setActiveChannelId] = useState(FALLBACK_CHANNEL_ID);
+  const [activeChannelTitle, setActiveChannelTitle] = useState(FALLBACK_CHANNEL_TITLE);
+  const [activeChannelSentences, setActiveChannelSentences] = useState(0);
+
+  useEffect(() => {
+    listLearningChannels()
+      .then(chs => {
+        const indexed = chs.filter(c => c.indexedSentenceCount > 0);
+        setChannels(indexed);
+        if (indexed.length > 0) {
+          const preferred = indexed.find(c => c.channelId === FALLBACK_CHANNEL_ID) || indexed[0];
+          setActiveChannelId(preferred.channelId);
+          setActiveChannelTitle(preferred.title);
+          setActiveChannelSentences(preferred.indexedSentenceCount);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Channel switch: clear results and re-search
+  const initialChannelSet = useRef(false);
+  useEffect(() => {
+    if (!initialChannelSet.current) {
+      initialChannelSet.current = true;
+      return;
+    }
+    setResults([]);
+    setHasSearched(false);
+    setErrorMessage(null);
+    if (query.trim()) {
+      doSearch(query);
+    }
+  }, [activeChannelId]);
+
   const doSearch = useCallback(async (q: string, resultLimit = limit) => {
     if (!q.trim()) return;
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const data = await searchEnglishSentences(DEFAULT_CHANNEL_ID, q, resultLimit);
+      const data = await searchEnglishSentences(activeChannelId, q, resultLimit);
       setResults(data);
       setHasSearched(true);
     } catch (err: any) {
@@ -167,7 +202,7 @@ export default function EnglishSentenceSearch() {
     } finally {
       setIsLoading(false);
     }
-  }, [limit]);
+  }, [limit, activeChannelId]);
 
   const scheduleSearch = (value: string, resultLimit = limit) => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -222,7 +257,7 @@ export default function EnglishSentenceSearch() {
               </div>
               <div className="min-w-0">
                 <h2 className="text-base font-semibold text-ink">English Search</h2>
-                <p className="truncate text-xs text-muted">{DEFAULT_CHANNEL_TITLE}</p>
+                <p className="truncate text-xs text-muted">{activeChannelTitle}</p>
               </div>
             </div>
 
@@ -281,23 +316,37 @@ export default function EnglishSentenceSearch() {
           </div>
 
           <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Index</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Channel</p>
+            {channels.length > 0 ? (
+              <select
+                value={activeChannelId}
+                onChange={e => {
+                  const ch = channels.find(c => c.channelId === e.target.value);
+                  if (ch) {
+                    setActiveChannelId(ch.channelId);
+                    setActiveChannelTitle(ch.title);
+                    setActiveChannelSentences(ch.indexedSentenceCount);
+                  }
+                }}
+                className="mt-2 w-full rounded-md border border-line bg-white px-2 py-1.5 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+              >
+                {channels.map(ch => (
+                  <option key={ch.channelId} value={ch.channelId}>
+                    {ch.title}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="mt-2 text-sm font-medium text-ink">{activeChannelTitle}</p>
+            )}
             <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <dt className="text-xs text-muted">Channel</dt>
-                <dd className="mt-1 font-medium text-ink">Vanessa</dd>
-              </div>
               <div>
                 <dt className="text-xs text-muted">Language</dt>
                 <dd className="mt-1 font-medium text-ink">English</dd>
               </div>
               <div>
-                <dt className="text-xs text-muted">Sources</dt>
-                <dd className="mt-1 font-medium text-ink">20</dd>
-              </div>
-              <div>
                 <dt className="text-xs text-muted">Sentences</dt>
-                <dd className="mt-1 font-medium text-ink">3,246</dd>
+                <dd className="mt-1 font-medium text-ink">{activeChannelSentences.toLocaleString()}</dd>
               </div>
             </dl>
           </div>

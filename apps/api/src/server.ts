@@ -7,6 +7,7 @@ import { registerTaskRoutes } from './routes/tasks.js';
 import { registerChatRoutes } from './routes/chat.js';
 import { registerSearchRoutes } from './routes/search.js';
 import { registerEnglishSentenceRoutes } from './routes/englishSentences.js';
+import { registerLearningChannelRoutes } from './routes/learningChannels.js';
 import { registerSourceCollectionRoutes } from './routes/sourceCollections.js';
 import { registerJobRoutes } from './routes/jobs.js';
 
@@ -33,6 +34,7 @@ await app.register(registerJobRoutes);
 await app.register(registerChatRoutes);
 await app.register(registerSearchRoutes);
 await app.register(registerEnglishSentenceRoutes);
+await app.register(registerLearningChannelRoutes);
 
 app.get('/api/health', async () => ({
   ok: true,
