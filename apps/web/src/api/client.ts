@@ -98,6 +98,37 @@ export async function searchDocuments(query: string, limit = 30): Promise<Search
   return data.results;
 }
 
+export interface EnglishSentenceSearchResult {
+  entry: {
+    sourceId: string;
+    videoId: string;
+    channelId: string;
+    channelTitle?: string;
+    title?: string;
+    publishedAt?: string;
+    start: number;
+    end: number;
+    text: string;
+    normalizedText: string;
+    captionKind?: string;
+    captionLanguage: string;
+  };
+  youtubeTimestampUrl: string;
+}
+
+export async function searchEnglishSentences(
+  channelId: string, q: string, limit = 20
+): Promise<EnglishSentenceSearchResult[]> {
+  const params = new URLSearchParams({
+    channelId, q, limit: String(limit)
+  });
+  const response = await fetch(
+    `${API_BASE}/api/english-sentences/search?${params.toString()}`
+  );
+  const data = await handleResponse(response);
+  return data.results;
+}
+
 function taskPath(taskId: string): string {
   return `${API_BASE}/api/tasks/${encodeURIComponent(taskId)}`;
 }

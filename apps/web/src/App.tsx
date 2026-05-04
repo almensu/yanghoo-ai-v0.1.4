@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Home, Loader2, User, X } from 'lucide-react'
 import { TaskCard } from './components/TaskCard';
 import { Reader } from './components/Reader';
 import { GlobalSearch, type SearchPreviewTarget } from './components/GlobalSearch';
+import EnglishSentenceSearch from './components/EnglishSentenceSearch';
 import {
   exportNotebookLm,
   listBackgroundJobs,
@@ -224,6 +225,8 @@ function JobToastStack({
 }
 
 export function App() {
+  type View = 'workbench' | 'english-search';
+  const [activeView, setActiveView] = useState<View>('workbench');
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -420,11 +423,28 @@ export function App() {
   return (
     <div className="min-h-screen bg-canvas">
       <header className="border-b border-line bg-white">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between px-6 py-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Yanghoo AI v0.3.0</p>
-            <h1 className="text-xl font-semibold text-ink">Transcript Workbench</h1>
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Yanghoo AI v0.3.0</p>
+              <h1 className="text-xl font-semibold text-ink">Transcript Workbench</h1>
+            </div>
+            <div className="inline-flex w-fit rounded-md border border-line bg-slate-50 p-0.5 sm:ml-4">
+              <button
+                onClick={() => setActiveView('workbench')}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${activeView === 'workbench' ? 'bg-white text-ink shadow-sm' : 'text-muted hover:bg-white'}`}
+              >
+                Tasks
+              </button>
+              <button
+                onClick={() => setActiveView('english-search')}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${activeView === 'english-search' ? 'bg-white text-ink shadow-sm' : 'text-muted hover:bg-white'}`}
+              >
+                English Search
+              </button>
+            </div>
           </div>
+          {activeView === 'workbench' && (
           <div className="flex flex-col gap-1">
             <div className="flex gap-2">
               <input 
@@ -447,10 +467,15 @@ export function App() {
               <p className="text-[10px] text-red-500 font-medium">{importError}</p>
             )}
           </div>
+          )}
         </div>
       </header>
 
-      <main className="mx-auto flex max-w-[1440px] gap-6 px-4 py-6 sm:px-6">
+      <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6">
+        {activeView === 'english-search' ? (
+          <EnglishSentenceSearch />
+        ) : (
+        <div className="flex gap-6">
         <CollectionSidebar
           collections={sourceCollections}
           activeCollection={activeCollection}
@@ -626,6 +651,8 @@ export function App() {
           </section>
         )}
         </div>
+        </div>
+        )}
       </main>
 
       {readingTarget && (
