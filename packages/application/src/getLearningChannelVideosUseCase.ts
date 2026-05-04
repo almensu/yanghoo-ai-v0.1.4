@@ -1,5 +1,5 @@
 import { channelStorage, createEnglishSentenceIndexStorage, indexInputStorage } from '@yanghoo/storage';
-import type { LearningChannelVideoRow, VideoSelectionStatus, VideoIndexStatus } from '@yanghoo/domain';
+import type { LearningChannelVideoRow, VideoSelectionStatus, VideoIndexStatus, ChannelVideoDiscoveryStatus } from '@yanghoo/domain';
 
 export async function getLearningChannelVideosUseCase(channelId: string): Promise<{
   channelId: string;
@@ -32,6 +32,10 @@ export async function getLearningChannelVideosUseCase(channelId: string): Promis
   const report = await channelStorage.getCaptionSyncReport(channelId);
   const reportMap = new Map((report?.items ?? []).map(i => [i.videoId, i]));
 
+  const refreshReport = await channelStorage.getChannelRefreshReport(channelId);
+  const newVideoIds = new Set(refreshReport?.addedVideos.map(v => v.videoId) ?? []);
+  const remoteMissingIds = new Set(refreshReport?.remoteMissingVideoIds ?? []);
+
   const rows: LearningChannelVideoRow[] = videos.map(video => {
     const sel = selectionMap.get(video.videoId);
     const rpt = reportMap.get(video.videoId);
@@ -49,6 +53,15 @@ export async function getLearningChannelVideosUseCase(channelId: string): Promis
     const sourceId = sel?.sourceId || rpt?.sourceId || video.id;
     const indexStatus: VideoIndexStatus = indexedSourceIds.has(sourceId) ? 'indexed' : 'not_indexed';
 
+    let discoveryStatus: ChannelVideoDiscoveryStatus | undefined;
+    if (newVideoIds.has(video.videoId)) {
+      discoveryStatus = 'new';
+    } else if (remoteMissingIds.has(video.videoId)) {
+      discoveryStatus = 'remote_missing';
+    } else if (refreshReport) {
+      discoveryStatus = 'existing';
+    }
+
     return {
       videoId: video.videoId,
       sourceId,
@@ -58,7 +71,8 @@ export async function getLearningChannelVideosUseCase(channelId: string): Promis
       captionStatus,
       indexStatus,
       youtubeUrl: video.url,
-      lastError: rpt?.errorMessage || sel?.lastError
+      lastError: rpt?.errorMessage || sel?.lastError,
+      discoveryStatus
     };
   });
 

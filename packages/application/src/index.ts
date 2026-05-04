@@ -522,3 +522,4 @@ export * from './listLearningChannelsUseCase.js';
 export * from './getLearningChannelVideosUseCase.js';
 export * from './updateChannelVideoSelectionUseCase.js';
 export * from './syncSelectedEnglishCaptionsUseCase.js';
+export * from './refreshChannelVideosUseCase.js';
