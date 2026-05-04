@@ -151,6 +151,7 @@ export interface LearningChannelVideoRow {
   indexStatus: string;
   youtubeUrl: string;
   lastError?: string;
+  discoveryStatus?: 'existing' | 'new' | 'remote_missing';
 }
 
 export async function registerLearningChannel(url: string, limit = 50): Promise<{ channelId: string; title: string; videoCount: number }> {
@@ -194,6 +195,29 @@ export async function syncSelectedCaptions(channelId: string, batchSize = 10, fo
 export async function buildChannelIndex(channelId: string): Promise<{ channelId: string; language: string; sourceCount: number; sentenceCount: number; skippedCount: number; failedCount: number; warnings: string[] }> {
   const response = await fetch(`${API_BASE}/api/learning-channels/${encodeURIComponent(channelId)}/build-index`, {
     method: 'POST'
+  });
+  return handleResponse(response);
+}
+
+export interface ChannelRefreshResult {
+  channelId: string;
+  mode: string;
+  fetchedAt: string;
+  localVideoCount: number;
+  remoteVideoCount: number;
+  addedCount: number;
+  updatedCount: number;
+  preservedCount: number;
+  remoteMissingCount: number;
+  addedVideos: { videoId: string; title: string; url: string }[];
+  remoteMissingVideoIds: string[];
+}
+
+export async function refreshChannelVideos(channelId: string, mode: 'latest' | 'full' = 'latest', limit = 50): Promise<ChannelRefreshResult> {
+  const response = await fetch(`${API_BASE}/api/learning-channels/${encodeURIComponent(channelId)}/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, limit })
   });
   return handleResponse(response);
 }

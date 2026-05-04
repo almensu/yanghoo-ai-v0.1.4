@@ -1,4 +1,4 @@
-import { captureChannelUseCase, syncChannelCaptionsUseCase, validateLanguage } from '@yanghoo/application';
+import { captureChannelUseCase, syncChannelCaptionsUseCase, validateLanguage, refreshChannelVideosUseCase } from '@yanghoo/application';
 import type { CliContext } from '../cli-runtime-config.js';
 import { printResult } from '../cli-output-renderer.js';
 
@@ -15,7 +15,12 @@ export async function runChannelCommand(args: string[], context: CliContext): Pr
     return;
   }
 
-  throw new Error('Usage: yanghoo channel add <url> [--limit <number>]\n       yanghoo channel captions <channelId> [--language <lang>] [--batch-size <number>] [--limit <number>] [--resume] [--retry-failed] [--force]');
+  if (subcommand === 'refresh') {
+    await refreshChannel(rest, context);
+    return;
+  }
+
+  throw new Error('Usage: yanghoo channel add <url> [--limit <number>]\n       yanghoo channel captions <channelId> [--language <lang>] [--batch-size <number>] [--limit <number>] [--resume] [--retry-failed] [--force]\n       yanghoo channel refresh <channelId> [--latest <number>] [--full] [--limit <number>] [--json]');
 }
 
 async function captureChannel(args: string[], context: CliContext): Promise<void> {
@@ -118,6 +123,55 @@ async function syncChannelCaptions(args: string[], context: CliContext): Promise
       `Failed: ${result.failed}`,
       `Skipped: ${result.skipped}`,
       ...(result.failed > 0 ? ['Failures:', ...result.items.filter(i => i.status === 'failed').map((f: any) => `  ${f.videoId}: ${f.failureKind} - ${f.errorMessage}`)] : [])
+    ]
+  );
+}
+
+async function refreshChannel(args: string[], context: CliContext): Promise<void> {
+  let mode: 'latest' | 'full' = 'latest';
+  let limit = 50;
+
+  if (args.includes('--full')) {
+    mode = 'full';
+    args.splice(args.indexOf('--full'), 1);
+  }
+
+  const latestIndex = args.indexOf('--latest');
+  if (latestIndex !== -1) {
+    mode = 'latest';
+    limit = parseInt(args[latestIndex + 1], 10);
+    args.splice(latestIndex, 2);
+  }
+
+  const limitIndex = args.indexOf('--limit');
+  if (limitIndex !== -1) {
+    limit = parseInt(args[limitIndex + 1], 10);
+    args.splice(limitIndex, 2);
+  }
+
+  const channelId = args.join(' ').trim();
+  if (!channelId) throw new Error('Usage: yanghoo channel refresh <channelId> [--latest <number>] [--full] [--limit <number>] [--json]');
+
+  if (!context.json) {
+    console.log(`正在刷新频道: ${channelId} (mode: ${mode}, limit: ${limit})`);
+  }
+
+  const report = await refreshChannelVideosUseCase({ channelId, mode, limit });
+
+  printResult(
+    context,
+    report,
+    [
+      `Channel refreshed!`,
+      `Mode: ${report.mode}`,
+      `Remote fetched: ${report.remoteVideoCount}`,
+      `New videos: ${report.addedCount}`,
+      `Updated: ${report.updatedCount}`,
+      `Preserved: ${report.preservedCount}`,
+      `Total local: ${report.localVideoCount}`,
+      ...(report.remoteMissingCount > 0
+        ? [`Remote missing: ${report.remoteMissingCount} (${report.remoteMissingVideoIds.join(', ')})`]
+        : [])
     ]
   );
 }

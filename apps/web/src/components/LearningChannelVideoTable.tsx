@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Check, Loader2, AlertCircle, X } from 'lucide-react';
+import { ArrowLeft, Check, Loader2, AlertCircle, RefreshCw, X } from 'lucide-react';
 import {
   getChannelVideos,
   updateVideoSelection,
   syncSelectedCaptions,
   buildChannelIndex,
+  refreshChannelVideos,
   type LearningChannelSummary,
   type LearningChannelVideoRow
 } from '../api/client';
@@ -26,6 +27,28 @@ function statusBadge(status: string, label?: string) {
   );
 }
 
+const FILTER_OPTIONS = [
+  { key: 'all', label: 'All' },
+  { key: 'new', label: 'New' },
+  { key: 'selected', label: 'Selected' },
+  { key: 'caption_ready', label: 'Caption Ready' },
+  { key: 'failed', label: 'Failed' },
+  { key: 'remote_missing', label: 'Remote Missing' }
+] as const;
+
+type FilterKey = typeof FILTER_OPTIONS[number]['key'];
+
+function filterVideos(videos: LearningChannelVideoRow[], filter: FilterKey): LearningChannelVideoRow[] {
+  switch (filter) {
+    case 'new': return videos.filter(v => v.discoveryStatus === 'new');
+    case 'selected': return videos.filter(v => v.selected);
+    case 'caption_ready': return videos.filter(v => v.captionStatus === 'caption_ready');
+    case 'failed': return videos.filter(v => v.captionStatus === 'caption_failed');
+    case 'remote_missing': return videos.filter(v => v.discoveryStatus === 'remote_missing');
+    default: return videos;
+  }
+}
+
 export default function LearningChannelVideoTable({
   channel,
   onBack,
@@ -40,9 +63,13 @@ export default function LearningChannelVideoTable({
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [buildResult, setBuildResult] = useState<string | null>(null);
+  const [refreshResult, setRefreshResult] = useState<string | null>(null);
   const [batchSize, setBatchSize] = useState(10);
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  const [refreshLimit, setRefreshLimit] = useState(50);
 
   const refreshVideos = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -61,6 +88,7 @@ export default function LearningChannelVideoTable({
     refreshVideos();
   }, [refreshVideos]);
 
+  const filteredVideos = filterVideos(videos, activeFilter);
   const selectedIds = videos.filter(v => v.selected).map(v => v.videoId);
   const allVisibleSelected = videos.length > 0 && selectedIds.length === videos.length;
 
@@ -108,6 +136,23 @@ export default function LearningChannelVideoTable({
     }
   };
 
+  const handleRefresh = async (mode: 'latest' | 'full') => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshResult(null);
+    setError(null);
+    try {
+      const result = await refreshChannelVideos(channel.channelId, mode, refreshLimit);
+      setRefreshResult(`+${result.addedCount} new, ${result.updatedCount} updated, ${result.preservedCount} preserved`);
+      await refreshVideos(false);
+      onRefreshChannel(false);
+    } catch (err: any) {
+      setError(err.message || 'Refresh failed');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-[1180px] px-0 py-2">
       <div className="mb-4 flex items-center justify-between">
@@ -124,6 +169,56 @@ export default function LearningChannelVideoTable({
             <p className="text-xs text-muted">{channel.channelId}</p>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => handleRefresh('latest')}
+          disabled={refreshing}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-white px-3 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh latest {refreshLimit}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleRefresh('full')}
+          disabled={refreshing}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-white px-3 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          Full refresh
+        </button>
+        <input
+          type="number"
+          value={refreshLimit}
+          onChange={e => setRefreshLimit(Number(e.target.value))}
+          min={1}
+          max={500}
+          className="h-8 w-16 rounded-md border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+      </div>
+
+      {refreshResult && (
+        <div className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700">
+          <Check className="h-3.5 w-3.5" /> {refreshResult}
+        </div>
+      )}
+
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        {FILTER_OPTIONS.map(f => (
+          <button
+            key={f.key}
+            type="button"
+            onClick={() => setActiveFilter(f.key)}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+              activeFilter === f.key
+                ? 'bg-ink text-white'
+                : 'border border-line bg-white text-muted hover:text-ink'
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-muted">{filteredVideos.length} / {videos.length}</span>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -133,6 +228,33 @@ export default function LearningChannelVideoTable({
           className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-medium text-ink hover:bg-slate-50"
         >
           {allVisibleSelected ? 'Deselect All' : 'Select All'}
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleSelect(videos.filter(v => v.discoveryStatus === 'new').map(v => v.videoId), true)}
+          className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-medium text-ink hover:bg-slate-50"
+        >
+          Select New
+        </button>
+        <span className="text-xs text-muted">|</span>
+        {[20, 50, 100].map(n => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => toggleSelect(filteredVideos.slice(0, n).map(v => v.videoId), true)}
+            disabled={filteredVideos.length === 0}
+            className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+          >
+            Select first {n}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => toggleSelect(selectedIds, false)}
+          disabled={selectedIds.length === 0}
+          className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted hover:text-ink hover:bg-slate-50 disabled:opacity-50"
+        >
+          Clear selected
         </button>
         <span className="text-xs text-muted">{selectedIds.length} selected</span>
       </div>
@@ -203,7 +325,7 @@ export default function LearningChannelVideoTable({
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {videos.map(video => (
+              {filteredVideos.map(video => (
                 <tr key={video.videoId} className={`transition-colors ${video.selected ? 'bg-amber-50/40' : 'hover:bg-slate-50'}`}>
                   <td className="px-3 py-2.5">
                     <input
@@ -214,14 +336,22 @@ export default function LearningChannelVideoTable({
                     />
                   </td>
                   <td className="max-w-xs px-3 py-2.5">
-                    <a
-                      href={video.youtubeUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block truncate font-medium text-ink hover:underline"
-                    >
-                      {video.title}
-                    </a>
+                    <div className="flex items-center gap-1.5">
+                      <a
+                        href={video.youtubeUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate font-medium text-ink hover:underline"
+                      >
+                        {video.title}
+                      </a>
+                      {video.discoveryStatus === 'new' && (
+                        <span className="shrink-0 rounded bg-blue-100 px-1 py-0.5 text-[10px] font-semibold text-blue-700">NEW</span>
+                      )}
+                      {video.discoveryStatus === 'remote_missing' && (
+                        <span className="shrink-0 rounded bg-slate-200 px-1 py-0.5 text-[10px] font-semibold text-slate-600">MISSING</span>
+                      )}
+                    </div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted">
                     {video.publishedAt ? new Date(video.publishedAt).toLocaleDateString() : '-'}
@@ -235,8 +365,10 @@ export default function LearningChannelVideoTable({
               ))}
             </tbody>
           </table>
-          {videos.length === 0 && (
-            <div className="px-6 py-8 text-center text-sm text-muted">No videos found for this channel.</div>
+          {filteredVideos.length === 0 && (
+            <div className="px-6 py-8 text-center text-sm text-muted">
+              {videos.length === 0 ? 'No videos found for this channel.' : 'No videos match this filter.'}
+            </div>
           )}
         </div>
       )}

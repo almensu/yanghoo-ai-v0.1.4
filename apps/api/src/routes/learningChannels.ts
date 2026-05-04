@@ -6,7 +6,8 @@ import {
   getLearningChannelVideosUseCase,
   updateChannelVideoSelectionUseCase,
   syncSelectedEnglishCaptionsUseCase,
-  buildEnglishSentenceIndexUseCase
+  buildEnglishSentenceIndexUseCase,
+  refreshChannelVideosUseCase
 } from '@yanghoo/application';
 
 const registerSchema = z.object({
@@ -22,6 +23,11 @@ const selectionSchema = z.object({
 const syncSchema = z.object({
   batchSize: z.coerce.number().int().min(1).max(100).optional().default(10),
   force: z.boolean().optional().default(false)
+});
+
+const refreshSchema = z.object({
+  mode: z.enum(['latest', 'full']).optional().default('latest'),
+  limit: z.coerce.number().int().min(1).max(500).optional().default(50)
 });
 
 const channelIdParam = z.object({
@@ -145,6 +151,46 @@ export async function registerLearningChannelRoutes(app: FastifyInstance) {
       };
     } catch (error: any) {
       const message = error?.message || 'Build index failed';
+      if (message.includes('not found')) {
+        return reply.code(404).send({ message });
+      }
+      throw error;
+    }
+  });
+
+  // Refresh channel videos (incremental discovery)
+  app.post('/api/learning-channels/:channelId/refresh', async (request, reply) => {
+    const paramParsed = channelIdParam.safeParse(request.params);
+    if (!paramParsed.success) {
+      return reply.code(400).send({ message: paramParsed.error.message });
+    }
+
+    const bodyParsed = refreshSchema.safeParse(request.body ?? {});
+    if (!bodyParsed.success) {
+      return reply.code(400).send({ message: bodyParsed.error.message });
+    }
+
+    try {
+      const report = await refreshChannelVideosUseCase({
+        channelId: paramParsed.data.channelId,
+        mode: bodyParsed.data.mode,
+        limit: bodyParsed.data.limit
+      });
+      return {
+        channelId: report.channelId,
+        mode: report.mode,
+        fetchedAt: report.fetchedAt,
+        localVideoCount: report.localVideoCount,
+        remoteVideoCount: report.remoteVideoCount,
+        addedCount: report.addedCount,
+        updatedCount: report.updatedCount,
+        preservedCount: report.preservedCount,
+        remoteMissingCount: report.remoteMissingCount,
+        addedVideos: report.addedVideos,
+        remoteMissingVideoIds: report.remoteMissingVideoIds
+      };
+    } catch (error: any) {
+      const message = error?.message || 'Refresh failed';
       if (message.includes('not found')) {
         return reply.code(404).send({ message });
       }
