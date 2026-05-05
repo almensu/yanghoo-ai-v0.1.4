@@ -72,10 +72,10 @@ export async function syncSelectedEnglishCaptionsUseCase(params: {
     reportIndex.set(item.videoId, item);
   }
 
-  // Filter to selected videos only (unselected are never processed)
+  // Filter to selected videos that haven't been synced yet
   const candidates = videos.filter(v => {
     const item = selMap.get(v.videoId);
-    return item?.selected === true;
+    return item?.selected === true && item?.captionStatus !== 'caption_ready' && item?.captionStatus !== 'caption_failed';
   });
 
   const batch = candidates.slice(0, params.batchSize);

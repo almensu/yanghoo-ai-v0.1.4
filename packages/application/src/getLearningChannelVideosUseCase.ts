@@ -41,9 +41,9 @@ export async function getLearningChannelVideosUseCase(channelId: string): Promis
     const rpt = reportMap.get(video.videoId);
 
     let captionStatus: VideoSelectionStatus = 'not_captured';
-    if (rpt?.status === 'success') {
+    if (rpt?.status === 'success' || sel?.captionStatus === 'caption_ready') {
       captionStatus = 'caption_ready';
-    } else if (rpt?.status === 'failed') {
+    } else if (rpt?.status === 'failed' || sel?.captionStatus === 'caption_failed') {
       captionStatus = 'caption_failed';
     }
     if (sel?.selected && captionStatus === 'not_captured') {
