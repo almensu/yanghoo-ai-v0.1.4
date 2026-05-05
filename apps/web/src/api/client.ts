@@ -401,6 +401,90 @@ export async function transcribeMedia(taskId: string): Promise<void> {
   await handleResponse(response);
 }
 
+// --- Saved English Examples ---
+
+export interface SavedEnglishExample {
+  id: string;
+  channelId: string;
+  channelTitle?: string;
+  sourceId: string;
+  videoId: string;
+  videoTitle?: string;
+  publishedAt?: string;
+  start: number;
+  end: number;
+  text: string;
+  normalizedText: string;
+  captionKind?: string;
+  captionLanguage: string;
+  youtubeTimestampUrl: string;
+  youtubeEmbedUrl: string;
+  startSeconds: number;
+  query?: string;
+  note: string;
+  tags: string[];
+  status: 'saved' | 'learning' | 'mastered';
+  savedAt: string;
+  updatedAt: string;
+  lastReviewedAt: string | null;
+  reviewCount: number;
+}
+
+export async function listSavedExamples(filters?: { q?: string; channelId?: string; tag?: string; status?: string }): Promise<SavedEnglishExample[]> {
+  const params = new URLSearchParams();
+  if (filters?.q) params.set('q', filters.q);
+  if (filters?.channelId) params.set('channelId', filters.channelId);
+  if (filters?.tag) params.set('tag', filters.tag);
+  if (filters?.status) params.set('status', filters.status);
+  const qs = params.toString();
+  const response = await fetch(`${API_BASE}/api/english-saved-examples${qs ? `?${qs}` : ''}`);
+  const data = await handleResponse(response);
+  return data.items;
+}
+
+export async function listSavedExampleIds(): Promise<string[]> {
+  const response = await fetch(`${API_BASE}/api/english-saved-examples/ids`);
+  const data = await handleResponse(response);
+  return data.ids;
+}
+
+export async function saveEnglishExample(
+  result: EnglishSentenceSearchResult,
+  query?: string
+): Promise<{ item: SavedEnglishExample; created: boolean }> {
+  const response = await fetch(`${API_BASE}/api/english-saved-examples`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ result, query })
+  });
+  return handleResponse(response);
+}
+
+export async function deleteSavedExample(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/english-saved-examples/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+  await handleResponse(response);
+}
+
+export async function updateSavedExample(id: string, updates: { note?: string; tags?: string[]; status?: string }): Promise<SavedEnglishExample> {
+  const response = await fetch(`${API_BASE}/api/english-saved-examples/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates)
+  });
+  const data = await handleResponse(response);
+  return data.item;
+}
+
+export async function markSavedExampleReviewed(id: string): Promise<SavedEnglishExample> {
+  const response = await fetch(`${API_BASE}/api/english-saved-examples/${encodeURIComponent(id)}/review`, {
+    method: 'POST'
+  });
+  const data = await handleResponse(response);
+  return data.item;
+}
+
 export async function deleteAssets(taskId: string, scope: 'media' | 'audio' | 'transcript' | 'generated'): Promise<void> {
   const response = await fetch(`${taskPath(taskId)}/assets`, {
     method: 'DELETE',

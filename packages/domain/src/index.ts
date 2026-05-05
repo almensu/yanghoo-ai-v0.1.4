@@ -318,3 +318,40 @@ export interface ChannelDeleteResult {
 export * from './storage.js';
 export * from './englishSentenceIndex.js';
 export * from './channelVideoSelection.js';
+
+// --- Saved English Examples ---
+
+export type SavedEnglishExampleStatus = 'saved' | 'learning' | 'mastered';
+
+export interface SavedEnglishExample {
+  id: string;
+  channelId: string;
+  channelTitle?: string;
+  sourceId: string;
+  videoId: string;
+  videoTitle?: string;
+  publishedAt?: string;
+  start: number;
+  end: number;
+  text: string;
+  normalizedText: string;
+  captionKind?: string;
+  captionLanguage: string;
+  youtubeTimestampUrl: string;
+  youtubeEmbedUrl: string;
+  startSeconds: number;
+  query?: string;
+  note: string;
+  tags: string[];
+  status: SavedEnglishExampleStatus;
+  savedAt: string;
+  updatedAt: string;
+  lastReviewedAt: string | null;
+  reviewCount: number;
+}
+
+export interface SavedEnglishExamplesFile {
+  version: 1;
+  updatedAt: string;
+  items: SavedEnglishExample[];
+}

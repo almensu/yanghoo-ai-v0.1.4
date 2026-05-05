@@ -18,7 +18,10 @@ import {
 import {
   getEnglishSentenceContext,
   listLearningChannels,
-  searchEnglishSentences
+  searchEnglishSentences,
+  saveEnglishExample,
+  deleteSavedExample,
+  listSavedExampleIds
 } from '../api/client';
 import type {
   EnglishSearchCaptionKind,
@@ -28,6 +31,7 @@ import type {
   EnglishSentenceSearchResult,
   LearningChannelSummary
 } from '../api/client';
+import { Bookmark } from 'lucide-react';
 
 const QUICK_QUERY_GROUPS = [
   { label: 'Chunks', items: ['would have', 'could have', 'should have', 'supposed to', 'used to'] },
@@ -62,18 +66,22 @@ function ResultCard({
   index,
   active,
   copiedKey,
+  isSaved,
   onSelect,
   onCopySentence,
-  onCopyUrl
+  onCopyUrl,
+  onToggleSave
 }: {
   result: EnglishSentenceSearchResult;
   query: string;
   index: number;
   active: boolean;
   copiedKey: string | null;
+  isSaved: boolean;
   onSelect: () => void;
   onCopySentence: () => void;
   onCopyUrl: () => void;
+  onToggleSave: () => void;
 }) {
   const e = result.entry;
 
@@ -124,6 +132,18 @@ function ResultCard({
         </button>
         <button
           type="button"
+          onClick={onToggleSave}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${
+            isSaved
+              ? 'border-slate-900 bg-slate-900 text-white'
+              : 'border-line bg-white text-ink hover:bg-slate-50'
+          }`}
+        >
+          <Bookmark className={`h-3.5 w-3.5 ${isSaved ? 'fill-current' : ''}`} />
+          {isSaved ? 'Saved' : 'Save'}
+        </button>
+        <button
+          type="button"
           onClick={onCopySentence}
           className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-slate-50"
         >
@@ -148,21 +168,25 @@ function PlayerPanel({
   nextEmbedUrl,
   contextItems,
   contextLoading,
+  isSaved,
   onPrevious,
   onNext,
   canPrevious,
   canNext,
-  onCopySentence
+  onCopySentence,
+  onToggleSave
 }: {
   result: EnglishSentenceSearchResult | null;
   nextEmbedUrl?: string;
   contextItems: EnglishSentenceContextItem[];
   contextLoading: boolean;
+  isSaved: boolean;
   onPrevious: () => void;
   onNext: () => void;
   canPrevious: boolean;
   canNext: boolean;
   onCopySentence: () => void;
+  onToggleSave: () => void;
 }) {
   if (!result) {
     return (
@@ -239,6 +263,18 @@ function PlayerPanel({
             <Copy className="h-3.5 w-3.5" />
             Copy sentence
           </button>
+          <button
+            type="button"
+            onClick={onToggleSave}
+            className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium ${
+              isSaved
+                ? 'border-slate-900 bg-slate-900 text-white'
+                : 'border-line bg-white text-ink hover:bg-slate-50'
+            }`}
+          >
+            <Bookmark className={`h-3.5 w-3.5 ${isSaved ? 'fill-current' : ''}`} />
+            {isSaved ? 'Saved' : 'Save sentence'}
+          </button>
         </div>
       </div>
 
@@ -289,6 +325,7 @@ export default function EnglishSentenceSearch() {
 
   const [channels, setChannels] = useState<LearningChannelSummary[]>([]);
   const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(new Set());
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const selectedChannelKey = useMemo(
     () => Array.from(selectedChannelIds).sort().join(','),
     [selectedChannelIds]
@@ -305,6 +342,12 @@ export default function EnglishSentenceSearch() {
         setChannels(indexed);
         setSelectedChannelIds(new Set(indexed.map(c => c.channelId)));
       })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    listSavedExampleIds()
+      .then(ids => setSavedIds(new Set(ids)))
       .catch(() => {});
   }, []);
 
@@ -417,6 +460,21 @@ export default function EnglishSentenceSearch() {
       window.setTimeout(() => setCopiedKey(null), 1600);
     } catch {
       setCopiedKey(null);
+    }
+  };
+
+  const toggleSave = async (result: EnglishSentenceSearchResult) => {
+    const rKey = resultKey(result);
+    if (savedIds.has(rKey)) {
+      try {
+        await deleteSavedExample(rKey);
+        setSavedIds(prev => { const n = new Set(prev); n.delete(rKey); return n; });
+      } catch {}
+    } else {
+      try {
+        const res = await saveEnglishExample(result, query);
+        setSavedIds(prev => new Set(prev).add(res.item.id));
+      } catch {}
     }
   };
 
@@ -616,9 +674,11 @@ export default function EnglishSentenceSearch() {
                     index={index}
                     active={index === activeIndex}
                     copiedKey={copiedKey}
+                    isSaved={savedIds.has(resultKey(result))}
                     onSelect={() => setActiveIndex(index)}
                     onCopySentence={() => void copyText(`${resultKey(result)}:sentence`, result.entry.text)}
                     onCopyUrl={() => void copyText(`${resultKey(result)}:url`, result.youtubeTimestampUrl)}
+                    onToggleSave={() => void toggleSave(result)}
                   />
                 ))}
               </div>
@@ -653,11 +713,13 @@ export default function EnglishSentenceSearch() {
             nextEmbedUrl={nextEmbedUrl}
             contextItems={contextItems}
             contextLoading={contextLoading}
+            isSaved={activeResult ? savedIds.has(resultKey(activeResult)) : false}
             canPrevious={activeIndex > 0}
             canNext={activeIndex < results.length - 1}
             onPrevious={() => setActiveIndex(i => Math.max(0, i - 1))}
             onNext={() => setActiveIndex(i => Math.min(results.length - 1, i + 1))}
             onCopySentence={() => activeResult && void copyText(`${resultKey(activeResult)}:sentence`, activeResult.entry.text)}
+            onToggleSave={() => activeResult && void toggleSave(activeResult)}
           />
         </aside>
       </section>

@@ -43,7 +43,9 @@ import {
   DeleteSourceAssetsScope,
   TranslationStatus,
   TranscriptFallback,
-  TranscriptStatus
+  TranscriptStatus,
+  SavedEnglishExamplesFile,
+  getSavedEnglishExamplesPath
 } from '@yanghoo/domain';
 
 /**
@@ -909,6 +911,38 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     }
   }
 }
+
+export interface SavedEnglishExampleStorage {
+  readSavedEnglishExamples(): Promise<SavedEnglishExamplesFile>;
+  writeSavedEnglishExamples(file: SavedEnglishExamplesFile): Promise<void>;
+}
+
+export class FileSavedEnglishExampleStorage implements SavedEnglishExampleStorage {
+  private get dataRoot(): string {
+    if (process.env.DATA_DIR) return path.resolve(process.env.DATA_DIR);
+    const cwd = process.cwd();
+    if (cwd.includes('apps/api')) return path.resolve(cwd, '../../data');
+    if (cwd.includes('apps/web')) return path.resolve(cwd, '../../data');
+    return path.resolve(cwd, 'data');
+  }
+
+  async readSavedEnglishExamples(): Promise<SavedEnglishExamplesFile> {
+    const filePath = path.join(this.dataRoot, getSavedEnglishExamplesPath().replace('data/', ''));
+    if (!fs.existsSync(filePath)) {
+      return { version: 1, updatedAt: new Date().toISOString(), items: [] };
+    }
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  }
+
+  async writeSavedEnglishExamples(file: SavedEnglishExamplesFile): Promise<void> {
+    const filePath = path.join(this.dataRoot, getSavedEnglishExamplesPath().replace('data/', ''));
+    const dirPath = path.dirname(filePath);
+    if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(file, null, 2), 'utf-8');
+  }
+}
+
+export const savedEnglishExampleStorage = new FileSavedEnglishExampleStorage();
 
 // Current singleton for simplicity in MVP
 export const sourceStorage = new FileStorage();

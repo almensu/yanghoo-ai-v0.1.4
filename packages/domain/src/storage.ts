@@ -80,3 +80,6 @@ export const getChannelRefreshReportPath = (channelId: string) => `${getChannelD
 export const getIndexDir = (channelId: string) => `${STORAGE_ROOT}/indexes/${channelId}`;
 export const getEnglishSentencesJsonlPath = (channelId: string) => `${getIndexDir(channelId)}/english-sentences.jsonl`;
 export const getEnglishSentencesManifestPath = (channelId: string) => `${getIndexDir(channelId)}/english-sentences-manifest.json`;
+
+export const getLearningDir = () => `${STORAGE_ROOT}/learning`;
+export const getSavedEnglishExamplesPath = () => `${getLearningDir()}/english-saved-examples.json`;

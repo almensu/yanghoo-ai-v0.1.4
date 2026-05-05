@@ -5,6 +5,7 @@ import { Reader } from './components/Reader';
 import { GlobalSearch, type SearchPreviewTarget } from './components/GlobalSearch';
 import EnglishSentenceSearch from './components/EnglishSentenceSearch';
 import LearningChannelLibrary from './components/LearningChannelLibrary';
+import SavedEnglishExamples from './components/SavedEnglishExamples';
 import {
   exportNotebookLm,
   listBackgroundJobs,
@@ -226,7 +227,7 @@ function JobToastStack({
 }
 
 export function App() {
-  type View = 'workbench' | 'channels' | 'english-search';
+  type View = 'workbench' | 'channels' | 'english-search' | 'saved-examples';
   const [activeView, setActiveView] = useState<View>('workbench');
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -449,6 +450,12 @@ export function App() {
               >
                 English Search
               </button>
+              <button
+                onClick={() => setActiveView('saved-examples')}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${activeView === 'saved-examples' ? 'bg-white text-ink shadow-sm' : 'text-muted hover:bg-white'}`}
+              >
+                Saved
+              </button>
             </div>
           </div>
           {activeView === 'workbench' && (
@@ -483,6 +490,8 @@ export function App() {
           <EnglishSentenceSearch />
         ) : activeView === 'channels' ? (
           <LearningChannelLibrary />
+        ) : activeView === 'saved-examples' ? (
+          <SavedEnglishExamples />
         ) : (
         <div className="flex gap-6">
         <CollectionSidebar
