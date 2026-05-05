@@ -66,10 +66,10 @@ export async function registerEnglishSavedExampleRoutes(app: FastifyInstance) {
   });
 
   // Save a new example
-  app.post('/api/english-saved-examples', async (request) => {
+  app.post('/api/english-saved-examples', async (request, reply) => {
     const parsed = saveSchema.safeParse(request.body);
     if (!parsed.success) {
-      return { item: null, created: false, error: parsed.error.message };
+      return reply.code(400).send({ message: parsed.error.message });
     }
 
     const result = await saveEnglishExampleUseCase({

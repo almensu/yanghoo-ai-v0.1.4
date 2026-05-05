@@ -56,6 +56,14 @@ function highlightMatch(text: string, query: string) {
   ));
 }
 
+async function computeStableId(entry: { channelId: string; sourceId: string; videoId: string; start: number; end: number; normalizedText: string }): Promise<string> {
+  const raw = `${entry.channelId}|${entry.sourceId}|${entry.videoId}|${entry.start}|${entry.end}|${entry.normalizedText}`;
+  const buffer = new TextEncoder().encode(raw);
+  const hash = await crypto.subtle.digest('SHA-1', buffer);
+  const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return hex.substring(0, 20);
+}
+
 function resultKey(result: EnglishSentenceSearchResult): string {
   return `${result.entry.channelId}:${result.entry.sourceId}:${result.entry.start}`;
 }
@@ -326,6 +334,20 @@ export default function EnglishSentenceSearch() {
   const [channels, setChannels] = useState<LearningChannelSummary[]>([]);
   const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const stableIdCache = useRef(new Map<string, string>());
+
+  const getStableId = async (result: EnglishSentenceSearchResult): Promise<string> => {
+    const key = resultKey(result);
+    if (stableIdCache.current.has(key)) return stableIdCache.current.get(key)!;
+    const id = await computeStableId(result.entry);
+    stableIdCache.current.set(key, id);
+    return id;
+  };
+
+  const isResultSaved = (result: EnglishSentenceSearchResult): boolean => {
+    const cached = stableIdCache.current.get(resultKey(result));
+    return cached ? savedIds.has(cached) : false;
+  };
   const selectedChannelKey = useMemo(
     () => Array.from(selectedChannelIds).sort().join(','),
     [selectedChannelIds]
@@ -350,6 +372,17 @@ export default function EnglishSentenceSearch() {
       .then(ids => setSavedIds(new Set(ids)))
       .catch(() => {});
   }, []);
+
+  // Pre-warm stable id cache for current results so isResultSaved works synchronously
+  useEffect(() => {
+    if (results.length === 0 || savedIds.size === 0) return;
+    for (const r of results) {
+      const key = resultKey(r);
+      if (!stableIdCache.current.has(key)) {
+        void computeStableId(r.entry).then(id => stableIdCache.current.set(key, id));
+      }
+    }
+  }, [results, savedIds]);
 
   const runSearch = useCallback(async (opts: { append?: boolean; offset?: number } = {}) => {
     if (!query.trim() || selectedChannelIds.size === 0) {
@@ -464,17 +497,22 @@ export default function EnglishSentenceSearch() {
   };
 
   const toggleSave = async (result: EnglishSentenceSearchResult) => {
-    const rKey = resultKey(result);
-    if (savedIds.has(rKey)) {
+    const stableId = await getStableId(result);
+    if (savedIds.has(stableId)) {
       try {
-        await deleteSavedExample(rKey);
-        setSavedIds(prev => { const n = new Set(prev); n.delete(rKey); return n; });
-      } catch {}
+        await deleteSavedExample(stableId);
+        setSavedIds(prev => { const n = new Set(prev); n.delete(stableId); return n; });
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Failed to unsave');
+      }
     } else {
       try {
         const res = await saveEnglishExample(result, query);
+        stableIdCache.current.set(resultKey(result), res.item.id);
         setSavedIds(prev => new Set(prev).add(res.item.id));
-      } catch {}
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Failed to save');
+      }
     }
   };
 
@@ -674,7 +712,7 @@ export default function EnglishSentenceSearch() {
                     index={index}
                     active={index === activeIndex}
                     copiedKey={copiedKey}
-                    isSaved={savedIds.has(resultKey(result))}
+                    isSaved={isResultSaved(result)}
                     onSelect={() => setActiveIndex(index)}
                     onCopySentence={() => void copyText(`${resultKey(result)}:sentence`, result.entry.text)}
                     onCopyUrl={() => void copyText(`${resultKey(result)}:url`, result.youtubeTimestampUrl)}
@@ -713,7 +751,7 @@ export default function EnglishSentenceSearch() {
             nextEmbedUrl={nextEmbedUrl}
             contextItems={contextItems}
             contextLoading={contextLoading}
-            isSaved={activeResult ? savedIds.has(resultKey(activeResult)) : false}
+            isSaved={activeResult ? isResultSaved(activeResult) : false}
             canPrevious={activeIndex > 0}
             canNext={activeIndex < results.length - 1}
             onPrevious={() => setActiveIndex(i => Math.max(0, i - 1))}

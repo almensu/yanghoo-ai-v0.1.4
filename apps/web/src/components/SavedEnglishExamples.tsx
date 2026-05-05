@@ -43,6 +43,7 @@ export default function SavedEnglishExamples() {
     try {
       const data = await listSavedExamples(searchQuery ? { q: searchQuery } : undefined);
       setItems(data);
+      if (data.length > 0) setActiveId(prev => data.find(d => d.id === prev) ? prev : data[0].id);
     } catch (err: any) {
       setError(err.message || 'Failed to load');
     } finally {

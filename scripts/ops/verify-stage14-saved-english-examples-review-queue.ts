@@ -26,6 +26,7 @@ import {
 } from '@yanghoo/application';
 import { savedEnglishExampleStorage, sourceStorage, channelStorage } from '@yanghoo/storage';
 import type { EnglishSentenceIndexEntry, Source, ChannelManifest } from '@yanghoo/domain';
+import { createHash } from 'crypto';
 
 let passed = 0;
 let failed = 0;
@@ -127,6 +128,24 @@ async function testListAndFilter() {
 
   const ids = await listSavedEnglishExampleIdsUseCase();
   assert(ids.size === 2, 'Id set has 2 entries');
+}
+
+async function testFrontendBackendIdAlignment() {
+  console.log('\n=== Frontend/Backend Saved Id Alignment ===');
+
+  const entry = makeEntry();
+  // Simulate frontend SHA1 computation (same formula as backend generateStableId)
+  const raw = `${entry.channelId}|${entry.sourceId}|${entry.videoId}|${entry.start}|${entry.end}|${entry.normalizedText}`;
+  const frontendSha1 = createHash('sha1').update(raw).digest('hex').substring(0, 20);
+
+  const ids = await listSavedEnglishExampleIdsUseCase();
+  assert(ids.has(frontendSha1), `Frontend-computed SHA1 id "${frontendSha1}" found in /ids response`);
+
+  // Also verify the saved item's id matches
+  const all = await listSavedEnglishExamplesUseCase();
+  const match = all.find(i => i.id === frontendSha1);
+  assert(match !== undefined, 'Saved item id matches frontend SHA1 computation');
+  assert(match?.text === entry.text, 'Matched item has correct text');
 }
 
 async function testUpdate() {
@@ -234,6 +253,7 @@ async function main() {
 
   await testSaveAndDuplicate();
   await testListAndFilter();
+  await testFrontendBackendIdAlignment();
   await testUpdate();
   await testReview();
   await testDelete();
