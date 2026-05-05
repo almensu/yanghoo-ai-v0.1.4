@@ -2,7 +2,16 @@
 
 Date: 2026-05-05
 Executor: Claude (Gemini mode)
-Status: Complete
+Status: Complete (audit fixes applied)
+
+## Audit Fix Revision (b5dc586)
+
+Applied fixes per Codex audit (2026-05-05-codex-audit-saved-english-examples-review-queue.md):
+
+1. **P1 Frontend/backend saved id alignment**: English Search now computes the same SHA1 stable id as backend via `crypto.subtle.digest('SHA-1')`. Pre-warms stable id cache on search results. Verification assertion proves frontend-computed id matches `/ids` response.
+2. **P1 Surface save/unsave errors**: `toggleSave()` catches now call `setErrorMessage()` instead of empty `catch {}`. Failed saves/deletes show in the existing error banner.
+3. **P2 POST validation returns 400**: Invalid POST body now returns HTTP 400 with `{ message }` (was returning 200).
+4. **P2 Default selection**: Saved Examples page auto-selects first item after list load when no activeId is set.
 
 ## Changed Files
 
@@ -18,13 +27,13 @@ Status: Complete
 - `packages/application/src/index.ts` — Added export
 
 ### API
-- `apps/api/src/routes/englishSavedExamples.ts` — **NEW**: CRUD routes for `/api/english-saved-examples`
+- `apps/api/src/routes/englishSavedExamples.ts` — **NEW**: CRUD routes for `/api/english-saved-examples`, POST returns 400 for invalid body
 - `apps/api/src/server.ts` — Registered new routes
 
 ### Web
 - `apps/web/src/api/client.ts` — Added `SavedEnglishExample` type, `listSavedExamples`, `listSavedExampleIds`, `saveEnglishExample`, `deleteSavedExample`, `updateSavedExample`, `markSavedExampleReviewed`
-- `apps/web/src/components/EnglishSentenceSearch.tsx` — Save/Unsave toggle on result cards and player panel, loads saved IDs on mount
-- `apps/web/src/components/SavedEnglishExamples.tsx` — **NEW**: Full Saved Examples page with embedded playback, note/tags editing, status, mark reviewed, remove
+- `apps/web/src/components/EnglishSentenceSearch.tsx` — Save/Unsave toggle on result cards and player panel, loads saved IDs on mount, computes SHA1 stable id via Web Crypto API, surfaces save/unsave errors
+- `apps/web/src/components/SavedEnglishExamples.tsx` — **NEW**: Full Saved Examples page with embedded playback, note/tags editing, status, mark reviewed, remove, default-selects first item
 - `apps/web/src/App.tsx` — Added "Saved" nav tab
 
 ## Persisted File
@@ -108,7 +117,7 @@ npx tsx scripts/ops/verify-stage14-saved-english-examples-review-queue.ts
 ```
 
 ```
-Results: 36 passed, 0 failed
+Results: 39 passed, 0 failed
 ```
 
 ```bash
