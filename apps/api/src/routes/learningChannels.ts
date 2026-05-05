@@ -7,12 +7,13 @@ import {
   updateChannelVideoSelectionUseCase,
   syncSelectedEnglishCaptionsUseCase,
   buildEnglishSentenceIndexUseCase,
-  refreshChannelVideosUseCase
+  refreshChannelVideosUseCase,
+  deleteLearningChannelUseCase
 } from '@yanghoo/application';
 
 const registerSchema = z.object({
   url: z.string().trim().min(1),
-  limit: z.coerce.number().int().min(1).max(500).optional().default(50)
+  limit: z.coerce.number().int().min(1).max(1000).optional().default(50)
 });
 
 const selectionSchema = z.object({
@@ -27,7 +28,7 @@ const syncSchema = z.object({
 
 const refreshSchema = z.object({
   mode: z.enum(['latest', 'full']).optional().default('latest'),
-  limit: z.coerce.number().int().min(1).max(500).optional().default(50)
+  limit: z.coerce.number().int().min(1).max(1000).optional().default(50)
 });
 
 const channelIdParam = z.object({
@@ -191,6 +192,25 @@ export async function registerLearningChannelRoutes(app: FastifyInstance) {
       };
     } catch (error: any) {
       const message = error?.message || 'Refresh failed';
+      if (message.includes('not found')) {
+        return reply.code(404).send({ message });
+      }
+      throw error;
+    }
+  });
+
+  // Delete channel and its assets
+  app.delete('/api/learning-channels/:channelId', async (request, reply) => {
+    const paramParsed = channelIdParam.safeParse(request.params);
+    if (!paramParsed.success) {
+      return reply.code(400).send({ message: paramParsed.error.message });
+    }
+
+    try {
+      const result = await deleteLearningChannelUseCase(paramParsed.data.channelId);
+      return result;
+    } catch (error: any) {
+      const message = error?.message || 'Delete failed';
       if (message.includes('not found')) {
         return reply.code(404).send({ message });
       }

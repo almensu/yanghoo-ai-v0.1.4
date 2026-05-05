@@ -114,19 +114,87 @@ export interface EnglishSentenceSearchResult {
     captionLanguage: string;
   };
   youtubeTimestampUrl: string;
+  youtubeEmbedUrl: string;
+  startSeconds: number;
+}
+
+export interface EnglishSearchResponse {
+  results: EnglishSentenceSearchResult[];
+  warnings: string[];
+  page: {
+    limit: number;
+    offset: number;
+    returned: number;
+    hasMore: boolean;
+  };
+}
+
+export type EnglishSearchDiversity = 'balanced' | 'all' | 'one_per_video';
+export type EnglishSearchSort = 'recent' | 'variety';
+export type EnglishSearchCaptionKind = 'all' | 'manual' | 'auto';
+
+export interface EnglishSearchOptions {
+  limit?: number;
+  offset?: number;
+  diversity?: EnglishSearchDiversity;
+  sort?: EnglishSearchSort;
+  captionKind?: EnglishSearchCaptionKind;
 }
 
 export async function searchEnglishSentences(
-  channelId: string, q: string, limit = 20
-): Promise<EnglishSentenceSearchResult[]> {
+  channelIds: string[], q: string, options: EnglishSearchOptions = {}
+): Promise<EnglishSearchResponse> {
+  const joinedChannelIds = channelIds.join(',');
   const params = new URLSearchParams({
-    channelId, q, limit: String(limit)
+    channelIds: joinedChannelIds,
+    channelId: channelIds[0] ?? '',
+    q,
+    limit: String(options.limit ?? 20),
+    offset: String(options.offset ?? 0),
+    diversity: options.diversity ?? 'balanced',
+    sort: options.sort ?? 'recent',
+    captionKind: options.captionKind ?? 'all'
   });
   const response = await fetch(
     `${API_BASE}/api/english-sentences/search?${params.toString()}`
   );
   const data = await handleResponse(response);
-  return data.results;
+  return {
+    results: data.results,
+    warnings: data.warnings || [],
+    page: data.page || { limit: options.limit ?? 20, offset: options.offset ?? 0, returned: data.results?.length ?? 0, hasMore: false }
+  };
+}
+
+export interface EnglishSentenceContextItem {
+  start: number;
+  end: number;
+  text: string;
+  isMatch: boolean;
+}
+
+export interface EnglishSentenceContextResponse {
+  sourceId: string;
+  videoId: string;
+  start: number;
+  items: EnglishSentenceContextItem[];
+  warnings: string[];
+}
+
+export async function getEnglishSentenceContext(
+  channelId: string,
+  sourceId: string,
+  start: number,
+  windowSize = 1
+): Promise<EnglishSentenceContextResponse> {
+  const params = new URLSearchParams({
+    channelId,
+    sourceId,
+    start: String(start),
+    window: String(windowSize)
+  });
+  const response = await fetch(`${API_BASE}/api/english-sentences/context?${params.toString()}`);
+  return handleResponse(response);
 }
 
 // --- Learning Channels ---
@@ -195,6 +263,23 @@ export async function syncSelectedCaptions(channelId: string, batchSize = 10, fo
 export async function buildChannelIndex(channelId: string): Promise<{ channelId: string; language: string; sourceCount: number; sentenceCount: number; skippedCount: number; failedCount: number; warnings: string[] }> {
   const response = await fetch(`${API_BASE}/api/learning-channels/${encodeURIComponent(channelId)}/build-index`, {
     method: 'POST'
+  });
+  return handleResponse(response);
+}
+
+export interface ChannelDeleteResult {
+  channelId: string;
+  deletedChannel: boolean;
+  deletedSources: number;
+  skippedSources: number;
+  deletedPaths: string[];
+  skippedPaths: string[];
+  warnings: string[];
+}
+
+export async function deleteLearningChannel(channelId: string): Promise<ChannelDeleteResult> {
+  const response = await fetch(`${API_BASE}/api/learning-channels/${encodeURIComponent(channelId)}`, {
+    method: 'DELETE'
   });
   return handleResponse(response);
 }

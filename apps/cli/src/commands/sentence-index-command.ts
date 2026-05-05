@@ -87,7 +87,7 @@ async function searchIndex(args: string[], context: CliContext): Promise<void> {
     console.log(`Searching "${query}" in channel: ${channelId} (language: ${language}, limit: ${limit})`);
   }
 
-  const results = await searchEnglishSentenceIndexUseCase({
+  const { results } = await searchEnglishSentenceIndexUseCase({
     channelId,
     language,
     query,

@@ -1,11 +1,23 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { searchEnglishSentenceIndexUseCase } from '@yanghoo/application';
+import { getEnglishSentenceContextUseCase, searchEnglishSentenceIndexUseCase } from '@yanghoo/application';
 
 const searchSchema = z.object({
-  channelId: z.string().trim().min(1),
+  channelId: z.string().trim().min(1).optional(),
+  channelIds: z.string().trim().min(1).optional(),
   q: z.string().trim().min(1),
-  limit: z.coerce.number().int().min(1).max(50).optional().default(20)
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+  diversity: z.enum(['balanced', 'all', 'one_per_video']).optional().default('balanced'),
+  sort: z.enum(['recent', 'variety']).optional().default('recent'),
+  captionKind: z.enum(['all', 'manual', 'auto']).optional().default('all')
+});
+
+const contextSchema = z.object({
+  channelId: z.string().trim().min(1),
+  sourceId: z.string().trim().min(1),
+  start: z.coerce.number(),
+  window: z.coerce.number().int().min(0).max(3).optional().default(1)
 });
 
 export async function registerEnglishSentenceRoutes(app: FastifyInstance) {
@@ -15,13 +27,27 @@ export async function registerEnglishSentenceRoutes(app: FastifyInstance) {
       return reply.code(400).send({ message: parsed.error.message });
     }
 
-    let results;
+    const channelIdsStr = parsed.data.channelIds || parsed.data.channelId;
+    if (!channelIdsStr) {
+      return reply.code(400).send({ message: 'channelId or channelIds is required' });
+    }
+
+    const channelIds = channelIdsStr.split(',').map(s => s.trim()).filter(Boolean);
+    if (channelIds.length === 0) {
+      return { results: [], warnings: ['No channels selected'] };
+    }
+
+    let result;
     try {
-      results = await searchEnglishSentenceIndexUseCase({
-        channelId: parsed.data.channelId,
+      result = await searchEnglishSentenceIndexUseCase({
+        channelIds,
         language: 'en',
         query: parsed.data.q,
-        limit: parsed.data.limit
+        limit: parsed.data.limit,
+        offset: parsed.data.offset,
+        diversity: parsed.data.diversity,
+        sort: parsed.data.sort,
+        captionKind: parsed.data.captionKind
       });
     } catch (error: any) {
       const message = error?.message || 'Search failed';
@@ -31,6 +57,16 @@ export async function registerEnglishSentenceRoutes(app: FastifyInstance) {
       throw error;
     }
 
-    return { results };
+    return result;
+  });
+
+  app.get('/api/english-sentences/context', async (request, reply) => {
+    const parsed = contextSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ message: parsed.error.message });
+    }
+
+    const result = await getEnglishSentenceContextUseCase(parsed.data);
+    return result;
   });
 }

@@ -36,6 +36,7 @@ import {
   getChannelCaptionSyncReportPath,
   getVideoSelectionPath,
   getChannelRefreshReportPath,
+  getIndexDir,
   DocumentReadiness,
   ReadinessStatus,
   AudioStatus,
@@ -151,6 +152,7 @@ export interface ChannelStorage {
   getVideoSelection(channelId: string): Promise<VideoSelection | null>;
   saveChannelRefreshReport(report: ChannelRefreshReport): Promise<void>;
   getChannelRefreshReport(channelId: string): Promise<ChannelRefreshReport | null>;
+  deleteChannelDir(channelId: string): Promise<void>;
 }
 
 /**
@@ -894,6 +896,17 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     if (!fs.existsSync(fullPath)) return null;
     const content = await fs.promises.readFile(fullPath, 'utf-8');
     return JSON.parse(content) as ChannelRefreshReport;
+  }
+
+  async deleteChannelDir(channelId: string): Promise<void> {
+    const channelDir = this.resolvePath(getChannelDir(channelId));
+    if (fs.existsSync(channelDir)) {
+      fs.rmSync(channelDir, { recursive: true, force: true });
+    }
+    const indexDir = this.resolvePath(getIndexDir(channelId));
+    if (fs.existsSync(indexDir)) {
+      fs.rmSync(indexDir, { recursive: true, force: true });
+    }
   }
 }
 

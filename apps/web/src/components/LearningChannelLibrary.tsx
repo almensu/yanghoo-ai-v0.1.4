@@ -68,12 +68,12 @@ export default function LearningChannelLibrary() {
   return (
     <div className="mx-auto max-w-[1180px] px-0 py-2">
       <div className="mb-6">
-        <h2 className="text-lg font-semibold text-ink">Channel Library</h2>
-        <p className="mt-1 text-sm text-muted">Register YouTube channels to build your English learning library.</p>
+        <h2 className="text-lg font-semibold text-ink">Channel URL Library</h2>
+        <p className="mt-1 text-sm text-muted">Collect YouTube channel URLs, browse the video list, select a batch, and sync English subtitles for study.</p>
       </div>
 
       <div className="mb-6 rounded-lg border border-line bg-white p-4 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Add Channel</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Add Channel URL</p>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
           <input
             type="text"
@@ -99,7 +99,7 @@ export default function LearningChannelLibrary() {
             className="inline-flex h-10 items-center gap-1.5 rounded-md bg-ink px-4 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
           >
             {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Add Channel
+            Add Channel URL
           </button>
         </div>
         {addError && <p className="mt-2 text-xs text-red-600">{addError}</p>}
@@ -115,7 +115,7 @@ export default function LearningChannelLibrary() {
           className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink"
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
+          Refresh list
         </button>
       </div>
 
@@ -137,7 +137,7 @@ export default function LearningChannelLibrary() {
       ) : channels.length === 0 ? (
         <div className="rounded-lg border border-dashed border-line bg-white px-6 py-12 text-center">
           <p className="text-sm font-medium text-ink">No channels registered</p>
-          <p className="mt-1 text-sm text-muted">Add a YouTube channel URL above to get started.</p>
+          <p className="mt-1 text-sm text-muted">Paste a YouTube channel URL above to start building your English subtitle study library.</p>
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -152,7 +152,7 @@ export default function LearningChannelLibrary() {
               <p className="mt-2 truncate text-xs text-muted">{ch.channelId}</p>
               <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <dt className="text-muted">Videos</dt>
+                  <dt className="text-muted">URLs</dt>
                   <dd className="font-medium text-ink">{ch.videoCount}</dd>
                 </div>
                 <div>
@@ -160,7 +160,7 @@ export default function LearningChannelLibrary() {
                   <dd className="font-medium text-ink">{ch.selectedCount}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted">Captions</dt>
+                  <dt className="text-muted">Subtitles</dt>
                   <dd className="font-medium text-ink">{ch.captionReadyCount}</dd>
                 </div>
                 <div>

@@ -305,6 +305,16 @@ export interface ChannelRefreshReport {
   remoteMissingVideoIds: string[];
 }
 
+export interface ChannelDeleteResult {
+  channelId: string;
+  deletedChannel: boolean;
+  deletedSources: number;
+  skippedSources: number;
+  deletedPaths: string[];
+  skippedPaths: string[];
+  warnings: string[];
+}
+
 export * from './storage.js';
 export * from './englishSentenceIndex.js';
 export * from './channelVideoSelection.js';

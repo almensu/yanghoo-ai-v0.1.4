@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Check, Loader2, AlertCircle, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Check, Loader2, AlertCircle, RefreshCw, Trash2, X } from 'lucide-react';
 import {
   getChannelVideos,
   updateVideoSelection,
   syncSelectedCaptions,
   buildChannelIndex,
   refreshChannelVideos,
+  deleteLearningChannel,
   type LearningChannelSummary,
   type LearningChannelVideoRow
 } from '../api/client';
@@ -70,6 +71,7 @@ export default function LearningChannelVideoTable({
   const [batchSize, setBatchSize] = useState(10);
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [refreshLimit, setRefreshLimit] = useState(50);
+  const [deleting, setDeleting] = useState(false);
 
   const refreshVideos = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -91,6 +93,9 @@ export default function LearningChannelVideoTable({
   const filteredVideos = filterVideos(videos, activeFilter);
   const selectedIds = videos.filter(v => v.selected).map(v => v.videoId);
   const allVisibleSelected = videos.length > 0 && selectedIds.length === videos.length;
+  const subtitleReadyCount = videos.filter(v => v.captionStatus === 'caption_ready').length;
+  const needsSubtitleCount = videos.filter(v => v.selected && v.captionStatus !== 'caption_ready' && v.captionStatus !== 'caption_failed').length;
+  const failedSubtitleCount = videos.filter(v => v.captionStatus === 'caption_failed').length;
 
   const toggleSelect = async (videoIds: string[], selected: boolean) => {
     try {
@@ -109,7 +114,10 @@ export default function LearningChannelVideoTable({
     setError(null);
     try {
       const result = await syncSelectedCaptions(channel.channelId, batchSize);
-      setSyncResult(`Processed: ${result.processed} | Succeeded: ${result.succeeded} | Failed: ${result.failed}`);
+      const parts: string[] = [];
+      if (result.succeeded > 0) parts.push(`${result.succeeded} English subtitle${result.succeeded > 1 ? 's' : ''} synced`);
+      if (result.failed > 0) parts.push(`${result.failed} failed`);
+      setSyncResult(parts.join(', ') || `0 subtitles processed`);
       await refreshVideos(false);
       onRefreshChannel(false);
     } catch (err: any) {
@@ -153,149 +161,200 @@ export default function LearningChannelVideoTable({
     }
   };
 
+  const handleDelete = async () => {
+    if (deleting) return;
+    const confirmed = window.confirm(
+      `Delete channel "${channel.title}"?\n\nThis will remove the channel URL library and all English subtitle assets for this channel. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteLearningChannel(channel.channelId);
+      onRefreshChannel(false);
+      onBack();
+    } catch (err: any) {
+      setError(err.message || 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-[1180px] px-0 py-2">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-slate-50"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <div>
-            <h2 className="text-lg font-semibold text-ink">{channel.title}</h2>
-            <p className="text-xs text-muted">{channel.channelId}</p>
+      {/* Band 1: URL Library */}
+      <div className="border-b border-slate-100 pb-3 mb-3">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onBack}
+              className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-slate-50"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div>
+              <h2 className="text-lg font-semibold text-ink">{channel.title}</h2>
+              <p className="text-xs text-muted">{channel.videoCount} URLs · {channel.channelId}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-200 bg-white px-3 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Delete Channel
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRefresh('latest')}
+              disabled={refreshing}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-white px-3 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh URLs
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRefresh('full')}
+              disabled={refreshing}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-white px-3 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              Full refresh
+            </button>
+            <input
+              type="number"
+              value={refreshLimit}
+              onChange={e => setRefreshLimit(Number(e.target.value))}
+              min={1}
+              max={500}
+              className="h-8 w-16 rounded-md border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+            />
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => handleRefresh('latest')}
-          disabled={refreshing}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-white px-3 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh latest {refreshLimit}
-        </button>
-        <button
-          type="button"
-          onClick={() => handleRefresh('full')}
-          disabled={refreshing}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-white px-3 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-          Full refresh
-        </button>
-        <input
-          type="number"
-          value={refreshLimit}
-          onChange={e => setRefreshLimit(Number(e.target.value))}
-          min={1}
-          max={500}
-          className="h-8 w-16 rounded-md border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
-        />
-      </div>
-
-      {refreshResult && (
-        <div className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700">
-          <Check className="h-3.5 w-3.5" /> {refreshResult}
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">URL Library</p>
+        {refreshResult && (
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700">
+            <Check className="h-3.5 w-3.5" /> {refreshResult}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {FILTER_OPTIONS.map(f => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setActiveFilter(f.key)}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                activeFilter === f.key
+                  ? 'bg-ink text-white'
+                  : 'border border-line bg-white text-muted hover:text-ink'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+          <span className="ml-auto text-xs text-muted">{filteredVideos.length} / {videos.length}</span>
         </div>
-      )}
-
-      <div className="mb-3 flex flex-wrap items-center gap-1.5">
-        {FILTER_OPTIONS.map(f => (
-          <button
-            key={f.key}
-            type="button"
-            onClick={() => setActiveFilter(f.key)}
-            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              activeFilter === f.key
-                ? 'bg-ink text-white'
-                : 'border border-line bg-white text-muted hover:text-ink'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-muted">{filteredVideos.length} / {videos.length}</span>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => toggleSelect(videos.map(v => v.videoId), !allVisibleSelected)}
-          className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-medium text-ink hover:bg-slate-50"
-        >
-          {allVisibleSelected ? 'Deselect All' : 'Select All'}
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleSelect(videos.filter(v => v.discoveryStatus === 'new').map(v => v.videoId), true)}
-          className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-medium text-ink hover:bg-slate-50"
-        >
-          Select New
-        </button>
-        <span className="text-xs text-muted">|</span>
-        {[20, 50, 100].map(n => (
+      {/* Band 2: Selection */}
+      <div className="border-b border-slate-100 pb-3 mb-3">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">Selection</p>
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            key={n}
             type="button"
-            onClick={() => toggleSelect(filteredVideos.slice(0, n).map(v => v.videoId), true)}
-            disabled={filteredVideos.length === 0}
-            className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+            onClick={() => toggleSelect(videos.map(v => v.videoId), !allVisibleSelected)}
+            className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-medium text-ink hover:bg-slate-50"
           >
-            Select first {n}
+            {allVisibleSelected ? 'Deselect All' : 'Select All'}
           </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => toggleSelect(selectedIds, false)}
-          disabled={selectedIds.length === 0}
-          className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted hover:text-ink hover:bg-slate-50 disabled:opacity-50"
-        >
-          Clear selected
-        </button>
-        <span className="text-xs text-muted">{selectedIds.length} selected</span>
+          <button
+            type="button"
+            onClick={() => toggleSelect(videos.filter(v => v.discoveryStatus === 'new').map(v => v.videoId), true)}
+            className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-medium text-ink hover:bg-slate-50"
+          >
+            Select New
+          </button>
+          <span className="text-xs text-muted">|</span>
+          {[20, 50, 100].map(n => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => toggleSelect(filteredVideos.slice(0, n).map(v => v.videoId), true)}
+              disabled={filteredVideos.length === 0}
+              className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+            >
+              Select first {n}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => toggleSelect(selectedIds, false)}
+            disabled={selectedIds.length === 0}
+            className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted hover:text-ink hover:bg-slate-50 disabled:opacity-50"
+          >
+            Clear selected
+          </button>
+          <span className="text-xs text-muted">
+            {selectedIds.length > 0
+              ? `${selectedIds.length} of ${videos.length} URLs selected for English subtitle sync`
+              : 'No URLs selected'}
+          </span>
+        </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <input
-          type="number"
-          value={batchSize}
-          onChange={e => setBatchSize(Number(e.target.value))}
-          min={1}
-          max={100}
-          className="h-8 w-16 rounded-md border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
-        />
-        <button
-          type="button"
-          onClick={handleSync}
-          disabled={syncing || selectedIds.length === 0}
-          className="inline-flex h-8 items-center gap-1 rounded-md bg-ink px-3 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-        >
-          {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          Sync English Captions
-        </button>
-        <button
-          type="button"
-          onClick={handleBuildIndex}
-          disabled={building}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-line bg-white px-3 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
-        >
-          {building ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          Build Index
-        </button>
-        {syncResult && (
-          <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
-            <Check className="h-3.5 w-3.5" /> {syncResult}
-          </span>
+      {/* Band 3: Subtitle Sync */}
+      <div className="pb-3 mb-3">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">Subtitle Sync</p>
+        {videos.length > 0 && (
+          <p className="mb-2 text-xs text-muted">
+            {subtitleReadyCount} of {videos.length} URLs have English subtitles
+            {failedSubtitleCount > 0 && ` · ${failedSubtitleCount} failed`}
+            {needsSubtitleCount > 0 && ` · ${needsSubtitleCount} selected and waiting`}
+          </p>
         )}
-        {buildResult && (
-          <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
-            <Check className="h-3.5 w-3.5" /> {buildResult}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="number"
+            value={batchSize}
+            onChange={e => setBatchSize(Number(e.target.value))}
+            min={1}
+            max={100}
+            className="h-8 w-16 rounded-md border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          <button
+            type="button"
+            onClick={handleSync}
+            disabled={syncing || selectedIds.length === 0}
+            className="inline-flex h-8 items-center gap-1 rounded-md bg-ink px-3 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+          >
+            {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Sync English Subtitles
+          </button>
+          <button
+            type="button"
+            onClick={handleBuildIndex}
+            disabled={building}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-line bg-white px-3 text-xs font-medium text-ink hover:bg-slate-50 disabled:opacity-50"
+          >
+            {building ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Build Index
+          </button>
+          {syncResult && (
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
+              <Check className="h-3.5 w-3.5" /> {syncResult}
+            </span>
+          )}
+          {buildResult && (
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
+              <Check className="h-3.5 w-3.5" /> {buildResult}
+            </span>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -319,7 +378,7 @@ export default function LearningChannelVideoTable({
                 <th className="w-10 px-3 py-2.5"></th>
                 <th className="px-3 py-2.5">Title</th>
                 <th className="px-3 py-2.5">Published</th>
-                <th className="px-3 py-2.5">Caption</th>
+                <th className="px-3 py-2.5">Subtitle</th>
                 <th className="px-3 py-2.5">Index</th>
                 <th className="px-3 py-2.5">Error</th>
               </tr>
