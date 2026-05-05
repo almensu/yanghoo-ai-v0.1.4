@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Check, Loader2, AlertCircle, RefreshCw, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, Loader2, AlertCircle, RefreshCw, Trash2, X, Tag } from 'lucide-react';
 import {
   getChannelVideos,
   updateVideoSelection,
@@ -7,6 +7,7 @@ import {
   buildChannelIndex,
   refreshChannelVideos,
   deleteLearningChannel,
+  updateChannelTaxonomy,
   type LearningChannelSummary,
   type LearningChannelVideoRow
 } from '../api/client';
@@ -72,6 +73,11 @@ export default function LearningChannelVideoTable({
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [refreshLimit, setRefreshLimit] = useState(50);
   const [deleting, setDeleting] = useState(false);
+  const [editingTaxonomy, setEditingTaxonomy] = useState(false);
+  const [taxonomyCategory, setTaxonomyCategory] = useState(channel.category || '');
+  const [taxonomyTags, setTaxonomyTags] = useState(channel.tags?.join(', ') || '');
+  const [taxonomyNote, setTaxonomyNote] = useState(channel.taxonomyNote || '');
+  const [taxonomySaving, setTaxonomySaving] = useState(false);
 
   const refreshVideos = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -180,6 +186,24 @@ export default function LearningChannelVideoTable({
     }
   };
 
+  const handleSaveTaxonomy = async () => {
+    setTaxonomySaving(true);
+    setError(null);
+    try {
+      await updateChannelTaxonomy(channel.channelId, {
+        category: taxonomyCategory,
+        tags: taxonomyTags.split(',').map(t => t.trim()).filter(Boolean),
+        note: taxonomyNote
+      });
+      setEditingTaxonomy(false);
+      onRefreshChannel(false);
+    } catch (err: any) {
+      setError(err.message || 'Taxonomy save failed');
+    } finally {
+      setTaxonomySaving(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-[1180px] px-0 py-2">
       {/* Band 1: URL Library */}
@@ -237,6 +261,54 @@ export default function LearningChannelVideoTable({
           </div>
         </div>
         <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">URL Library</p>
+        {/* Taxonomy display/edit */}
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <Tag className="h-3.5 w-3.5 text-muted" />
+          {editingTaxonomy ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={taxonomyCategory}
+                onChange={e => setTaxonomyCategory(e.target.value)}
+                placeholder="category (e.g. news, interview)"
+                className="h-7 w-40 rounded border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              <input
+                type="text"
+                value={taxonomyTags}
+                onChange={e => setTaxonomyTags(e.target.value)}
+                placeholder="tags (comma separated)"
+                className="h-7 w-48 rounded border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              <input
+                type="text"
+                value={taxonomyNote}
+                onChange={e => setTaxonomyNote(e.target.value)}
+                placeholder="note"
+                className="h-7 w-40 rounded border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              <button type="button" onClick={handleSaveTaxonomy} disabled={taxonomySaving} className="text-xs font-medium text-accent hover:underline disabled:opacity-50">
+                {taxonomySaving ? 'Saving...' : 'Save'}
+              </button>
+              <button type="button" onClick={() => setEditingTaxonomy(false)} className="text-xs font-medium text-muted hover:underline">
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <>
+              <span className="font-medium text-ink">{channel.category || 'Uncategorized'}</span>
+              {channel.tags.length > 0 && (
+                <span className="text-muted">· {channel.tags.join(', ')}</span>
+              )}
+              {channel.taxonomyNote && (
+                <span className="text-muted">· {channel.taxonomyNote}</span>
+              )}
+              <button type="button" onClick={() => { setTaxonomyCategory(channel.category || ''); setTaxonomyTags(channel.tags?.join(', ') || ''); setTaxonomyNote(channel.taxonomyNote || ''); setEditingTaxonomy(true); }} className="text-[10px] font-medium text-accent hover:underline">
+                Edit
+              </button>
+            </>
+          )}
+        </div>
         {refreshResult && (
           <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700">
             <Check className="h-3.5 w-3.5" /> {refreshResult}

@@ -35,6 +35,9 @@ export interface LearningChannelSummary {
   captionReadyCount: number;
   indexedSentenceCount: number;
   updatedAt: string;
+  category?: string;
+  tags: string[];
+  taxonomyNote?: string;
 }
 
 export interface LearningChannelVideoRow {

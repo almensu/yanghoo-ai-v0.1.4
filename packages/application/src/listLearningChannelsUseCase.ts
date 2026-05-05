@@ -1,9 +1,12 @@
-import { channelStorage, sourceStorage, createEnglishSentenceIndexStorage, indexInputStorage } from '@yanghoo/storage';
+import { channelStorage, sourceStorage, createEnglishSentenceIndexStorage, indexInputStorage, channelTaxonomyStorage } from '@yanghoo/storage';
 import type { LearningChannelSummary } from '@yanghoo/domain';
 
 export async function listLearningChannelsUseCase(): Promise<LearningChannelSummary[]> {
   const channelIds = await channelStorage.listChannels();
   const summaries: LearningChannelSummary[] = [];
+
+  const taxonomyFile = await channelTaxonomyStorage.readChannelTaxonomy();
+  const taxonomyMap = new Map(taxonomyFile.items.map(i => [i.channelId, i]));
 
   for (const channelId of channelIds) {
     const manifest = await channelStorage.getChannelManifest(channelId);
@@ -25,6 +28,8 @@ export async function listLearningChannelsUseCase(): Promise<LearningChannelSumm
       // No index yet
     }
 
+    const taxonomy = taxonomyMap.get(channelId);
+
     summaries.push({
       channelId,
       title: manifest.title,
@@ -32,7 +37,10 @@ export async function listLearningChannelsUseCase(): Promise<LearningChannelSumm
       selectedCount,
       captionReadyCount,
       indexedSentenceCount,
-      updatedAt: manifest.capturedAt
+      updatedAt: manifest.capturedAt,
+      category: taxonomy?.category,
+      tags: taxonomy?.tags ?? [],
+      taxonomyNote: taxonomy?.note
     });
   }
 

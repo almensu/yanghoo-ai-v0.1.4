@@ -83,3 +83,4 @@ export const getEnglishSentencesManifestPath = (channelId: string) => `${getInde
 
 export const getLearningDir = () => `${STORAGE_ROOT}/learning`;
 export const getSavedEnglishExamplesPath = () => `${getLearningDir()}/english-saved-examples.json`;
+export const getChannelTaxonomyPath = () => `${STORAGE_ROOT}/channels/channel-taxonomy.json`;

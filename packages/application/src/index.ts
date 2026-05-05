@@ -526,3 +526,4 @@ export * from './syncSelectedEnglishCaptionsUseCase.js';
 export * from './refreshChannelVideosUseCase.js';
 export * from './deleteLearningChannelUseCase.js';
 export * from './savedEnglishExamplesUseCases.js';
+export * from './channelTaxonomyUseCases.js';

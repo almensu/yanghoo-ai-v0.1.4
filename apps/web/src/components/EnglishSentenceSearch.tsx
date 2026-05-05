@@ -335,6 +335,8 @@ export default function EnglishSentenceSearch() {
   const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [resultStableIds, setResultStableIds] = useState<Map<string, string>>(new Map());
+  const [taxonomyCategory, setTaxonomyCategory] = useState<string>('');
+  const [taxonomyTag, setTaxonomyTag] = useState<string>('');
 
   const isResultSaved = (result: EnglishSentenceSearchResult): boolean => {
     const stableId = resultStableIds.get(resultKey(result));
@@ -346,6 +348,27 @@ export default function EnglishSentenceSearch() {
   );
   const selectedChannels = channels.filter(c => selectedChannelIds.has(c.channelId));
   const totalSentences = selectedChannels.reduce((sum, c) => sum + c.indexedSentenceCount, 0);
+
+  const allCategories = useMemo(() => {
+    const cats = new Set<string>();
+    for (const ch of channels) { if (ch.category) cats.add(ch.category); }
+    return [...cats].sort();
+  }, [channels]);
+
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    for (const ch of channels) { for (const t of ch.tags) tags.add(t); }
+    return [...tags].sort();
+  }, [channels]);
+
+  const visibleChannels = useMemo(() => {
+    return channels.filter(ch => {
+      if (taxonomyCategory && ch.category !== taxonomyCategory) return false;
+      if (taxonomyTag && !ch.tags.includes(taxonomyTag)) return false;
+      return true;
+    });
+  }, [channels, taxonomyCategory, taxonomyTag]);
+
   const activeResult = results[activeIndex] ?? null;
   const nextEmbedUrl = results[activeIndex + 1]?.youtubeEmbedUrl;
 
@@ -635,13 +658,54 @@ export default function EnglishSentenceSearch() {
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted">Channels</p>
                 <div className="flex gap-2">
-                  <button type="button" onClick={selectAllChannels} className="text-[10px] font-medium text-accent hover:underline">Select all</button>
-                  <button type="button" onClick={clearChannels} className="text-[10px] font-medium text-muted hover:underline">Clear</button>
+                  <button type="button" onClick={selectAllChannels} className="text-[10px] font-medium text-accent hover:underline">Select all indexed</button>
+                  <button type="button" onClick={clearChannels} className="text-[10px] font-medium text-muted hover:underline">Clear all</button>
                 </div>
               </div>
-              {channels.length > 0 ? (
+              {channels.length > 0 && (
+                <div className="mt-2 space-y-1.5">
+                  <select
+                    value={taxonomyCategory}
+                    onChange={e => setTaxonomyCategory(e.target.value)}
+                    className="h-8 w-full rounded-md border border-line bg-white px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value="">All categories</option>
+                    {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select
+                    value={taxonomyTag}
+                    onChange={e => setTaxonomyTag(e.target.value)}
+                    className="h-8 w-full rounded-md border border-line bg-white px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value="">All tags</option>
+                    {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const visibleIds = visibleChannels.map(c => c.channelId);
+                        setSelectedChannelIds(prev => { const n = new Set(prev); for (const id of visibleIds) n.add(id); return n; });
+                      }}
+                      disabled={visibleChannels.length === 0}
+                      className="text-[10px] font-medium text-accent hover:underline disabled:opacity-40"
+                    >Select visible</button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const visibleIds = new Set(visibleChannels.map(c => c.channelId));
+                        setSelectedChannelIds(prev => { const n = new Set(prev); for (const id of visibleIds) n.delete(id); return n; });
+                      }}
+                      disabled={visibleChannels.length === 0}
+                      className="text-[10px] font-medium text-muted hover:underline disabled:opacity-40"
+                    >Clear visible</button>
+                    <span className="ml-auto text-[10px] text-muted">{visibleChannels.length} visible · {selectedChannelIds.size} selected</span>
+                  </div>
+                </div>
+              )}
+              {visibleChannels.length > 0 ? (
                 <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
-                  {channels.map(ch => (
+                  {visibleChannels.map(ch => (
                     <label key={ch.channelId} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50">
                       <input
                         type="checkbox"
@@ -650,10 +714,13 @@ export default function EnglishSentenceSearch() {
                         className="h-4 w-4 rounded border-slate-300 text-ink focus:ring-accent"
                       />
                       <span className="min-w-0 flex-1 truncate text-ink">{ch.title}</span>
+                      {ch.category && <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] text-muted">{ch.category}</span>}
                       <span className="shrink-0 text-[10px] text-muted">{ch.indexedSentenceCount.toLocaleString()}</span>
                     </label>
                   ))}
                 </div>
+              ) : channels.length > 0 ? (
+                <p className="mt-2 text-sm text-muted">No indexed channels match this category/tag.</p>
               ) : (
                 <p className="mt-2 text-sm text-muted">No indexed channels</p>
               )}

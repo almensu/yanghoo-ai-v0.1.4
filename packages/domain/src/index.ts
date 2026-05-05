@@ -355,3 +355,19 @@ export interface SavedEnglishExamplesFile {
   updatedAt: string;
   items: SavedEnglishExample[];
 }
+
+// --- Channel Taxonomy ---
+
+export interface ChannelTaxonomyItem {
+  channelId: string;
+  category?: string;
+  tags: string[];
+  note?: string;
+  updatedAt: string;
+}
+
+export interface ChannelTaxonomyFile {
+  version: 1;
+  updatedAt: string;
+  items: ChannelTaxonomyItem[];
+}

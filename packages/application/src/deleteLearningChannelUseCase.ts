@@ -1,4 +1,4 @@
-import { channelStorage, sourceStorage } from '@yanghoo/storage';
+import { channelStorage, sourceStorage, channelTaxonomyStorage } from '@yanghoo/storage';
 import type { ChannelDeleteResult } from '@yanghoo/domain';
 
 async function collectSourceIdsReferencedByOtherChannels(excludeChannelId: string): Promise<Set<string>> {
@@ -82,6 +82,19 @@ export async function deleteLearningChannelUseCase(channelId: string): Promise<C
     deletedPaths.push(`data/channels/${channelId}`, `data/indexes/${channelId}`);
   } catch (err: any) {
     warnings.push(`Failed to delete channel directory: ${err.message}`);
+  }
+
+  // Clean up taxonomy entry for this channel
+  try {
+    const taxonomyFile = await channelTaxonomyStorage.readChannelTaxonomy();
+    const before = taxonomyFile.items.length;
+    taxonomyFile.items = taxonomyFile.items.filter(i => i.channelId !== channelId);
+    if (taxonomyFile.items.length < before) {
+      taxonomyFile.updatedAt = new Date().toISOString();
+      await channelTaxonomyStorage.writeChannelTaxonomy(taxonomyFile);
+    }
+  } catch (err: any) {
+    warnings.push(`Failed to clean up taxonomy: ${err.message}`);
   }
 
   return {

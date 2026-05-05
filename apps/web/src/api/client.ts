@@ -207,6 +207,9 @@ export interface LearningChannelSummary {
   captionReadyCount: number;
   indexedSentenceCount: number;
   updatedAt: string;
+  category?: string;
+  tags: string[];
+  taxonomyNote?: string;
 }
 
 export interface LearningChannelVideoRow {
@@ -397,6 +400,42 @@ export async function openNotebookLmExport(exportId: string): Promise<void> {
 export async function transcribeMedia(taskId: string): Promise<void> {
   const response = await fetch(`${taskPath(taskId)}/transcribe-media`, {
     method: 'POST'
+  });
+  await handleResponse(response);
+}
+
+// --- Channel Taxonomy ---
+
+export interface ChannelTaxonomyItem {
+  channelId: string;
+  category?: string;
+  tags: string[];
+  note?: string;
+  updatedAt: string;
+}
+
+export async function listChannelTaxonomy(): Promise<ChannelTaxonomyItem[]> {
+  const response = await fetch(`${API_BASE}/api/learning-channel-taxonomy`);
+  const data = await handleResponse(response);
+  return data.items;
+}
+
+export async function updateChannelTaxonomy(
+  channelId: string,
+  input: { category?: string; tags?: string[]; note?: string }
+): Promise<ChannelTaxonomyItem> {
+  const response = await fetch(`${API_BASE}/api/learning-channel-taxonomy/${encodeURIComponent(channelId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  const data = await handleResponse(response);
+  return data.item;
+}
+
+export async function deleteChannelTaxonomy(channelId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/learning-channel-taxonomy/${encodeURIComponent(channelId)}`, {
+    method: 'DELETE'
   });
   await handleResponse(response);
 }

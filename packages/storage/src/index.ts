@@ -45,7 +45,9 @@ import {
   TranscriptFallback,
   TranscriptStatus,
   SavedEnglishExamplesFile,
-  getSavedEnglishExamplesPath
+  getSavedEnglishExamplesPath,
+  ChannelTaxonomyFile,
+  getChannelTaxonomyPath
 } from '@yanghoo/domain';
 
 /**
@@ -943,6 +945,38 @@ export class FileSavedEnglishExampleStorage implements SavedEnglishExampleStorag
 }
 
 export const savedEnglishExampleStorage = new FileSavedEnglishExampleStorage();
+
+export interface ChannelTaxonomyStorage {
+  readChannelTaxonomy(): Promise<ChannelTaxonomyFile>;
+  writeChannelTaxonomy(file: ChannelTaxonomyFile): Promise<void>;
+}
+
+export class FileChannelTaxonomyStorage implements ChannelTaxonomyStorage {
+  private get dataRoot(): string {
+    if (process.env.DATA_DIR) return path.resolve(process.env.DATA_DIR);
+    const cwd = process.cwd();
+    if (cwd.includes('apps/api')) return path.resolve(cwd, '../../data');
+    if (cwd.includes('apps/web')) return path.resolve(cwd, '../../data');
+    return path.resolve(cwd, 'data');
+  }
+
+  async readChannelTaxonomy(): Promise<ChannelTaxonomyFile> {
+    const filePath = path.join(this.dataRoot, getChannelTaxonomyPath().replace('data/', ''));
+    if (!fs.existsSync(filePath)) {
+      return { version: 1, updatedAt: new Date().toISOString(), items: [] };
+    }
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  }
+
+  async writeChannelTaxonomy(file: ChannelTaxonomyFile): Promise<void> {
+    const filePath = path.join(this.dataRoot, getChannelTaxonomyPath().replace('data/', ''));
+    const dirPath = path.dirname(filePath);
+    if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(file, null, 2), 'utf-8');
+  }
+}
+
+export const channelTaxonomyStorage = new FileChannelTaxonomyStorage();
 
 // Current singleton for simplicity in MVP
 export const sourceStorage = new FileStorage();
