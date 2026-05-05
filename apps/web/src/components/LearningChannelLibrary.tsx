@@ -149,7 +149,17 @@ export default function LearningChannelLibrary() {
               className="rounded-lg border border-line bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md"
             >
               <p className="truncate text-sm font-semibold text-ink">{ch.title}</p>
-              <p className="mt-2 truncate text-xs text-muted">{ch.channelId}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                {ch.category ? (
+                  <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-medium text-white">{ch.category}</span>
+                ) : (
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-muted">uncategorized</span>
+                )}
+                {ch.tags.slice(0, 3).map(t => (
+                  <span key={t} className="max-w-[80px] truncate rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-muted">{t}</span>
+                ))}
+                {ch.tags.length > 3 && <span className="text-[10px] text-muted">+{ch.tags.length - 3}</span>}
+              </div>
               <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <dt className="text-muted">URLs</dt>

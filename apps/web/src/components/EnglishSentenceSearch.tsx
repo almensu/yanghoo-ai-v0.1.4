@@ -701,6 +701,7 @@ export default function EnglishSentenceSearch() {
                     >Clear visible</button>
                     <span className="ml-auto text-[10px] text-muted">{visibleChannels.length} visible · {selectedChannelIds.size} selected</span>
                   </div>
+                  <p className="text-[9px] text-muted">Visible = channels matching the filters above</p>
                 </div>
               )}
               {visibleChannels.length > 0 ? (
@@ -714,7 +715,7 @@ export default function EnglishSentenceSearch() {
                         className="h-4 w-4 rounded border-slate-300 text-ink focus:ring-accent"
                       />
                       <span className="min-w-0 flex-1 truncate text-ink">{ch.title}</span>
-                      {ch.category && <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] text-muted">{ch.category}</span>}
+                      {ch.category && <span className="max-w-[72px] shrink-0 truncate rounded bg-slate-100 px-1 py-0.5 text-[9px] text-muted">{ch.category}</span>}
                       <span className="shrink-0 text-[10px] text-muted">{ch.indexedSentenceCount.toLocaleString()}</span>
                     </label>
                   ))}

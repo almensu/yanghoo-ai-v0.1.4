@@ -265,43 +265,52 @@ export default function LearningChannelVideoTable({
         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
           <Tag className="h-3.5 w-3.5 text-muted" />
           {editingTaxonomy ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="text"
-                value={taxonomyCategory}
-                onChange={e => setTaxonomyCategory(e.target.value)}
-                placeholder="category (e.g. news, interview)"
-                className="h-7 w-40 rounded border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-              <input
-                type="text"
-                value={taxonomyTags}
-                onChange={e => setTaxonomyTags(e.target.value)}
-                placeholder="tags (comma separated)"
-                className="h-7 w-48 rounded border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-              <input
-                type="text"
-                value={taxonomyNote}
-                onChange={e => setTaxonomyNote(e.target.value)}
-                placeholder="note"
-                className="h-7 w-40 rounded border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-              <button type="button" onClick={handleSaveTaxonomy} disabled={taxonomySaving} className="text-xs font-medium text-accent hover:underline disabled:opacity-50">
-                {taxonomySaving ? 'Saving...' : 'Save'}
-              </button>
-              <button type="button" onClick={() => setEditingTaxonomy(false)} className="text-xs font-medium text-muted hover:underline">
-                Cancel
-              </button>
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={taxonomyCategory}
+                  onChange={e => setTaxonomyCategory(e.target.value)}
+                  placeholder="category (e.g. news, interview)"
+                  className="h-7 w-40 rounded border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <input
+                  type="text"
+                  value={taxonomyTags}
+                  onChange={e => setTaxonomyTags(e.target.value)}
+                  placeholder="tags (comma separated)"
+                  className="h-7 w-48 rounded border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={taxonomyNote}
+                  onChange={e => setTaxonomyNote(e.target.value)}
+                  placeholder="optional note..."
+                  className="h-7 flex-1 rounded border border-line px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <button type="button" onClick={handleSaveTaxonomy} disabled={taxonomySaving} className="inline-flex h-7 items-center gap-1 rounded-md bg-ink px-2.5 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+                  {taxonomySaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                  Save
+                </button>
+                <button type="button" onClick={() => setEditingTaxonomy(false)} className="text-xs font-medium text-muted hover:underline">
+                  Cancel
+                </button>
+              </div>
             </div>
           ) : (
             <>
-              <span className="font-medium text-ink">{channel.category || 'Uncategorized'}</span>
-              {channel.tags.length > 0 && (
-                <span className="text-muted">· {channel.tags.join(', ')}</span>
+              {channel.category ? (
+                <span className="inline-block rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-medium text-white">{channel.category}</span>
+              ) : (
+                <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-muted">uncategorized</span>
               )}
+              {channel.tags.map(t => (
+                <span key={t} className="inline-block max-w-[100px] truncate rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-muted">{t}</span>
+              ))}
               {channel.taxonomyNote && (
-                <span className="text-muted">· {channel.taxonomyNote}</span>
+                <span className="truncate text-muted">{channel.taxonomyNote}</span>
               )}
               <button type="button" onClick={() => { setTaxonomyCategory(channel.category || ''); setTaxonomyTags(channel.tags?.join(', ') || ''); setTaxonomyNote(channel.taxonomyNote || ''); setEditingTaxonomy(true); }} className="text-[10px] font-medium text-accent hover:underline">
                 Edit
