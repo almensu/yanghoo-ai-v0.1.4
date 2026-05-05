@@ -334,19 +334,11 @@ export default function EnglishSentenceSearch() {
   const [channels, setChannels] = useState<LearningChannelSummary[]>([]);
   const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const stableIdCache = useRef(new Map<string, string>());
-
-  const getStableId = async (result: EnglishSentenceSearchResult): Promise<string> => {
-    const key = resultKey(result);
-    if (stableIdCache.current.has(key)) return stableIdCache.current.get(key)!;
-    const id = await computeStableId(result.entry);
-    stableIdCache.current.set(key, id);
-    return id;
-  };
+  const [resultStableIds, setResultStableIds] = useState<Map<string, string>>(new Map());
 
   const isResultSaved = (result: EnglishSentenceSearchResult): boolean => {
-    const cached = stableIdCache.current.get(resultKey(result));
-    return cached ? savedIds.has(cached) : false;
+    const stableId = resultStableIds.get(resultKey(result));
+    return stableId != null && savedIds.has(stableId);
   };
   const selectedChannelKey = useMemo(
     () => Array.from(selectedChannelIds).sort().join(','),
@@ -373,16 +365,16 @@ export default function EnglishSentenceSearch() {
       .catch(() => {});
   }, []);
 
-  // Pre-warm stable id cache for current results so isResultSaved works synchronously
+  // Compute stable ids for current results via Promise.all → React state
   useEffect(() => {
-    if (results.length === 0 || savedIds.size === 0) return;
-    for (const r of results) {
-      const key = resultKey(r);
-      if (!stableIdCache.current.has(key)) {
-        void computeStableId(r.entry).then(id => stableIdCache.current.set(key, id));
-      }
-    }
-  }, [results, savedIds]);
+    if (results.length === 0) return;
+    const entries = results.map(r => ({ key: resultKey(r), promise: computeStableId(r.entry) }));
+    void Promise.all(entries.map(e => e.promise)).then(ids => {
+      const next = new Map<string, string>();
+      entries.forEach((e, i) => next.set(e.key, ids[i]));
+      setResultStableIds(next);
+    });
+  }, [results]);
 
   const runSearch = useCallback(async (opts: { append?: boolean; offset?: number } = {}) => {
     if (!query.trim() || selectedChannelIds.size === 0) {
@@ -497,18 +489,23 @@ export default function EnglishSentenceSearch() {
   };
 
   const toggleSave = async (result: EnglishSentenceSearchResult) => {
-    const stableId = await getStableId(result);
+    const key = resultKey(result);
+    let stableId = resultStableIds.get(key);
+    if (!stableId) {
+      stableId = await computeStableId(result.entry);
+      setResultStableIds(prev => new Map(prev).set(key, stableId!));
+    }
     if (savedIds.has(stableId)) {
       try {
         await deleteSavedExample(stableId);
-        setSavedIds(prev => { const n = new Set(prev); n.delete(stableId); return n; });
+        setSavedIds(prev => { const n = new Set(prev); n.delete(stableId!); return n; });
       } catch (err: any) {
         setErrorMessage(err.message || 'Failed to unsave');
       }
     } else {
       try {
         const res = await saveEnglishExample(result, query);
-        stableIdCache.current.set(resultKey(result), res.item.id);
+        setResultStableIds(prev => new Map(prev).set(key, res.item.id));
         setSavedIds(prev => new Set(prev).add(res.item.id));
       } catch (err: any) {
         setErrorMessage(err.message || 'Failed to save');
