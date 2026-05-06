@@ -382,6 +382,18 @@ export default function EnglishSentenceSearch() {
   const activeResult = results[activeIndex] ?? null;
   const nextEmbedUrl = results[activeIndex + 1]?.youtubeEmbedUrl;
 
+  const groupedResults = useMemo(() => {
+    if (!activePack) return null;
+    const groups = new Map<string, { result: EnglishSentenceSearchResult, index: number }[]>();
+    activePack.queries.forEach(q => groups.set(q, []));
+    results.forEach((r, i) => {
+      const q = activePack.examples[i]?.query || 'Other';
+      if (!groups.has(q)) groups.set(q, []);
+      groups.get(q)!.push({ result: r, index: i });
+    });
+    return Array.from(groups.entries()).filter(([_, items]) => items.length > 0);
+  }, [activePack, results]);
+
   useEffect(() => {
     listLearningChannels()
       .then(chs => {
@@ -582,7 +594,7 @@ export default function EnglishSentenceSearch() {
     }
   };
 
-  const toggleSave = async (result: EnglishSentenceSearchResult) => {
+  const toggleSave = async (result: EnglishSentenceSearchResult, queryOverride?: string) => {
     const key = resultKey(result);
     let stableId = resultStableIds.get(key);
     if (!stableId) {
@@ -598,7 +610,7 @@ export default function EnglishSentenceSearch() {
       }
     } else {
       try {
-        const res = await saveEnglishExample(result, query);
+        const res = await saveEnglishExample(result, queryOverride || query);
         setResultStableIds(prev => new Map(prev).set(key, res.item.id));
         setSavedIds(prev => new Set(prev).add(res.item.id));
       } catch (err: any) {
@@ -898,30 +910,60 @@ export default function EnglishSentenceSearch() {
             </div>
           )}
 
-          {isLoading || packLoading && results.length === 0 ? (
+          {isLoading || (packLoading && results.length === 0) ? (
             <div className="rounded-lg border border-line bg-white px-6 py-14 text-center">
               <Loader2 className="mx-auto h-7 w-7 animate-spin text-accent" />
               <p className="mt-3 text-sm text-muted">Searching local sentence index</p>
             </div>
           ) : results.length > 0 ? (
             <>
-              <div className="space-y-3">
-                {results.map((result, index) => (
-                  <ResultCard
-                    key={resultKey(result) + index}
-                    result={result}
-                    query={activePack ? (activePack.examples[index]?.query || '') : query}
-                    index={index}
-                    active={index === activeIndex}
-                    copiedKey={copiedKey}
-                    isSaved={isResultSaved(result)}
-                    onSelect={() => setActiveIndex(index)}
-                    onCopySentence={() => void copyText(`${resultKey(result)}:sentence`, result.entry.text)}
-                    onCopyUrl={() => void copyText(`${resultKey(result)}:url`, result.youtubeTimestampUrl)}
-                    onToggleSave={() => void toggleSave(result)}
-                  />
-                ))}
-              </div>
+              {activePack && groupedResults ? (
+                <div className="space-y-8">
+                  {groupedResults.map(([groupQuery, items]) => (
+                    <section key={groupQuery} className="space-y-3">
+                      <div className="flex items-center gap-2 border-b border-line pb-1">
+                        <h3 className="text-sm font-bold text-ink">{groupQuery}</h3>
+                        <span className="text-[10px] font-normal text-muted">{items.length} examples</span>
+                      </div>
+                      <div className="space-y-3">
+                        {items.map(({ result, index }) => (
+                          <ResultCard
+                            key={resultKey(result) + index}
+                            result={result}
+                            query={groupQuery}
+                            index={index}
+                            active={index === activeIndex}
+                            copiedKey={copiedKey}
+                            isSaved={isResultSaved(result)}
+                            onSelect={() => setActiveIndex(index)}
+                            onCopySentence={() => void copyText(`${resultKey(result)}:sentence`, result.entry.text)}
+                            onCopyUrl={() => void copyText(`${resultKey(result)}:url`, result.youtubeTimestampUrl)}
+                            onToggleSave={() => void toggleSave(result, groupQuery)}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {results.map((result, index) => (
+                    <ResultCard
+                      key={resultKey(result) + index}
+                      result={result}
+                      query={query}
+                      index={index}
+                      active={index === activeIndex}
+                      copiedKey={copiedKey}
+                      isSaved={isResultSaved(result)}
+                      onSelect={() => setActiveIndex(index)}
+                      onCopySentence={() => void copyText(`${resultKey(result)}:sentence`, result.entry.text)}
+                      onCopyUrl={() => void copyText(`${resultKey(result)}:url`, result.youtubeTimestampUrl)}
+                      onToggleSave={() => void toggleSave(result)}
+                    />
+                  ))}
+                </div>
+              )}
               {!activePack && (
                 <div className="flex justify-center pt-2">
                   <button
@@ -961,7 +1003,7 @@ export default function EnglishSentenceSearch() {
             onPrevious={() => setActiveIndex(i => Math.max(0, i - 1))}
             onNext={() => setActiveIndex(i => Math.min(results.length - 1, i + 1))}
             onCopySentence={() => activeResult && void copyText(`${resultKey(activeResult)}:sentence`, activeResult.entry.text)}
-            onToggleSave={() => activeResult && void toggleSave(activeResult)}
+            onToggleSave={() => activeResult && void toggleSave(activeResult, activePack ? activePack.examples[activeIndex]?.query : undefined)}
           />
         </aside>
       </section>
