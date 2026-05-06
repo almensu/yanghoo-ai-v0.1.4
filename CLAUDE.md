@@ -22,6 +22,24 @@ Claude/Gemini should read this skill before Yanghoo AI work involving source cap
 
 If the skill conflicts with this file, `AGENTS.md`, or accepted `docs/decisions/*`, prefer the repository-local rules and accepted decisions.
 
+## External English Balance Skill
+
+Yanghoo AI may be coordinated with `Anything-to-English` through an external skill:
+
+```text
+/Users/a123/claude-model/.claude-zhipu/skills/yanghoo-english-balance/SKILL.md
+```
+
+This skill is deliberately outside the repository. It exists to keep the projects independent while allowing a Claude/Codex agent to combine their outputs for a user task.
+
+Boundary rule:
+
+- Yanghoo AI owns real subtitle capture, sentence search, playback, saved examples, and corpus evidence.
+- `Anything-to-English` owns personal scene compilation, canonical block/scene rules, runtime user state, and generated learning outputs.
+- The balance skill owns only coordination: reading approved surfaces, generating scene briefs, requesting/searching real examples, composing temporary study packs, and auditing whether either project is absorbing the other's responsibility.
+
+Do not add `Anything-to-English` as a package, workspace, submodule, data dependency, or canonical source inside this repository. Do not copy Yanghoo subtitle corpora into `Anything-to-English`. Use explicit bridge artifacts such as scene briefs and evidence packs when coordination is needed.
+
 ## Roles
 
 Codex is the project commander:

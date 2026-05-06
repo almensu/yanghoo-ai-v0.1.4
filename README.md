@@ -10,6 +10,24 @@ source video/url -> best transcript source -> refined sentence assets -> readabl
 
 The product should expose document readiness and reading actions. It should not become a general-purpose media control panel.
 
+## External Coordination Skill
+
+Yanghoo AI stays independent from `Anything-to-English`.
+
+An external Claude skill may coordinate the two projects without merging them:
+
+```text
+/Users/a123/claude-model/.claude-zhipu/skills/yanghoo-english-balance/SKILL.md
+```
+
+The skill exists to apply a Linux-style single-purpose boundary:
+
+- Yanghoo AI remains the real-corpus engine for source URLs, captions, subtitle search, timestamped playback, and saved examples.
+- `Anything-to-English` remains the personal scene compiler for raw life input, canonical blocks/scenes, runtime user state, and learning outputs.
+- The skill acts only as an off-repo coordinator: it may read public/project-approved surfaces, create scene briefs, request real subtitle evidence, build temporary study packs, and audit boundary drift.
+
+The skill must not merge repositories, copy large subtitle corpora into `Anything-to-English`, write `Anything-to-English` runtime state from Yanghoo internals, or let AI-generated English masquerade as real subtitle evidence.
+
 ## Current Capabilities
 
 - Capture sources from supported platform URLs.
