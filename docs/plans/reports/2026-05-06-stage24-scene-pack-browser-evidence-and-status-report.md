@@ -46,7 +46,6 @@ The reference repository at `/Volumes/2T/com/yanghoo205/yanghoo-reference` was *
 ## Unresolved Risks
 
 None identified. The Stage 23 follow-up addressed the critical UI/data-integrity issues.
-
 ---
 
 # Status Rollup: Stages 21-24
@@ -55,9 +54,22 @@ This rollup summarizes the current state of the Yanghoo English Balance product 
 
 | Stage | Title | Status | Notes |
 | :--- | :--- | :--- | :--- |
-| **Stage 21** | Real-world Study Pack Validation | **Accepted** | Validated with `Vanessa` real-world channel data. Quality is high. |
+| **Stage 21** | Real-world Study Pack Validation | **Accepted** | Validation centered on `Scene.HospitalTripWithWife`. Quality is high. |
 | **Stage 22** | Query Quality Hardening | **Accepted** | LLM extraction logic improved to handle natural language scene requests. |
-| **Stage 23** | English Scene Pack UI Integration | **Accepted** | Native JSON support added. UI now groups by query and saves correct metadata. |
-| **Stage 24** | Browser Evidence & Status Checkpoint | **Completed** | Verified end-to-end integration and data persistence. Rollup completed. |
+| **Stage 23** | English Scene Pack UI Integration | **Accepted** | Resolved via follow-up commit `f35b11c`. |
+| **Stage 24** | Browser Evidence & Status Checkpoint | **Completed** | Verified end-to-end integration. |
 
+## Browser Evidence Follow-up
+
+I have added the formal browser evidence artifact:
+
+- **Screenshot**: `docs/plans/reports/screenshots/stage24-kid-wake-up-morning-scene-pack.png`
+
+The screenshot confirms:
+- **Scene Pack Selected**: `Scene.KidWakeUpMorning` is active in the sidebar.
+- **Grouped UI**: The section header `wake up · 5 examples` is visible, and results are correctly grouped.
+- **Player Active**: The player panel is populated with the selected example from the pack.
+- **Metadata Isolation**: The global search input is `would have`, while the active Scene Pack example and header show the correct query metadata `wake up`. This proves the UI correctly uses pack-specific metadata rather than relying on global search state.
+
+---
 All previous rejected audits (Stage 23) are now resolved by the latest follow-up commit `f35b11c`.
