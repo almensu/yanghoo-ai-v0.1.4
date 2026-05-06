@@ -21,7 +21,10 @@ import {
   searchEnglishSentences,
   saveEnglishExample,
   deleteSavedExample,
-  listSavedExampleIds
+  listSavedExampleIds,
+  listEnglishScenePacks,
+  getEnglishScenePack,
+  deleteEnglishScenePack
 } from '../api/client';
 import type {
   EnglishSearchCaptionKind,
@@ -29,9 +32,11 @@ import type {
   EnglishSearchSort,
   EnglishSentenceContextItem,
   EnglishSentenceSearchResult,
-  LearningChannelSummary
+  LearningChannelSummary,
+  EnglishScenePack,
+  EnglishScenePackSummary
 } from '../api/client';
-import { Bookmark } from 'lucide-react';
+import { Bookmark, LayoutList, Trash2 } from 'lucide-react';
 
 const QUICK_QUERY_GROUPS = [
   { label: 'Chunks', items: ['would have', 'could have', 'should have', 'supposed to', 'used to'] },
@@ -338,6 +343,11 @@ export default function EnglishSentenceSearch() {
   const [taxonomyCategory, setTaxonomyCategory] = useState<string>('');
   const [taxonomyTag, setTaxonomyTag] = useState<string>('');
 
+  const [scenePacks, setScenePacks] = useState<EnglishScenePackSummary[]>([]);
+  const [activePackId, setActivePackId] = useState<string | null>(null);
+  const [activePack, setActivePack] = useState<EnglishScenePack | null>(null);
+  const [packLoading, setPackLoading] = useState(false);
+
   const isResultSaved = (result: EnglishSentenceSearchResult): boolean => {
     const stableId = resultStableIds.get(resultKey(result));
     return stableId != null && savedIds.has(stableId);
@@ -387,6 +397,67 @@ export default function EnglishSentenceSearch() {
       .then(ids => setSavedIds(new Set(ids)))
       .catch(() => {});
   }, []);
+
+  const loadScenePacks = useCallback(() => {
+    listEnglishScenePacks()
+      .then(setScenePacks)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadScenePacks();
+  }, [loadScenePacks]);
+
+  useEffect(() => {
+    if (!activePackId) {
+      setActivePack(null);
+      return;
+    }
+    setPackLoading(true);
+    getEnglishScenePack(activePackId)
+      .then(pack => {
+        setActivePack(pack);
+        // Map pack examples to search results
+        const mappedResults: EnglishSentenceSearchResult[] = pack.examples.map(ex => ({
+          entry: {
+            sourceId: ex.sourceId,
+            videoId: ex.videoId,
+            channelId: ex.channelId,
+            title: ex.title,
+            start: ex.start,
+            end: ex.end || ex.start + 5,
+            text: ex.text,
+            normalizedText: ex.text.toLowerCase(),
+            captionKind: ex.captionKind,
+            captionLanguage: 'en'
+          },
+          youtubeTimestampUrl: ex.youtubeTimestampUrl,
+          youtubeEmbedUrl: ex.youtubeEmbedUrl,
+          startSeconds: ex.startSeconds
+        }));
+        setResults(mappedResults);
+        setActiveIndex(0);
+        setHasSearched(true);
+      })
+      .catch(err => {
+        setErrorMessage(`Failed to load pack: ${err.message}`);
+      })
+      .finally(() => {
+        setPackLoading(false);
+      });
+  }, [activePackId]);
+
+  const handleDeletePack = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!confirm('Delete this scene pack?')) return;
+    try {
+      await deleteEnglishScenePack(id);
+      if (activePackId === id) setActivePackId(null);
+      loadScenePacks();
+    } catch (err: any) {
+      alert(`Delete failed: ${err.message}`);
+    }
+  };
 
   // Compute stable ids for current results via Promise.all → React state
   useEffect(() => {
@@ -611,6 +682,55 @@ export default function EnglishSentenceSearch() {
 
           <div className={`${filtersOpen ? 'block' : 'hidden'} space-y-4 lg:block`}>
             <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Scene Packs</p>
+                {activePackId && (
+                  <button 
+                    type="button" 
+                    onClick={() => setActivePackId(null)}
+                    className="text-[10px] font-medium text-accent hover:underline"
+                  >
+                    Back to Search
+                  </button>
+                )}
+              </div>
+              {scenePacks.length > 0 ? (
+                <div className="mt-2 space-y-1">
+                  {scenePacks.map(p => (
+                    <div
+                      key={p.id}
+                      onClick={() => setActivePackId(p.id)}
+                      className={`group flex cursor-pointer flex-col rounded-md px-2 py-2 text-sm transition-colors ${
+                        activePackId === p.id 
+                          ? 'bg-slate-900 text-white' 
+                          : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`min-w-0 flex-1 truncate font-medium ${activePackId === p.id ? 'text-white' : 'text-ink'}`}>
+                          {p.title}
+                        </span>
+                        <button
+                          onClick={(e) => handleDeletePack(e, p.id)}
+                          className={`shrink-0 rounded p-1 transition-opacity ${
+                            activePackId === p.id ? 'text-slate-400 hover:text-white' : 'text-muted hover:text-red-600 opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <span className={`text-[10px] ${activePackId === p.id ? 'text-slate-400' : 'text-muted'}`}>
+                        {p.queryCount} queries · {p.exampleCount} examples
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-[11px] text-muted">No scene packs imported yet. Use the CLI bridge to import evidence packs.</p>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted">Results</p>
               <div className="mt-2 grid grid-cols-3 gap-1 rounded-md bg-slate-100 p-1">
                 {RESULT_LIMITS.map(value => (
@@ -742,13 +862,30 @@ export default function EnglishSentenceSearch() {
         <main className="min-w-0 space-y-4">
           <div className="flex flex-col gap-2 border-b border-line pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Sentence queue</p>
-              <h1 className="mt-1 text-2xl font-semibold text-ink">Search, listen, repeat</h1>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                {activePack ? 'Scene Pack' : 'Sentence queue'}
+              </p>
+              <h1 className="mt-1 text-2xl font-semibold text-ink">
+                {activePack ? activePack.title : 'Search, listen, repeat'}
+              </h1>
+              {activePack?.request && (
+                <p className="mt-2 text-sm text-ink/80 italic">"{activePack.request}"</p>
+              )}
             </div>
             <p className="text-sm text-muted">
-              {isLoading && results.length === 0 ? 'Searching indexed sentences' : hasSearched ? `Showing ${results.length} result${results.length === 1 ? '' : 's'}` : 'Search real spoken English'}
+              {isLoading || packLoading ? 'Loading...' : hasSearched ? `Showing ${results.length} result${results.length === 1 ? '' : 's'}` : 'Search real spoken English'}
             </p>
           </div>
+
+          {activePack && activePack.queries.length > 0 && (
+            <div className="flex flex-wrap gap-2 py-1">
+              {activePack.queries.map(q => (
+                <span key={q} className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 border border-slate-200">
+                  {q}
+                </span>
+              ))}
+            </div>
+          )}
 
           {errorMessage && (
             <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>
@@ -761,7 +898,7 @@ export default function EnglishSentenceSearch() {
             </div>
           )}
 
-          {isLoading && results.length === 0 ? (
+          {isLoading || packLoading && results.length === 0 ? (
             <div className="rounded-lg border border-line bg-white px-6 py-14 text-center">
               <Loader2 className="mx-auto h-7 w-7 animate-spin text-accent" />
               <p className="mt-3 text-sm text-muted">Searching local sentence index</p>
@@ -771,9 +908,9 @@ export default function EnglishSentenceSearch() {
               <div className="space-y-3">
                 {results.map((result, index) => (
                   <ResultCard
-                    key={resultKey(result)}
+                    key={resultKey(result) + index}
                     result={result}
-                    query={query}
+                    query={activePack ? (activePack.examples[index]?.query || '') : query}
                     index={index}
                     active={index === activeIndex}
                     copiedKey={copiedKey}
@@ -785,17 +922,19 @@ export default function EnglishSentenceSearch() {
                   />
                 ))}
               </div>
-              <div className="flex justify-center pt-2">
-                <button
-                  type="button"
-                  onClick={loadMore}
-                  disabled={!hasMore || isLoading}
-                  className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-2 text-sm font-medium text-ink hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {hasMore ? 'Load more' : 'No more results'}
-                </button>
-              </div>
+              {!activePack && (
+                <div className="flex justify-center pt-2">
+                  <button
+                    type="button"
+                    onClick={loadMore}
+                    disabled={!hasMore || isLoading}
+                    className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-2 text-sm font-medium text-ink hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {hasMore ? 'Load more' : 'No more results'}
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <div className="rounded-lg border border-dashed border-line bg-white px-6 py-12 text-center">

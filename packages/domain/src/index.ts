@@ -318,6 +318,7 @@ export interface ChannelDeleteResult {
 export * from './storage.js';
 export * from './englishSentenceIndex.js';
 export * from './channelVideoSelection.js';
+export * from './englishScenePack.js';
 
 // --- Saved English Examples ---
 

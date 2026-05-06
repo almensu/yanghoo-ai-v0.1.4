@@ -560,3 +560,62 @@ export async function listModels(): Promise<LLMModel[]> {
   const response = await fetch(`${API_BASE}/api/models`);
   return handleResponse(response);
 }
+
+// --- English Scene Packs ---
+
+export interface EnglishScenePackSummary {
+  id: string;
+  title: string;
+  scene: string;
+  request?: string;
+  queryCount: number;
+  exampleCount: number;
+  updatedAt: string;
+}
+
+export interface EnglishScenePackExample {
+  query: string;
+  text: string;
+  channelId: string;
+  videoId: string;
+  sourceId: string;
+  title?: string;
+  start: number;
+  end?: number;
+  youtubeTimestampUrl: string;
+  youtubeEmbedUrl: string;
+  startSeconds: number;
+  captionKind?: string;
+  captionLanguage: 'en';
+}
+
+export interface EnglishScenePack {
+  id: string;
+  title: string;
+  scene: string;
+  request?: string;
+  level: string;
+  queries: string[];
+  examples: EnglishScenePackExample[];
+  warnings: string[];
+  studyPackPath?: string;
+  updatedAt: string;
+}
+
+export async function listEnglishScenePacks(): Promise<EnglishScenePackSummary[]> {
+  const response = await fetch(`${API_BASE}/api/english-scene-packs`);
+  const data = await handleResponse(response);
+  return data.packs;
+}
+
+export async function getEnglishScenePack(id: string): Promise<EnglishScenePack> {
+  const response = await fetch(`${API_BASE}/api/english-scene-packs/${encodeURIComponent(id)}`);
+  return handleResponse(response);
+}
+
+export async function deleteEnglishScenePack(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/english-scene-packs/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+  await handleResponse(response);
+}

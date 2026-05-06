@@ -14,6 +14,7 @@ import { runChannelCommand } from './commands/channel-command.js';
 import { runSentenceIndexCommand } from './commands/sentence-index-command.js';
 import { runLearningChannelsCommand } from './commands/learning-channels-command.js';
 import { runEnglishSearchCommand } from './commands/english-search-command.js';
+import { runEnglishScenePacksCommand } from './commands/english-scene-packs-command.js';
 
 export async function runCli(argv: string[]): Promise<number> {
   let parsed: ReturnType<typeof extractGlobalArgs>;
@@ -63,6 +64,11 @@ export async function runCli(argv: string[]): Promise<number> {
 
       if (command === 'english-search') {
         await runEnglishSearchCommand(rest, context);
+        return;
+      }
+
+      if (command === 'english-scene-packs') {
+        await runEnglishScenePacksCommand(rest, context);
         return;
       }
 

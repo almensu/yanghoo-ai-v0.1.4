@@ -12,6 +12,7 @@ import { registerSourceCollectionRoutes } from './routes/sourceCollections.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { registerEnglishSavedExampleRoutes } from './routes/englishSavedExamples.js';
 import { registerLearningChannelTaxonomyRoutes } from './routes/learningChannelTaxonomy.js';
+import { registerEnglishScenePackRoutes } from './routes/englishScenePacks.js';
 
 const app = fastify({
   logger: true
@@ -39,6 +40,7 @@ await app.register(registerEnglishSentenceRoutes);
 await app.register(registerLearningChannelRoutes);
 await app.register(registerEnglishSavedExampleRoutes);
 await app.register(registerLearningChannelTaxonomyRoutes);
+await app.register(registerEnglishScenePackRoutes);
 
 app.get('/api/health', async () => ({
   ok: true,

@@ -978,6 +978,9 @@ export class FileChannelTaxonomyStorage implements ChannelTaxonomyStorage {
 
 export const channelTaxonomyStorage = new FileChannelTaxonomyStorage();
 
+export { englishScenePackStorage } from './englishScenePackStorage.js';
+export type { EnglishScenePackStorage } from './englishScenePackStorage.js';
+
 // Current singleton for simplicity in MVP
 export const sourceStorage = new FileStorage();
 export const transcriptStorage = sourceStorage;

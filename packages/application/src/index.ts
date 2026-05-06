@@ -527,3 +527,7 @@ export * from './refreshChannelVideosUseCase.js';
 export * from './deleteLearningChannelUseCase.js';
 export * from './savedEnglishExamplesUseCases.js';
 export * from './channelTaxonomyUseCases.js';
+export * from './importEnglishScenePackUseCase.js';
+export * from './listEnglishScenePacksUseCase.js';
+export * from './getEnglishScenePackUseCase.js';
+export * from './deleteEnglishScenePackUseCase.js';

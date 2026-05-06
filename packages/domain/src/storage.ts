@@ -83,4 +83,7 @@ export const getEnglishSentencesManifestPath = (channelId: string) => `${getInde
 
 export const getLearningDir = () => `${STORAGE_ROOT}/learning`;
 export const getSavedEnglishExamplesPath = () => `${getLearningDir()}/english-saved-examples.json`;
+export const getEnglishScenePacksDir = () => `${getLearningDir()}/english-scene-packs`;
+export const getEnglishScenePackIndexPath = () => `${getEnglishScenePacksDir()}/index.json`;
+export const getEnglishScenePackPath = (packId: string) => `${getEnglishScenePacksDir()}/${packId}.json`;
 export const getChannelTaxonomyPath = () => `${STORAGE_ROOT}/channels/channel-taxonomy.json`;
