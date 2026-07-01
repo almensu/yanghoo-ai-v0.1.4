@@ -2,7 +2,7 @@
 
 Date: 2026-05-06
 Owner: Codex
-Status: Final Acceptance Pending Stage 24 Follow-up
+Status: Accepted
 
 This rollup summarizes the current state of the Yanghoo English Balance product stages after the Stage 23 follow-up and Stage 24 browser verification.
 
@@ -11,7 +11,7 @@ This rollup summarizes the current state of the Yanghoo English Balance product 
 | **Stage 21** | Real-world Study Pack Validation | **Accepted** | Validation centered on `Scene.HospitalTripWithWife`. Study pack quality is high. |
 | **Stage 22** | Query Quality Hardening | **Accepted** | Hard-coded channel and near-duplicate query extraction notes remain non-blocking. |
 | **Stage 23** | English Scene Pack UI Integration | **Accepted** | Resolved via follow-up commit `f35b11c` (query metadata and UI grouping). |
-| **Stage 24** | Browser Evidence & Status Checkpoint | **Accepted Pending** | Verified via browser evidence artifact. Grouped rendering and query persistence confirmed. |
+| **Stage 24** | Browser Evidence & Status Checkpoint | **Accepted** | Verified via browser evidence artifact. Grouped rendering and query persistence confirmed. |
 
 ## Acceptance Notes
 

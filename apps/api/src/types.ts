@@ -16,6 +16,22 @@ export interface TaskRecord extends Source {
   translatedContent?: string;
 }
 
+export interface TaskLocalMediaFile {
+  sourceId: string;
+  mediaKind: 'video';
+  logicalPath: string;
+  absolutePath: string;
+  byteSize: number;
+  exists: true;
+}
+
+export interface OpenTaskMediaFolderResult {
+  sourceId: string;
+  folderAbsolutePath: string;
+  mediaAbsolutePath: string;
+  opened: true;
+}
+
 export interface TranscriptSnippet {
   text: string;
   start: number;

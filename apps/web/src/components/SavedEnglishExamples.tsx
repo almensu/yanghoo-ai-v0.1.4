@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AlertCircle, Bookmark, Check, Clock3, Copy, ExternalLink, Loader2, Play, Trash2, X } from 'lucide-react';
 import {
   listSavedExamples,
@@ -36,6 +36,22 @@ export default function SavedEnglishExamples() {
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [editingTags, setEditingTags] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [selectedPackId, setSelectedPackId] = useState<string>('all');
+
+  const scenePacks = useMemo(() => {
+    const packs = new Map<string, { id: string, title: string }>();
+    items.forEach(item => {
+      if (item.scenePackId && item.scenePackTitle) {
+        packs.set(item.scenePackId, { id: item.scenePackId, title: item.scenePackTitle });
+      }
+    });
+    return Array.from(packs.values()).sort((a, b) => a.title.localeCompare(b.title));
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    if (selectedPackId === 'all') return items;
+    return items.filter(i => i.scenePackId === selectedPackId);
+  }, [items, selectedPackId]);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -135,7 +151,7 @@ export default function SavedEnglishExamples() {
         </div>
       )}
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-center gap-4">
         <input
           type="text"
           value={searchQuery}
@@ -143,13 +159,25 @@ export default function SavedEnglishExamples() {
           placeholder="Search saved examples..."
           className="h-10 w-full max-w-md rounded-md border border-line bg-white px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent"
         />
+        {scenePacks.length > 0 && (
+          <select
+            value={selectedPackId}
+            onChange={e => setSelectedPackId(e.target.value)}
+            className="h-10 rounded-md border border-line bg-white px-3 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+          >
+            <option value="all">All Scene Packs</option>
+            {scenePacks.map(p => (
+              <option key={p.id} value={p.id}>{p.title}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {isLoading ? (
         <div className="flex items-center gap-2 py-8 text-sm text-muted">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading...
         </div>
-      ) : items.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <div className="rounded-lg border border-dashed border-line bg-white px-6 py-12 text-center">
           <Bookmark className="mx-auto h-8 w-8 text-muted" />
           <p className="mt-4 text-sm font-medium text-ink">No saved examples yet</p>
@@ -158,7 +186,7 @@ export default function SavedEnglishExamples() {
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
           <div className="space-y-2">
-            {items.map(item => (
+            {filteredItems.map(item => (
               <button
                 key={item.id}
                 type="button"
@@ -175,6 +203,11 @@ export default function SavedEnglishExamples() {
                       <span className="font-mono text-accent"><Clock3 className="mr-1 inline h-3 w-3" />{formatTime(item.start)}</span>
                       {statusBadge(item.status)}
                       {item.reviewCount > 0 && <span>reviewed {item.reviewCount}x</span>}
+                      {item.scenePackId && (
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200">
+                          {item.scenePackTitle || item.scenePackId}
+                        </span>
+                      )}
                     </div>
                     {item.tags.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1">
@@ -208,6 +241,19 @@ export default function SavedEnglishExamples() {
                 <p className="mt-1 text-xs text-muted">{active.channelTitle || active.channelId} · {formatTime(active.start)}</p>
 
                 <p className="mt-4 text-[15px] leading-7 text-ink">{active.text}</p>
+
+                {active.scenePackId && (
+                  <div className="mt-4 rounded-md bg-amber-50 p-3 ring-1 ring-amber-200">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">Scene Pack</p>
+                    <p className="mt-1 text-sm font-medium text-ink">{active.scenePackTitle || active.scenePackId}</p>
+                    {active.scenePackScene && <p className="mt-0.5 text-xs text-muted">{active.scenePackScene}</p>}
+                    {active.scenePackQuery && (
+                      <p className="mt-2 text-xs text-muted">
+                        Query: <span className="font-medium text-ink">{active.scenePackQuery}</span>
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <button

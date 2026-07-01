@@ -37,6 +37,7 @@ import type {
   EnglishScenePackSummary
 } from '../api/client';
 import { Bookmark, LayoutList, Trash2 } from 'lucide-react';
+import { parseEnglishSearchState, serializeEnglishSearchState, updateUrl, type EnglishSearchState } from '../utils/englishSearchUrlState';
 
 const QUICK_QUERY_GROUPS = [
   { label: 'Chunks', items: ['would have', 'could have', 'should have', 'supposed to', 'used to'] },
@@ -335,6 +336,8 @@ export default function EnglishSentenceSearch() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const searchSeq = useRef(0);
+  const initialStateRef = useRef<Partial<EnglishSearchState> | null>(null);
+  const [isRestored, setIsRestored] = useState(false);
 
   const [channels, setChannels] = useState<LearningChannelSummary[]>([]);
   const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(new Set());
@@ -394,14 +397,75 @@ export default function EnglishSentenceSearch() {
     return Array.from(groups.entries()).filter(([_, items]) => items.length > 0);
   }, [activePack, results]);
 
+  // URL State Restore & Sync
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const state = parseEnglishSearchState(params);
+    initialStateRef.current = state;
+
+    if (state.q !== undefined) setQuery(state.q);
+    if (state.limit !== undefined) setLimit(state.limit);
+    if (state.diversity !== undefined) setDiversity(state.diversity);
+    if (state.sort !== undefined) setSort(state.sort);
+    if (state.captionKind !== undefined) setCaptionKind(state.captionKind);
+    if (state.category !== undefined) setTaxonomyCategory(state.category);
+    if (state.tag !== undefined) setTaxonomyTag(state.tag);
+    if (state.scenePack !== undefined) setActivePackId(state.scenePack);
+  }, []);
+
+  useEffect(() => {
+    if (!isRestored) return;
+
+    const state: Partial<EnglishSearchState> = {
+      q: query,
+      limit,
+      diversity,
+      sort,
+      captionKind,
+      category: taxonomyCategory,
+      tag: taxonomyTag,
+      channels: Array.from(selectedChannelIds),
+      scenePack: activePackId || undefined
+    };
+    const params = serializeEnglishSearchState(state);
+    updateUrl(params);
+  }, [isRestored, query, limit, diversity, sort, captionKind, taxonomyCategory, taxonomyTag, selectedChannelIds, activePackId]);
+
   useEffect(() => {
     listLearningChannels()
       .then(chs => {
         const indexed = chs.filter(c => c.indexedSentenceCount > 0);
         setChannels(indexed);
-        setSelectedChannelIds(new Set(indexed.map(c => c.channelId)));
+
+        const state = initialStateRef.current;
+        if (!state) {
+          setIsRestored(true);
+          return;
+        }
+
+        if (state.channels && state.channels.length > 0) {
+          const ids = state.channels.filter(id => indexed.some(c => c.channelId === id));
+          if (ids.length > 0) {
+            setSelectedChannelIds(new Set(ids));
+            setIsRestored(true);
+            return;
+          }
+        }
+        
+        let filtered = indexed;
+        if (state.category) {
+          filtered = filtered.filter(c => c.category === state.category);
+        }
+        if (state.tag) {
+          filtered = filtered.filter(c => c.tags.includes(state.tag!));
+        }
+
+        setSelectedChannelIds(new Set(filtered.map(c => c.channelId)));
+        setIsRestored(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        setIsRestored(true);
+      });
   }, []);
 
   useEffect(() => {
@@ -483,6 +547,7 @@ export default function EnglishSentenceSearch() {
   }, [results]);
 
   const runSearch = useCallback(async (opts: { append?: boolean; offset?: number } = {}) => {
+    if (activePackId) return;
     if (!query.trim() || selectedChannelIds.size === 0) {
       setResults([]);
       setHasMore(false);
@@ -524,11 +589,13 @@ export default function EnglishSentenceSearch() {
   }, [captionKind, diversity, limit, query, selectedChannelIds, sort]);
 
   const scheduleSearch = useCallback(() => {
+    if (activePackId) return;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => void runSearch(), 300);
-  }, [runSearch]);
+  }, [runSearch, activePackId]);
 
   useEffect(() => {
+    if (activePackId) return;
     if (selectedChannelIds.size > 0 && query.trim()) {
       scheduleSearch();
     } else {
@@ -610,7 +677,17 @@ export default function EnglishSentenceSearch() {
       }
     } else {
       try {
-        const res = await saveEnglishExample(result, queryOverride || query);
+        const res = await saveEnglishExample(
+          result,
+          queryOverride || query,
+          activePack ? {
+            id: activePack.id,
+            title: activePack.title,
+            scene: activePack.scene,
+            request: activePack.request,
+            query: queryOverride || query
+          } : undefined
+        );
         setResultStableIds(prev => new Map(prev).set(key, res.item.id));
         setSavedIds(prev => new Set(prev).add(res.item.id));
       } catch (err: any) {

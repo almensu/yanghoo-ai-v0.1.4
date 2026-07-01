@@ -30,7 +30,14 @@ const saveSchema = z.object({
     youtubeEmbedUrl: z.string(),
     startSeconds: z.number()
   }),
-  query: z.string().optional()
+  query: z.string().optional(),
+  scenePack: z.object({
+    id: z.string(),
+    title: z.string(),
+    scene: z.string(),
+    request: z.string().optional(),
+    query: z.string()
+  }).optional()
 });
 
 const updateSchema = z.object({
@@ -80,9 +87,10 @@ export async function registerEnglishSavedExampleRoutes(app: FastifyInstance) {
       youtubeTimestampUrl: parsed.data.result.youtubeTimestampUrl,
       youtubeEmbedUrl: parsed.data.result.youtubeEmbedUrl,
       startSeconds: parsed.data.result.startSeconds,
-      query: parsed.data.query
+      query: parsed.data.query,
+      scenePack: parsed.data.scenePack
     });
-    return { item: result.item, created: result.created };
+    return { item: result.item, created: result.created, updated: result.updated };
   });
 
   // Update note/tags/status

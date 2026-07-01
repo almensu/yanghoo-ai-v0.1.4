@@ -342,6 +342,11 @@ export interface SavedEnglishExample {
   youtubeEmbedUrl: string;
   startSeconds: number;
   query?: string;
+  scenePackId?: string;
+  scenePackTitle?: string;
+  scenePackScene?: string;
+  scenePackRequest?: string;
+  scenePackQuery?: string;
   note: string;
   tags: string[];
   status: SavedEnglishExampleStatus;

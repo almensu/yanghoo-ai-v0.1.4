@@ -17,9 +17,16 @@ export interface SaveEnglishExampleInput {
   youtubeEmbedUrl: string;
   startSeconds: number;
   query?: string;
+  scenePack?: {
+    id: string;
+    title: string;
+    scene: string;
+    request?: string;
+    query: string;
+  };
 }
 
-export async function saveEnglishExampleUseCase(input: SaveEnglishExampleInput): Promise<{ item: SavedEnglishExample; created: boolean }> {
+export async function saveEnglishExampleUseCase(input: SaveEnglishExampleInput): Promise<{ item: SavedEnglishExample; created: boolean; updated?: boolean }> {
   const file = await savedEnglishExampleStorage.readSavedEnglishExamples();
 
   const stableId = generateStableId({
@@ -31,12 +38,24 @@ export async function saveEnglishExampleUseCase(input: SaveEnglishExampleInput):
     normalizedText: input.entry.normalizedText
   });
 
+  const now = new Date().toISOString();
   const existing = file.items.find(i => i.id === stableId);
   if (existing) {
+    // Merge rule: If duplicate save comes from a scene pack and existing lacks it, update it
+    if (input.scenePack && !existing.scenePackId) {
+      existing.scenePackId = input.scenePack.id;
+      existing.scenePackTitle = input.scenePack.title;
+      existing.scenePackScene = input.scenePack.scene;
+      existing.scenePackRequest = input.scenePack.request;
+      existing.scenePackQuery = input.scenePack.query;
+      existing.updatedAt = now;
+      file.updatedAt = now;
+      await savedEnglishExampleStorage.writeSavedEnglishExamples(file);
+      return { item: existing, created: false, updated: true };
+    }
     return { item: existing, created: false };
   }
 
-  const now = new Date().toISOString();
   const item: SavedEnglishExample = {
     id: stableId,
     channelId: input.entry.channelId,
@@ -55,6 +74,11 @@ export async function saveEnglishExampleUseCase(input: SaveEnglishExampleInput):
     youtubeEmbedUrl: input.youtubeEmbedUrl,
     startSeconds: input.startSeconds,
     query: input.query,
+    scenePackId: input.scenePack?.id,
+    scenePackTitle: input.scenePack?.title,
+    scenePackScene: input.scenePack?.scene,
+    scenePackRequest: input.scenePack?.request,
+    scenePackQuery: input.scenePack?.query,
     note: '',
     tags: [],
     status: 'saved',

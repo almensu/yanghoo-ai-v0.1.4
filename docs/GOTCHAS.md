@@ -260,6 +260,19 @@
     - **Read timed out**: 常见于网络受限环境，已在代码中增加 `--socket-timeout 30`，若持续失败请检查代理或网络连通性。
   - Bilibili: 在 `TaskCard.tsx` 中将其归类为 `isShortVideoPlatform`（实际含义是“需下载媒体的平台”），确保 UI 走下载流。
 
+### 0.5 English Search URL State 与 Vitest 环境
+- **问题**: 在 Node.js 环境下运行针对 `apps/web/src/utils/englishSearchUrlState.ts` 的单元测试时，会报 `ReferenceError: window is not defined` 或 `TypeError: Cannot read properties of undefined (reading 'replaceState')`。
+- **坑**: 
+  - `englishSearchUrlState` 工具函数直接调用了浏览器原生的 `window.location` 和 `window.history`。
+  - `vitest` 默认运行环境是 `node`，不包含浏览器 DOM API。
+- **避坑**:
+  - 在测试文件中使用 `vi.stubGlobal('window', ...)` 深度模拟 `location` 和 `history` 对象。
+  - 由于项目尚未在 `apps/web` 下配置完整的 `jsdom` 或 `happy-dom` 环境，测试文件应标注 `// @ts-nocheck` 以规避由于缺少 Vitest 类型声明导致的 `typecheck` 失败。
+  - 核心逻辑校验应优先通过 `scripts/ops/verify-stage27-*.ts` 这种独立脚本配合 `tsx` 运行，避免依赖复杂的浏览器环境模拟。
+  - URL 同步逻辑中，`scenePack` 优先级高于 `q`。当两者同时存在时，UI 会加载 Scene Pack，但为了用户体验，保留 `q` 参数以示原始搜索意图。
+  - **重要**: URL 写回（writeback）副作用必须被阻塞，直到所有依赖 URL 的异步初始化（如频道列表加载与恢复）彻底完成。否则，默认状态（如空频道列表）会在恢复完成前覆盖并破坏入站的分享链接。
+  - **避坑**: 使用 `isRestored` 状态位。只有在异步恢复逻辑（包括 fetch 成功、失败或超时后的回退）执行完毕后才将 `isRestored` 设为 `true`，并以此作为 URL 同步 Effect 的门控。
+
   ### 1. npm workspaces 启动阻塞
 
 - **问题**: 在根目录执行 `npm run dev -ws` 会按顺序启动所有 workspace。
