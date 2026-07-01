@@ -13,7 +13,10 @@ import {
   exportNotebookLmUseCase,
   openNotebookLmExportDirUseCase,
   deleteSourceAssetsUseCase,
-  deleteSourceUseCase
+  deleteSourceUseCase,
+  getSourceMediaFileUseCase,
+  openSourceMediaFolderUseCase,
+  SourceMediaFileError
 } from '@yanghoo/application';
 import { sourceStorage, documentStorage } from '@yanghoo/storage';
 import { getTranslationManifestPath } from '@yanghoo/domain';
@@ -127,6 +130,24 @@ export async function registerTaskRoutes(app: FastifyInstance) {
     }
 
     return reply.code(404).send({ error: 'Thumbnail not found' });
+  });
+
+  app.get('/api/tasks/:taskId/media-file', async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    try {
+      return await getSourceMediaFileUseCase(taskId);
+    } catch (error: any) {
+      return sendSourceMediaFileError(reply, error);
+    }
+  });
+
+  app.post('/api/tasks/:taskId/media-file/open', async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    try {
+      return await openSourceMediaFolderUseCase(taskId);
+    } catch (error: any) {
+      return sendSourceMediaFileError(reply, error);
+    }
   });
 
   app.post('/api/tasks', async (request, reply) => {
@@ -292,4 +313,12 @@ export async function registerTaskRoutes(app: FastifyInstance) {
       return reply.code(500).send({ message: error.message });
     }
   });
+}
+
+function sendSourceMediaFileError(reply: any, error: any) {
+  if (error instanceof SourceMediaFileError) {
+    const statusCode = error.code === 'SOURCE_NOT_FOUND' || error.code === 'MEDIA_FILE_NOT_FOUND' ? 404 : 409;
+    return reply.code(statusCode).send({ message: error.message, code: error.code });
+  }
+  return reply.code(500).send({ message: error.message || 'Failed to access downloaded video folder' });
 }

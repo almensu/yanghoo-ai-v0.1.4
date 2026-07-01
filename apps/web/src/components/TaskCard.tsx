@@ -7,10 +7,12 @@ import {
   MoreVertical,
   Trash2,
   Captions,
-  Languages
+  Languages,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { deleteTask } from '../api/client';
+import { deleteTask, getTaskMediaFile, openTaskMediaFolder } from '../api/client';
 import type { BackgroundJob, LLMModel, TaskJobAction, TaskJobOptions } from '../api/client';
 import type { TaskSummary } from '../types';
 
@@ -106,12 +108,14 @@ export function TaskCard({
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [localMediaMessage, setLocalMediaMessage] = useState<string | null>(null);
   const [translationModelId, setTranslationModelId] = useState(DEFAULT_TRANSLATION_MODELS[0].id);
 
   const assets = task.documentAssets;
   const taskJobRunning = runningJob?.status === 'queued' || runningJob?.status === 'running';
   const isProcessing = !!activeAction || !!taskJobRunning;
   const canRead = assets.status === 'markdown_ready' || assets.status === 'enriched';
+  const canUseLocalVideoFile = assets.hasMedia && assets.mediaStatus === 'downloaded' && assets.mediaKind === 'video';
 
   // Platform classification
   const isShortVideoPlatform = task.platform === 'douyin' || task.platform === 'x' || task.platform === 'xiaohongshu' || task.platform === 'bilibili' || task.platform === 'tiktok';
@@ -135,6 +139,7 @@ export function TaskCard({
   const runAction = async (actionId: string, fn: () => Promise<any>) => {
     setActiveAction(actionId);
     setErrorMessage(null);
+    setLocalMediaMessage(null);
     try {
       await fn();
       onRefresh?.();
@@ -145,6 +150,27 @@ export function TaskCard({
     } finally {
       setActiveAction(null);
     }
+  };
+
+  const handleCopyMediaPath = async () => {
+    setShowMenu(false);
+    await runAction('copyMediaPath', async () => {
+      const mediaFile = await getTaskMediaFile(task.id);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(mediaFile.absolutePath);
+        setLocalMediaMessage('已复制视频路径');
+      } else {
+        setLocalMediaMessage(`视频路径：${mediaFile.absolutePath}`);
+      }
+    });
+  };
+
+  const handleOpenMediaFolder = async () => {
+    setShowMenu(false);
+    await runAction('openMediaFolder', async () => {
+      await openTaskMediaFolder(task.id);
+      setLocalMediaMessage('已打开本地文件夹');
+    });
   };
 
   const startBackgroundAction = (action: TaskJobAction, options?: TaskJobOptions) => async () => {
@@ -349,6 +375,11 @@ export function TaskCard({
             <strong>错误:</strong> {errorMessage}
           </div>
         )}
+        {!errorMessage && localMediaMessage && (
+          <div className="rounded-md border border-blue-100 bg-blue-50 p-2 text-[10px] leading-relaxed text-blue-700 break-words">
+            {localMediaMessage}
+          </div>
+        )}
         {!errorMessage && assets.audioErrorMessage && (
           <div className="rounded-md bg-red-50 p-2 text-[10px] leading-relaxed text-red-700 border border-red-100">
             {assets.audioErrorMessage}
@@ -418,6 +449,26 @@ export function TaskCard({
                       >
                         <Languages className="h-3 w-3" /> 
                         {activeAction === 'translate' ? '翻译中...' : (assets.hasTranslation ? '重新翻译中文' : '翻译中文')}
+                      </button>
+                    </div>
+                  )}
+                  {canUseLocalVideoFile && (
+                    <div className="border-t border-line py-1">
+                      <button
+                        onClick={handleCopyMediaPath}
+                        disabled={isProcessing}
+                        className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs text-ink hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <Copy className="h-3 w-3" />
+                        {activeAction === 'copyMediaPath' ? '复制中...' : '复制视频路径'}
+                      </button>
+                      <button
+                        onClick={handleOpenMediaFolder}
+                        disabled={isProcessing}
+                        className="flex w-full items-center gap-2 rounded px-3 py-2 text-xs text-ink hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {activeAction === 'openMediaFolder' ? '打开中...' : '打开本地文件夹'}
                       </button>
                     </div>
                   )}

@@ -1,4 +1,4 @@
-import type { TaskSummary, TaskDetail, SourceChannelCollectionSummary } from '../types';
+import type { TaskSummary, TaskDetail, SourceChannelCollectionSummary, TaskLocalMediaFile, OpenTaskMediaFolderResult } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
@@ -72,6 +72,18 @@ export async function listBackgroundJobs(): Promise<BackgroundJob[]> {
   const response = await fetch(`${API_BASE}/api/jobs`);
   const data = await handleResponse(response);
   return data.jobs;
+}
+
+export async function getTaskMediaFile(taskId: string): Promise<TaskLocalMediaFile> {
+  const response = await fetch(`${API_BASE}/api/tasks/${encodeURIComponent(taskId)}/media-file`);
+  return handleResponse(response);
+}
+
+export async function openTaskMediaFolder(taskId: string): Promise<OpenTaskMediaFolderResult> {
+  const response = await fetch(`${API_BASE}/api/tasks/${encodeURIComponent(taskId)}/media-file/open`, {
+    method: 'POST'
+  });
+  return handleResponse(response);
 }
 
 export interface SearchResult {
@@ -460,6 +472,11 @@ export interface SavedEnglishExample {
   youtubeEmbedUrl: string;
   startSeconds: number;
   query?: string;
+  scenePackId?: string;
+  scenePackTitle?: string;
+  scenePackScene?: string;
+  scenePackRequest?: string;
+  scenePackQuery?: string;
   note: string;
   tags: string[];
   status: 'saved' | 'learning' | 'mastered';
@@ -489,12 +506,19 @@ export async function listSavedExampleIds(): Promise<string[]> {
 
 export async function saveEnglishExample(
   result: EnglishSentenceSearchResult,
-  query?: string
-): Promise<{ item: SavedEnglishExample; created: boolean }> {
+  query?: string,
+  scenePack?: {
+    id: string;
+    title: string;
+    scene: string;
+    request?: string;
+    query: string;
+  }
+): Promise<{ item: SavedEnglishExample; created: boolean; updated?: boolean }> {
   const response = await fetch(`${API_BASE}/api/english-saved-examples`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ result, query })
+    body: JSON.stringify({ result, query, scenePack })
   });
   return handleResponse(response);
 }

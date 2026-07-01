@@ -311,6 +311,13 @@ export function App() {
   };
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const view = params.get('view');
+    if (view === 'english-search') setActiveView('english-search');
+    else if (view === 'channels') setActiveView('channels');
+    else if (view === 'saved-examples') setActiveView('saved-examples');
+    else if (view === 'workbench') setActiveView('workbench');
+
     refreshTasks();
     listBackgroundJobs()
       .then((jobData) => setJobs(jobData))
@@ -326,6 +333,16 @@ export function App() {
     }
     loadTranslationModels();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') !== activeView) {
+      params.set('view', activeView);
+      const url = new URL(window.location.href);
+      url.search = params.toString();
+      window.history.replaceState(null, '', url.toString());
+    }
+  }, [activeView]);
 
   const activeJobs = useMemo(() => jobs.filter(isActiveJob), [jobs]);
 

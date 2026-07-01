@@ -19,3 +19,4 @@ transcript.txt
 *.ytdl
 apple_podcast_test.html
 .claude/
+tmp/

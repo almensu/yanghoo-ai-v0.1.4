@@ -15,6 +15,22 @@ export interface TaskDetail extends TaskSummary {
   translatedContent?: string;
 }
 
+export interface TaskLocalMediaFile {
+  sourceId: string;
+  mediaKind: 'video';
+  logicalPath: string;
+  absolutePath: string;
+  byteSize: number;
+  exists: true;
+}
+
+export interface OpenTaskMediaFolderResult {
+  sourceId: string;
+  folderAbsolutePath: string;
+  mediaAbsolutePath: string;
+  opened: true;
+}
+
 export interface SourceChannelCollectionSummary {
   id: string;
   type: 'channel';

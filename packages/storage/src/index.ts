@@ -136,6 +136,8 @@ export interface AudioStorage {
 export interface MediaStorage {
   saveMedia(asset: MediaAsset): Promise<void>;
   getMedia(sourceId: string): Promise<MediaAsset | null>;
+  resolveStoragePath(logicalPath: string): string;
+  getDataRoot(): string;
   deleteAssets(sourceId: string, scope: DeleteSourceAssetsScope): Promise<{ deleted: string[], skipped: string[], failed: { path: string, reason: string }[] }>;
 }
 
@@ -183,6 +185,10 @@ export class FileStorage implements SourceStorage, TranscriptStorage, DocumentSt
     // If relPath starts with 'data/', it's referring to the logical storage root defined in domain
     const cleanPath = relPath.startsWith('data/') ? relPath.substring(5) : relPath;
     return path.resolve(root, cleanPath);
+  }
+
+  resolveStoragePath(logicalPath: string): string {
+    return this.resolvePath(logicalPath);
   }
 
   async saveSource(source: Source): Promise<void> {
